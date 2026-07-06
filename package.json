@@ -1,0 +1,44 @@
+{
+  "name": "bye",
+  "version": "0.1.0",
+  "description": "BYE (Before You Execute) — AI-gated package installation built on top of React Native teams needs; pre-install security analysis for npm packages",
+  "type": "module",
+  "bin": {
+    "bye": "./dist/cli.js"
+  },
+  "main": "./dist/cli.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "openai": "^6.45.0",
+    "tar": "^7.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "keywords": [
+    "security",
+    "supply-chain",
+    "react-native",
+    "npm",
+    "pre-install"
+  ],
+  "license": "MIT"
+}
