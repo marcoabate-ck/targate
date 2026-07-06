@@ -52,6 +52,15 @@ export interface ContentFindings {
   installTimeFindings: string[];
 }
 
+export interface RnHardeningSignals {
+  podspecFindings: string[];
+  gradleFindings: string[];
+  dangerousPermissions: string[];
+  iosFrameworkFindings: string[];
+  autolinkingFindings: string[];
+  compatNotes: string[];
+}
+
 export interface Signals {
   package: string;
   version: string;
@@ -59,6 +68,7 @@ export interface Signals {
   hasLifecycleScripts: boolean;
   hasNativeCode: boolean;
   nativeSurface: NativeSurface;
+  rnHardening: RnHardeningSignals;
   content: ContentFindings;
   knownMalicious: boolean;
   maliciousRecords: MaliciousRecord[];

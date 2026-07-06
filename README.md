@@ -9,13 +9,13 @@ pnpm install
 pnpm build
 
 # Analyze without installing
-pnpm dev react-native-mmkv --dry-run
+pnpm dev add react-native-mmkv --dry-run
 
 # Full flow (analysis + gated install)
-pnpm dev react-native-mmkv
+pnpm dev add react-native-mmkv
 ```
 
-Or link the binary: `pnpm link --global` → `bye <package>`.
+Or link the binary: `pnpm link --global` → `bye add <package>`.
 
 ## What it does
 
@@ -36,8 +36,14 @@ developer intent → package inspection → AI risk reasoning → safe install d
 ## Usage
 
 ```
-bye <package>[@version] [options]
+bye add <package>[@version]         Analyze a package, then gate the install
+(bye <package> without a subcommand is a shorthand for bye add)
+bye sandbox <package>[@version]     Trial install in a disposable Docker container
+bye ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
+bye ci init                         Scaffold .github/workflows/bye.yml
+bye policy init [--format <fmt>]    Scaffold the team policy (yaml | json | js | ts)
 
+Options (add & ci):
 --package-manager <pm>  Force pnpm | npm | yarn (default: auto-detect from lockfile)
 --json                  Machine-readable output (metadata + signals + assessment)
 --dry-run               Analyze and report only, never install
@@ -49,9 +55,14 @@ bye <package>[@version] [options]
 --api-key <key>         API key (prefer env vars over this flag)
 --reasoning             Enable model reasoning where the provider supports it
                         (see "Reasoning support" below)
+--base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
+
+Options (sandbox):
+--image <image>         Docker image (default: node:20-alpine)
+--timeout <seconds>     Kill the sandbox after N seconds (default: 300)
 ```
 
-Exit codes: `0` ok, `1` error, `2` blocked.
+Exit codes: `0` ok, `1` error, `2` blocked (or suspicious sandbox / failed CI check).
 
 ## AI providers
 
@@ -62,7 +73,7 @@ The reasoning layer is pluggable, the shipped tool supports swapping in a hosted
 
 | Provider | Env var | Base URL | Default model | Notes |
 |---|---|---|---|---|
-| `anthropic` | `ANTHROPIC_API_KEY` | `api.anthropic.com` | `claude-opus-4-8` | The workshop default. Structured output enforced server-side via `output_config.format`; adaptive thinking always on. |
+| `anthropic` | `ANTHROPIC_API_KEY` | `api.anthropic.com` | `claude-opus-4-8` | Structured output enforced server-side via `output_config.format`; adaptive thinking always on. |
 | `deepseek` | `DEEPSEEK_API_KEY` | `https://api.deepseek.com` | `deepseek-chat` (`deepseek-reasoner` with `--reasoning`) | OpenAI-compatible API. |
 | `openai` | `OPENAI_API_KEY` | `https://api.openai.com/v1` | `gpt-4o-mini` | OpenAI-compatible API. |
 | `ollama` | `OLLAMA_HOST` / `OLLAMA_MODEL` | `http://localhost:11434/v1` (or `$OLLAMA_HOST/v1`) | `$OLLAMA_MODEL` or `llama3.1` | Fully local, no API key. Auto-detected only if one of the env vars is set; otherwise pass `--provider ollama`. |
@@ -93,22 +104,22 @@ There is no standard reasoning knob across OpenAI-compatible backends, so the fl
 ```bash
 # Local model, no cloud dependency at all
 ollama pull llama3.1
-bye react-native-mmkv --provider ollama
+bye add react-native-mmkv --provider ollama
 
 # Local reasoning model
-bye react-native-mmkv --provider ollama --model qwen3:8b --reasoning
+bye add react-native-mmkv --provider ollama --model qwen3:8b --reasoning
 
 # DeepSeek (auto-detected from the env var)
-DEEPSEEK_API_KEY=sk-... bye react-native-mmkv
+DEEPSEEK_API_KEY=sk-... bye add react-native-mmkv
 
 # DeepSeek with reasoning (uses deepseek-reasoner)
-DEEPSEEK_API_KEY=sk-... bye react-native-mmkv --reasoning
+DEEPSEEK_API_KEY=sk-... bye add react-native-mmkv --reasoning
 
 # Any other OpenAI-compatible server
-bye react-native-mmkv --provider custom --base-url http://localhost:1234/v1 --model local-model
+bye add react-native-mmkv --provider custom --base-url http://localhost:1234/v1 --model local-model
 
 # Rules engine only, no AI call at all
-bye react-native-mmkv --no-ai
+bye add react-native-mmkv --no-ai
 ```
 
 ## Decision policy
@@ -121,6 +132,95 @@ bye react-native-mmkv --no-ai
 | **ALLOW** | No scripts, no records, consistent metadata |
 
 With an AI provider configured, the model weighs the same signals contextually (e.g. "this postinstall just compiles native bindings") but is clamped by the policy above regardless of provider.
+
+## Team workflow
+
+### Approval cache — `.bye/approvals.*`
+
+When a developer approves a `require_approval` package interactively, the approval (name@version, mode, who, when) is recorded in `.bye/approvals.json`. **Commit the file**: the rest of the team — and CI — treat that exact version as already reviewed. A new version requires a new approval.
+
+Approvals can also be hand-curated in `.bye/approvals.{ts,js,mjs,cjs,yaml,yml,json}` — all existing files are read and **merged**, with the tool-managed `approvals.json` winning on conflicts (a fresh interactive approval must always take effect). Automatic recording only ever writes `approvals.json`; the other formats are read-only sources. For typed files:
+
+```ts
+// .bye/approvals.ts
+import { defineApprovals } from "bye";
+
+export default defineApprovals({
+  "core-js@3.49.0": { mode: "no-scripts", approvedAt: "2026-07-07T00:00:00Z", approvedBy: "marco" },
+});
+```
+
+### pnpm `approve-builds` integration
+
+On pnpm projects, an interactive approval also updates `pnpm-workspace.yaml` through pnpm's native mechanism:
+
+- approved **with** scripts → the package is added to `onlyBuiltDependencies`
+- approved **without** scripts → added to `ignoredBuiltDependencies` (installed, scripts silently skipped, no interactive pnpm prompt)
+
+### Lockfile diff preview
+
+After every real install, `bye` prints which packages the install actually added to the lockfile (direct + transitive), so surprise transitive dependencies are visible immediately.
+
+### Team policy — `bye.policy.*`
+
+`bye policy init [--format yaml|json|js|ts]` scaffolds the policy file from the proposal (§9 phase 6). Supported formats, first match wins: `bye.policy.{ts,js,mjs,cjs,yaml,yml,json}`.
+
+```yaml
+# bye.policy.yaml
+dependencyPolicy:
+  blockRecentlyPublishedPackages: false
+  minPackageAgeDays: 7
+  requireApprovalForNativeCode: false
+  requireApprovalForLifecycleScripts: true
+  blockMissingRepositoryForRuntimeDeps: false
+  allowKnownPackages: [react, react-native]
+  blockPackages: []
+```
+
+```ts
+// bye.policy.ts — fully typed
+import type { PolicyFile } from "bye";
+
+const policy: PolicyFile = {
+  dependencyPolicy: { minPackageAgeDays: 7, requireApprovalForLifecycleScripts: true },
+};
+
+export default policy;
+```
+
+`.ts`/`.js` files are executed through [jiti](https://github.com/unjs/jiti) (default export; the type import is erased at runtime, so the file loads even where `bye` isn't installed as a dependency), and every format goes through the same schema validation. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages, but a known-malicious record can never be overridden, not even by the allow list.
+
+## React Native hardening
+
+Beyond the basic native-surface detection, every analysis reviews:
+
+- **Podspecs** — `prepare_command` / `script_phase` (arbitrary shell at pod-install/build time), network downloads, vendored frameworks/libraries, insecure URLs
+- **Gradle files** — command execution during the build, remote script application (`apply from: 'https://…'`), insecure `http://` Maven repositories, build-time downloads
+- **Android permissions** — classified against a dangerous-permission list (camera, mic, location, SMS, contacts, …) and highlighted in the report
+- **iOS frameworks** — pre-built `.framework`/`.xcframework` bundles (binary code you cannot read)
+- **Autolinking config** — `react-native.config.js` registering CLI commands or spawning processes
+- **Compatibility notes** — New Architecture (codegenConfig / JSI usage), Expo (expo-module.config.json / config plugin / bare-workflow requirement); informational, shown in the report
+
+Build-time execution findings (script phases, remote Gradle scripts) escalate to `require_approval` — they are the native equivalent of lifecycle scripts.
+
+## Sandboxed trial install
+
+```bash
+bye sandbox suspicious-package
+```
+
+Runs `npm install` in a **disposable Docker container** (`node:20-alpine`): no host environment variables, no SSH agent, no npm/GitHub tokens, no host filesystem, all capabilities dropped, 1 CPU / 1 GB cap, killed after a timeout. Lifecycle scripts run with `--foreground-scripts` so their full output lands in the log, which is then scanned for exfiltration patterns (credential file references, raw network connections, base64 decoding, …); the container also reports filesystem writes outside the project directory. Exit code `2` means the log contains something you should read before installing on your machine.
+
+## CI integration
+
+```bash
+bye ci --base-ref origin/main   # in a PR: analyze added/updated dependencies
+bye ci init                     # scaffold .github/workflows/bye.yml
+```
+
+`bye ci` diffs `package.json` against the base ref, runs the full analysis pipeline on every added/updated dependency and fails the build (exit `2`) when a package is **blocked** or **requires an approval that is not in the committed `.bye/approvals.json`** (approval drift). The generated GitHub Actions workflow triggers on PRs touching `package.json` or a lockfile; add a provider API key secret to enable AI reasoning in CI. The same command works on any CI system via exit codes and `--json`.
+
+> CI protects the repository. The local gate protects the developer — `bye ci` is the second line of defense, not a replacement for `bye <pkg>`.
 
 ## Development
 

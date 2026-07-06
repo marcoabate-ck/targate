@@ -2,6 +2,7 @@ import type { PackageMetadata, Signals } from "../types.js";
 import type { OsvResult } from "../osv.js";
 import { analyzeContent } from "./content.js";
 import { analyzeNativeSurface, hasNativeCode } from "./native.js";
+import { analyzeRnHardening } from "./rn-hardening.js";
 import { extractLifecycleScripts } from "./scripts.js";
 import { checkNameSimilarity } from "./similarity.js";
 
@@ -16,14 +17,21 @@ export async function buildSignals(
   const lifecycleScripts = extractLifecycleScripts(metadata.scripts);
   const nativeSurface = await analyzeNativeSurface(packageDir);
   const content = await analyzeContent(packageDir, lifecycleScripts);
+  const native = hasNativeCode(nativeSurface);
+  const rnHardening = await analyzeRnHardening(
+    packageDir,
+    nativeSurface.androidPermissions,
+    native,
+  );
 
   return {
     package: metadata.name,
     version: metadata.version,
     lifecycleScripts,
     hasLifecycleScripts: Object.keys(lifecycleScripts).length > 0,
-    hasNativeCode: hasNativeCode(nativeSurface),
+    hasNativeCode: native,
     nativeSurface,
+    rnHardening,
     content,
     knownMalicious: osv.knownMalicious,
     maliciousRecords: osv.maliciousRecords,

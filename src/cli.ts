@@ -1,24 +1,28 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { buildSignals } from "./analyze/index.js";
-import { assessRisk } from "./ai.js";
-import { detectPackageManager, gateInstall } from "./installer.js";
-import { queryOsv, type OsvResult } from "./osv.js";
-import { quarantineTarball } from "./quarantine.js";
+import { checkCommand } from "./commands/check.js";
+import { ciCommand } from "./commands/ci.js";
+import { sandboxCommand } from "./commands/sandbox.js";
+import { initPolicy, type PolicyFormat } from "./policy.js";
 import type { ProviderName } from "./providers/index.js";
-import { fetchPackageMetadata, PackageNotFoundError, parsePackageSpec } from "./registry.js";
-import { bold, dim, green, red, renderReport, yellow } from "./report.js";
-import type { PackageManager } from "./types.js";
+import { dim, green, red, yellow } from "./report.js";
 
 const VALID_PROVIDERS: ProviderName[] = ["anthropic", "deepseek", "openai", "ollama", "custom"];
 
 const HELP = `
-bye — AI-gated package installation
+bye — Before You Execute: AI-gated package installation
 
 Usage:
-  bye <package>[@version] [options]
+  bye add <package>[@version]         Analyze a package, then gate the install
+  bye sandbox <package>[@version]     Trial install in a disposable Docker container
+  bye ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
+  bye ci init                         Scaffold .github/workflows/bye.yml
+  bye policy init [--format <fmt>]    Scaffold the team policy file
+                                      (yaml default; also json, js, ts — typed)
 
-Options:
+  (bye <package> without a subcommand is a shorthand for bye add <package>)
+
+Options (add & ci):
   --package-manager <pm>  Force pnpm | npm | yarn (default: auto-detect)
   --json                  Print machine-readable JSON instead of the report
   --dry-run               Analyze and report only, never install
@@ -30,10 +34,11 @@ Options:
   --base-url <url>        API base URL (required for --provider custom)
   --api-key <key>         API key (prefer env vars below over this flag)
   --reasoning             Enable model reasoning where the provider supports it
-                          (anthropic reasons by default; openai: reasoning_effort;
-                          deepseek: switches to deepseek-reasoner; ollama/custom:
-                          use a reasoning model, <think> blocks are handled)
-  -h, --help              Show this help
+  --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
+
+Options (sandbox):
+  --image <image>         Docker image (default: node:20-alpine)
+  --timeout <seconds>     Kill the sandbox after N seconds (default: 300)
 
 Provider auto-detection (first match wins):
   ANTHROPIC_API_KEY set        -> anthropic  (claude-opus-4-8)
@@ -43,11 +48,11 @@ Provider auto-detection (first match wins):
   none of the above            -> deterministic rules engine (no AI)
 
 Examples:
-  bye react-native-mmkv
-  bye left-pad@1.3.0 --dry-run
-  bye some-package --package-manager npm --json
-  bye some-package --provider ollama --model llama3.1
-  bye some-package --provider custom --base-url http://localhost:1234/v1 --model local-model
+  bye add react-native-mmkv
+  bye add left-pad@1.3.0 --dry-run
+  bye sandbox suspicious-package
+  bye ci --base-ref origin/main
+  bye policy init
 `;
 
 async function main(): Promise<number> {
@@ -64,6 +69,10 @@ async function main(): Promise<number> {
       "base-url": { type: "string" },
       "api-key": { type: "string" },
       reasoning: { type: "boolean", default: false },
+      "base-ref": { type: "string" },
+      image: { type: "string" },
+      timeout: { type: "string" },
+      format: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -73,15 +82,6 @@ async function main(): Promise<number> {
     return values.help ? 0 : 1;
   }
 
-  const spec = positionals[0];
-  const { name, version } = parsePackageSpec(spec);
-
-  const pm = (values["package-manager"] as PackageManager) ?? detectPackageManager();
-  if (!["pnpm", "npm", "yarn"].includes(pm)) {
-    console.error(red(`Unknown package manager: ${pm}`));
-    return 1;
-  }
-
   if (values.provider && !VALID_PROVIDERS.includes(values.provider as ProviderName)) {
     console.error(
       red(`Unknown provider: ${values.provider}. Valid options: ${VALID_PROVIDERS.join(", ")}`),
@@ -89,83 +89,85 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  console.log(dim(`\nPre-install review started for ${bold(name)}${version ? `@${version}` : ""} ...`));
+  const assess = {
+    useAi: !values["no-ai"],
+    provider: values.provider as ProviderName | undefined,
+    model: values.model,
+    baseUrl: values["base-url"],
+    apiKey: values["api-key"],
+    reasoning: values.reasoning,
+  };
 
-  // 1-2. Resolve metadata from npm
-  let metadata;
-  try {
-    metadata = await fetchPackageMetadata(name, version);
-  } catch (err) {
-    if (err instanceof PackageNotFoundError) {
-      console.error(red(`\n${err.message}`));
-      return 1;
-    }
-    throw err;
-  }
-  console.log(dim(`  ✓ npm metadata resolved (${metadata.name}@${metadata.version})`));
+  const [command, ...rest] = positionals;
 
-  // 3. Quarantine tarball (never executes scripts)
-  const quarantine = await quarantineTarball(metadata.tarballUrl);
-  console.log(dim(`  ✓ tarball downloaded to quarantine`));
-
-  try {
-    // 5-7. OSV lookup (non-fatal if offline)
-    let osv: OsvResult;
-    try {
-      osv = await queryOsv(metadata.name, metadata.version);
-      console.log(dim(`  ✓ OSV/OpenSSF malicious-package lookup done`));
-    } catch {
-      osv = { knownMalicious: false, maliciousRecords: [], advisories: [] };
-      console.log(yellow(`  ⚠ OSV lookup failed — continuing without it`));
+  switch (command) {
+    case "add": {
+      if (!rest[0]) {
+        console.error(red("Usage: bye add <package>[@version]"));
+        return 1;
+      }
+      return checkCommand({
+        spec: rest[0],
+        packageManager: values["package-manager"],
+        json: values.json,
+        dryRun: values["dry-run"],
+        assumeYes: values.yes,
+        assess,
+      });
     }
 
-    // 4-6. Static analysis of the extracted package
-    const signals = await buildSignals(metadata, quarantine.packageDir, osv);
-    console.log(dim(`  ✓ package contents inspected (scripts, native surface, static analysis)`));
-
-    // 7. AI reasoning layer (falls back to deterministic rules)
-    const assessment = await assessRisk(signals, {
-      useAi: !values["no-ai"],
-      provider: values.provider as ProviderName | undefined,
-      model: values.model,
-      baseUrl: values["base-url"],
-      apiKey: values["api-key"],
-      reasoning: values.reasoning,
-    });
-    console.log(dim(`  ✓ risk assessment complete (${assessment.source})`));
-
-    if (values.json) {
-      console.log(JSON.stringify({ metadata, signals, assessment }, null, 2));
-    } else {
-      console.log(renderReport(metadata, signals, assessment));
+    case "sandbox": {
+      if (!rest[0]) {
+        console.error(red("Usage: bye sandbox <package>[@version]"));
+        return 1;
+      }
+      return sandboxCommand({
+        spec: rest[0],
+        image: values.image,
+        timeoutMs: values.timeout ? Number(values.timeout) * 1000 : undefined,
+      });
     }
 
-    // 8. Gate the real install
-    const result = await gateInstall(assessment.decision, pm, `${metadata.name}@${metadata.version}`, {
-      assumeYes: values.yes,
-      dryRun: values["dry-run"],
-    });
-
-    switch (result.mode) {
-      case "blocked":
-        console.log(red(bold("\nInstallation blocked. This package was not installed.")));
-        return 2;
-      case "skipped":
-        if (values["dry-run"] && result.command) {
-          console.log(dim(`\nDry run — recommended command: ${result.command.join(" ")}`));
-        } else {
-          console.log(dim("\nNothing installed."));
-        }
-        return 0;
-      case "no-scripts":
-        console.log(green("\nInstalled with lifecycle scripts disabled."));
-        return 0;
-      case "normal":
-        console.log(green("\nInstalled."));
-        return 0;
+    case "ci": {
+      return ciCommand({
+        init: rest[0] === "init",
+        baseRef: values["base-ref"],
+        json: values.json,
+        assess,
+      });
     }
-  } finally {
-    await quarantine.cleanup();
+
+    case "policy": {
+      if (rest[0] !== "init") {
+        console.error(red("Usage: bye policy init [--format yaml|json|js|ts]"));
+        return 1;
+      }
+      const format = (values.format ?? "yaml") as PolicyFormat;
+      if (!["yaml", "json", "js", "ts"].includes(format)) {
+        console.error(red(`Unknown policy format: ${format}. Valid options: yaml, json, js, ts`));
+        return 1;
+      }
+      const file = await initPolicy(process.cwd(), format);
+      if (file) {
+        console.log(green(`Created ${file}`));
+        console.log(dim("Edit the rules, then commit the file — it applies to every bye run in this repo."));
+      } else {
+        console.log(yellow(`A bye.policy.* file already exists — nothing written.`));
+      }
+      return 0;
+    }
+
+    default:
+      // Backward compatible shorthand: `bye <package>` behaves as `bye add`.
+      console.log(dim(`(shorthand for \`bye add ${command}\`)`));
+      return checkCommand({
+        spec: command,
+        packageManager: values["package-manager"],
+        json: values.json,
+        dryRun: values["dry-run"],
+        assumeYes: values.yes,
+        assess,
+      });
   }
 }
 

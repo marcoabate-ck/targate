@@ -113,12 +113,21 @@ export function renderReport(
         : dim("✓ no native code")),
   );
   if (signals.nativeSurface.androidPermissions.length > 0) {
-    lines.push(
-      "  " +
-        yellow(
-          `⚠ Android permissions: ${signals.nativeSurface.androidPermissions.join(", ")}`,
-        ),
-    );
+    const dangerous = new Set(signals.rnHardening.dangerousPermissions);
+    const rendered = signals.nativeSurface.androidPermissions
+      .map((p) => (dangerous.has(p) ? red(p) : p))
+      .join(", ");
+    lines.push("  " + yellow(`⚠ Android permissions: `) + rendered);
+  }
+  for (const finding of [
+    ...signals.rnHardening.podspecFindings,
+    ...signals.rnHardening.gradleFindings,
+    ...signals.rnHardening.autolinkingFindings,
+  ]) {
+    lines.push("  " + yellow(`⚠ ${finding}`));
+  }
+  for (const note of signals.rnHardening.compatNotes) {
+    lines.push("  " + cyan(`ℹ ${note}`));
   }
   if (signals.advisories.length > 0) {
     lines.push(
