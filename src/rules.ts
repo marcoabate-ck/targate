@@ -64,6 +64,11 @@ export function evaluateRules(signals: Signals): RiskAssessment {
       `Lifecycle scripts present: ${Object.keys(signals.lifecycleScripts).join(", ")}.`,
     );
   }
+  // Build-time code execution declared in native build files is equivalent
+  // to a lifecycle script: it runs on the developer machine.
+  reasons.push(...signals.rnHardening.podspecFindings.filter((f) => /prepare_command|script_phase|downloads|remote/.test(f)));
+  reasons.push(...signals.rnHardening.gradleFindings.filter((f) => /executes|remote|downloads/.test(f)));
+  reasons.push(...signals.rnHardening.autolinkingFindings);
   if (signals.nameSimilarity) {
     reasons.push(
       `Name is similar to popular package "${signals.nameSimilarity.similarTo}" (edit distance ${signals.nameSimilarity.distance}).`,
@@ -93,7 +98,11 @@ export function evaluateRules(signals: Signals): RiskAssessment {
   // ---- ALLOW WITH WARNINGS ----
   if (signals.hasNativeCode) {
     reasons.push("Package contains native iOS/Android code.");
-    if (signals.nativeSurface.androidPermissions.length > 0) {
+    if (signals.rnHardening.dangerousPermissions.length > 0) {
+      reasons.push(
+        `Dangerous Android permissions requested: ${signals.rnHardening.dangerousPermissions.join(", ")}.`,
+      );
+    } else if (signals.nativeSurface.androidPermissions.length > 0) {
       reasons.push(
         `Android permissions requested: ${signals.nativeSurface.androidPermissions.join(", ")}.`,
       );
@@ -103,6 +112,14 @@ export function evaluateRules(signals: Signals): RiskAssessment {
         `Contains binary artifacts: ${signals.nativeSurface.binaryArtifacts.slice(0, 5).join(", ")}.`,
       );
     }
+    if (signals.rnHardening.iosFrameworkFindings.length > 0) {
+      reasons.push(
+        `Ships pre-built iOS frameworks: ${signals.rnHardening.iosFrameworkFindings.join(", ")}.`,
+      );
+    }
+    // Vendored/insecure-source notes that didn't rise to approval level
+    reasons.push(...signals.rnHardening.podspecFindings.filter((f) => /vendored|insecure/.test(f)));
+    reasons.push(...signals.rnHardening.gradleFindings.filter((f) => /Maven/.test(f)));
   }
   if (signals.repositoryMissing) {
     reasons.push("No repository metadata on npm.");

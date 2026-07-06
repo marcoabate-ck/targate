@@ -17,6 +17,14 @@ export function makeSignals(overrides: Partial<Signals> = {}): Signals {
       binaryArtifacts: [],
       androidPermissions: [],
     },
+    rnHardening: {
+      podspecFindings: [],
+      gradleFindings: [],
+      dangerousPermissions: [],
+      iosFrameworkFindings: [],
+      autolinkingFindings: [],
+      compatNotes: [],
+    },
     content: {
       hasProcessEnvAccess: false,
       hasChildProcessUsage: false,
