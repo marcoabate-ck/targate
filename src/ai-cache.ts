@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { RiskAssessment, Signals } from "./types.js";
@@ -133,8 +133,32 @@ export async function readCachedAssessment(
 }
 
 /**
+ * Serialize writes per cache file. The `--deep` walker analyzes packages
+ * concurrently, so several assessWithCache calls can finish at once; without
+ * this, their read-modify-write races and all but one entry is lost (which
+ * would silently re-cost tokens on the next run — the opposite of the point).
+ * All writes in a run share one process, so an in-process promise chain per
+ * file is sufficient.
+ */
+const writeQueues = new Map<string, Promise<void>>();
+
+function enqueueWrite(file: string, task: () => Promise<void>): Promise<void> {
+  const prev = writeQueues.get(file) ?? Promise.resolve();
+  const next = prev.then(task, task); // run regardless of a prior write's outcome
+  writeQueues.set(
+    file,
+    next.finally(() => {
+      if (writeQueues.get(file) === next) writeQueues.delete(file);
+    }),
+  );
+  return next;
+}
+
+/**
  * Persist an AI assessment. Best-effort: a cache write failure must never
- * fail the analysis. Expired entries are pruned on every write.
+ * fail the analysis. Expired entries are pruned on every write. Writes to the
+ * same file are serialized (see enqueueWrite) and land via an atomic rename
+ * so a concurrent reader never observes a half-written file.
  */
 export async function writeCachedAssessment(
   key: string,
@@ -144,18 +168,22 @@ export async function writeCachedAssessment(
   cwd: string = process.cwd(),
 ): Promise<void> {
   if (!settings.enabled || settings.exclude.includes(packageName)) return;
-  try {
-    const file = cacheFilePath(settings, cwd);
-    const doc = await readCacheFile(file);
-    const now = Date.now();
-    const entries: Record<string, CacheEntry> = {};
-    for (const [k, entry] of Object.entries(doc.entries)) {
-      if (isFresh(entry, settings.ttlHours, now)) entries[k] = entry;
+  const file = cacheFilePath(settings, cwd);
+  return enqueueWrite(file, async () => {
+    try {
+      const doc = await readCacheFile(file);
+      const now = Date.now();
+      const entries: Record<string, CacheEntry> = {};
+      for (const [k, entry] of Object.entries(doc.entries)) {
+        if (isFresh(entry, settings.ttlHours, now)) entries[k] = entry;
+      }
+      entries[key] = { assessment, cachedAt: new Date(now).toISOString() };
+      await mkdir(path.dirname(file), { recursive: true });
+      const tmp = `${file}.${randomUUID()}.tmp`;
+      await writeFile(tmp, JSON.stringify({ entries }, null, 2) + "\n");
+      await rename(tmp, file); // atomic replace — readers see old or new, never partial
+    } catch {
+      /* best-effort */
     }
-    entries[key] = { assessment, cachedAt: new Date(now).toISOString() };
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, JSON.stringify({ entries }, null, 2) + "\n");
-  } catch {
-    /* best-effort */
-  }
+  });
 }

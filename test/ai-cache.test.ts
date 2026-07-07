@@ -142,6 +142,21 @@ describe("read/write cached assessments", () => {
     expect(Object.keys(doc.entries)).toEqual(["fresh"]);
   });
 
+  it("does not lose entries under concurrent writes (the --deep path)", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
+    const settings = projectSettings();
+    // Mirrors the transitive walker: many assessments finishing at once.
+    await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        writeCachedAssessment(`key-${i}`, assessment(), settings, `pkg-${i}`, dir),
+      ),
+    );
+    const doc = JSON.parse(await readFile(cacheFilePath(settings, dir), "utf8"));
+    expect(Object.keys(doc.entries).sort()).toEqual(
+      Array.from({ length: 12 }, (_, i) => `key-${i}`).sort(),
+    );
+  });
+
   it("treats a corrupt cache file as empty instead of crashing", async () => {
     dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
     const settings = projectSettings();
