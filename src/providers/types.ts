@@ -4,6 +4,8 @@ import type { RiskAssessment, Signals } from "../types.js";
 export interface AiProvider {
   /** Short label used in reports and error messages (e.g. "anthropic", "ollama"). */
   readonly name: string;
+  /** Model identifier — part of the AI-cache key, so answers never leak across models. */
+  readonly model: string;
   assess(signals: Signals): Promise<RiskAssessment>;
 }
 

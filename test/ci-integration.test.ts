@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as tar from "tar";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { resolveCacheSettings } from "../src/ai-cache.js";
 import { runCiCheck } from "../src/ci.js";
 
 /**
@@ -123,7 +125,12 @@ describe("runCiCheck — end to end on a fixture repo", () => {
     dir = await makeFixtureRepo();
     stubNetwork();
 
-    const report = await runCiCheck({ cwd: dir, baseRef: "HEAD" });
+    const report = await runCiCheck({
+      cwd: dir,
+      baseRef: "HEAD",
+      // Even if a caller hands CI cache settings, runCiCheck must strip them.
+      assess: { useAi: false, cache: resolveCacheSettings({ scope: "project" }), cwd: dir },
+    });
 
     expect(report.changes).toHaveLength(1);
     expect(report.changes[0]).toMatchObject({ name: "left-pad", kind: "added" });
@@ -135,6 +142,8 @@ describe("runCiCheck — end to end on a fixture repo", () => {
     expect(result.versionSource).toBe("lockfile");
     expect(["allow", "allow_with_warnings"]).toContain(result.assessment.decision);
     expect(report.exitCode).toBe(0);
+    // The AI response cache is never used in CI — nothing may be persisted.
+    expect(existsSync(path.join(dir, ".bye", "ai-cache.json"))).toBe(false);
   });
 
   it("fails the build (exit 2) when the added dependency has a curl|bash postinstall", async () => {

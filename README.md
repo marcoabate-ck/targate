@@ -33,7 +33,7 @@ developer intent → package inspection → AI risk reasoning → safe install d
 8. **Reasons over the signals with an AI provider** (structured JSON output). If no provider is configured, a deterministic rules engine produces the decision instead. **Every deterministic BLOCK is a hard floor** — the AI can make a decision stricter but can never downgrade a rules-engine BLOCK to a weaker verdict.
 9. **Gates the install**: `allow` / `allow_with_warnings` ask for confirmation, `require_approval` defaults to `--ignore-scripts`, `block` never installs.
 
-Only the **requested top-level package** is analyzed — see [Scope and limitations](#scope-and-limitations).
+By default only the **requested top-level package** is analyzed; `--deep` extends the same pipeline to the full transitive tree — see [Transitive dependencies](#transitive-dependencies----deep) and [Scope and limitations](#scope-and-limitations).
 
 ## Usage
 
@@ -57,6 +57,8 @@ Options (add & ci):
 --api-key <key>         API key (prefer env vars over this flag)
 --reasoning             Enable model reasoning where the provider supports it
                         (see "Reasoning support" below)
+--deep                  (add) Also analyze the full transitive dependency tree;
+                        the strictest verdict in the tree gates the install
 --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
 
 Options (sandbox):
@@ -136,6 +138,44 @@ bye add react-native-mmkv --no-ai
 
 With an AI provider configured, the model weighs the same signals contextually (e.g. "this postinstall just compiles native bindings"). The clamp is one-directional: **the AI can escalate but never de-escalate a deterministic BLOCK.** Concretely, `clampDecision` re-runs the rules engine and, if it returns BLOCK, forces the final decision to BLOCK regardless of what the model returned — so a model that is jailbroken, prompt-injected, or simply wrong cannot turn a rules-engine BLOCK into ALLOW. The AI is still free to reach BLOCK or REQUIRE APPROVAL on its own when the rules engine was more permissive.
 
+## AI response cache
+
+Interactive runs cache the AI's assessment so re-reviewing the same dependency (re-runs, `--deep` trees sharing packages across projects) doesn't pay for a new completion. The cache key is the **full evaluation context**:
+
+```
+provider / model / reasoning flag / name@version / sha256(signals)
+```
+
+so the same lib checked with a different provider or model is always a fresh call, and any change in the deterministic evidence (a new OSV record, different tarball findings) is a cache miss by construction — a stale "allow" cannot survive new evidence. Two further guarantees:
+
+- **Cached answers are re-clamped on read.** The deterministic BLOCK floor is enforced at decision time, never trusted from disk — a hand-edited or poisoned cache entry cannot bypass it.
+- **CI never uses the cache.** `bye ci` strips cache settings unconditionally; a CI verdict is always a fresh assessment.
+
+Only successful AI responses are cached — rules-engine fallbacks are free to recompute and errors are never remembered. Configured through the `aiCache` section of the team policy:
+
+```yaml
+# bye.policy.yaml
+aiCache:
+  enabled: true      # master switch (default: true)
+  scope: user        # user: ~/.bye/ai-cache.json (default) | project: <repo>/.bye/ai-cache.json
+  ttlHours: 24       # entries older than this are ignored and pruned (default: 24)
+  exclude: []        # package names never cached (e.g. internal libs under review)
+```
+
+With `scope: project` the cache lives in the repo's `.bye/` directory — add `.bye/ai-cache.json` to `.gitignore` unless you deliberately want to share it.
+
+## Transitive dependencies — `--deep`
+
+```bash
+bye add glob --deep --dry-run
+```
+
+By default bye analyzes only the package you named. With `--deep` it first resolves the **exact dependency tree** a real install would produce — npm itself does the resolution (`--package-lock-only --ignore-scripts` in a throwaway directory: only a lockfile is generated, no `node_modules`, nothing from the tree executes) — then runs the same per-package pipeline (quarantine, OSV, signals, AI/rules, team policy) on **every unique `name@version`** in the tree, a few packages at a time.
+
+The final decision is the **strictest verdict across the whole tree**: a blocked transitive dependency blocks the install exactly like a blocked root; a `require_approval` anywhere in the tree escalates the run. Flagged packages are listed in the reasons (`--json` includes the full per-package results under `deep`).
+
+Cost: a deep run downloads and analyzes N tarballs and, with an AI provider configured, makes up to N model calls — the [AI response cache](#ai-response-cache) makes repeated and shared dependencies cheap. If npm cannot resolve the tree, the run fails loudly rather than silently degrading to top-level-only coverage.
+
 ## Team workflow
 
 ### Approval cache — `.bye/approvals.*`
@@ -178,6 +218,11 @@ dependencyPolicy:
   blockMissingRepositoryForRuntimeDeps: false
   allowKnownPackages: [react, react-native]
   blockPackages: []
+aiCache: # see "AI response cache"
+  enabled: true
+  scope: user
+  ttlHours: 24
+  exclude: []
 ```
 
 ```ts
@@ -243,7 +288,7 @@ OSV/OpenSSF is bye's source of known-malicious-package intelligence — its **si
 
 `bye` is a decision aid that moves supply-chain review to the install decision point. It is **not** a malware sandbox or a guarantee of safety. Know exactly what it does and does not do:
 
-- **Only the requested top-level package is analyzed.** Transitive dependencies are **not** recursively fetched and inspected before install. A clean direct package can still pull in a malicious transitive dependency. bye surfaces the direct-dependency count and, after a real install, prints the full lockfile diff (direct + transitive added) so you can see what actually landed — but it does not run the pre-install analysis pipeline on each transitive package. Recursive analysis is a deliberate non-goal for now: it multiplies registry/tarball/OSV traffic by the size of the dependency tree and needs full range resolution to be meaningful. Treat a bye "allow" as "the package you named looks fine", not "the whole tree is fine". For transitive coverage, pair bye with a lockfile scanner / `npm audit` / OSV-Scanner in CI.
+- **By default, only the requested top-level package is analyzed.** A clean direct package can still pull in a malicious transitive dependency. Use [`--deep`](#transitive-dependencies----deep) to run the full pre-install pipeline on every package of the resolved tree (slower, more network/AI traffic — softened by the response cache). Without `--deep`, treat a bye "allow" as "the package you named looks fine", not "the whole tree is fine"; bye still surfaces the direct-dependency count and prints the post-install lockfile diff (direct + transitive added). `bye ci` always analyzes only the changed top-level dependencies — pair it with a lockfile scanner / `npm audit` / OSV-Scanner for transitive coverage in CI.
 - **Static detection is heuristic and bypassable.** The content and command scanners are regex/substring based. They reliably catch the common, un-obfuscated patterns (`curl … | bash`, `process.env` + network, `child_process`) but a determined attacker can evade them with obfuscation, string-splitting, encoding, or dynamic dispatch. A clean static result is not proof of safety.
 - **Content scan is bounded.** To stay fast, the scanner skips files larger than 2 MB and stops after 2000 files per package. A payload hidden past those limits will not be scanned. (Very large minified bundles are still flagged as minified/obfuscated by other checks.)
 - **Native analysis is source-level.** Podspec/Gradle review is static; pre-built `.xcframework`/`.so`/`.aar` binaries are flagged as "binary code you cannot read" but their contents are not disassembled.
@@ -261,7 +306,7 @@ OSV/OpenSSF is bye's source of known-malicious-package intelligence — its **si
 ## Development
 
 ```bash
-pnpm test        # vitest suite (172 tests, incl. an end-to-end CI check on a fixture repo)
+pnpm test        # vitest suite (200 tests, incl. an end-to-end CI check on a fixture repo)
 pnpm typecheck
 pnpm dev add <pkg>   # run from source
 ```

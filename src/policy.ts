@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { parse, stringify } from "yaml";
+import type { AiCachePolicy } from "./ai-cache.js";
 import { loadConfigFile } from "./config-loader.js";
 import { evaluateRules } from "./rules.js";
 import type { RiskAssessment, Signals } from "./types.js";
@@ -32,6 +33,8 @@ export interface DependencyPolicy {
 
 export interface PolicyFile {
   dependencyPolicy: DependencyPolicy;
+  /** AI response cache options — see AiCachePolicy (src/ai-cache.ts). */
+  aiCache?: AiCachePolicy;
 }
 
 const BOOLEAN_KEYS = [
@@ -79,7 +82,37 @@ export function validatePolicyObject(doc: unknown, sourceName = POLICY_BASENAME)
     }
   }
 
-  return { dependencyPolicy: policy as DependencyPolicy };
+  return { dependencyPolicy: policy as DependencyPolicy, aiCache: validateAiCache(doc) };
+}
+
+/** Validate the optional aiCache section of a policy document. */
+function validateAiCache(doc: object): AiCachePolicy | undefined {
+  if (!("aiCache" in doc)) return undefined;
+  const raw = (doc as { aiCache: unknown }).aiCache;
+  if (typeof raw !== "object" || raw === null) {
+    throw new PolicyError(`"aiCache" must be a mapping`);
+  }
+  const cache = raw as Record<string, unknown>;
+
+  if ("enabled" in cache && typeof cache.enabled !== "boolean") {
+    throw new PolicyError(`"aiCache.enabled" must be a boolean`);
+  }
+  if ("scope" in cache && cache.scope !== "user" && cache.scope !== "project") {
+    throw new PolicyError(`"aiCache.scope" must be "user" or "project"`);
+  }
+  if ("ttlHours" in cache) {
+    const v = cache.ttlHours;
+    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
+      throw new PolicyError(`"aiCache.ttlHours" must be a positive number`);
+    }
+  }
+  if ("exclude" in cache) {
+    const v = cache.exclude;
+    if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) {
+      throw new PolicyError(`"aiCache.exclude" must be a list of package names`);
+    }
+  }
+  return cache as AiCachePolicy;
 }
 
 /** Parse a YAML/JSON policy source string (kept for tests and tooling). */
@@ -160,6 +193,11 @@ function escalate(
  * blocked outright; any other deterministic BLOCK caps the downgrade at
  * require_approval, so a human reviews that specific version (and the
  * version-pinned approval cache — not the blanket allow list — records it).
+ *
+ * The allow list DOES override an AI-only block (one the deterministic rules
+ * engine did not raise): the rules engine is the security floor and the AI is
+ * advisory, so an explicit, committed "we trust this package" entry is allowed
+ * to overrule the model. It can never override the deterministic floor.
  */
 export function applyPolicy(
   assessment: RiskAssessment,
@@ -244,6 +282,12 @@ const STARTER_POLICY: PolicyFile = {
     allowKnownPackages: ["react", "react-native"],
     blockPackages: [],
   },
+  aiCache: {
+    enabled: true,
+    scope: "user",
+    ttlHours: 24,
+    exclude: [],
+  },
 };
 
 export type PolicyFormat = "yaml" | "json" | "js" | "ts";
@@ -252,11 +296,14 @@ const POLICY_COMMENT = [
   "bye team dependency policy — applied on top of the AI/rules assessment.",
   "The policy can only make decisions stricter, except allowKnownPackages",
   "(pre-approved packages; known-malicious packages are always blocked).",
+  "aiCache controls reuse of AI assessments (never used in CI).",
 ];
 
-const STARTER_BODY = JSON.stringify(STARTER_POLICY.dependencyPolicy, null, 2)
-  // JSON -> JS object literal: unquote keys for the js/ts templates
-  .replace(/"([a-zA-Z][\w]*)":/g, "$1:");
+// JSON -> JS object literal: unquote keys for the js/ts templates
+const STARTER_BODY = JSON.stringify(STARTER_POLICY, null, 2).replace(
+  /"([a-zA-Z][\w]*)":/g,
+  "$1:",
+);
 
 function policyTemplate(format: PolicyFormat): string {
   const hash = POLICY_COMMENT.map((l) => `# ${l}`).join("\n");
@@ -267,9 +314,9 @@ function policyTemplate(format: PolicyFormat): string {
     case "json":
       return JSON.stringify(STARTER_POLICY, null, 2) + "\n";
     case "js":
-      return `${slash}\n/** @type {import("bye").PolicyFile} */\nexport default {\n  dependencyPolicy: ${STARTER_BODY.replace(/\n/g, "\n  ")},\n};\n`;
+      return `${slash}\n/** @type {import("bye").PolicyFile} */\nexport default ${STARTER_BODY};\n`;
     case "ts":
-      return `${slash}\nimport type { PolicyFile } from "bye";\n\nconst policy: PolicyFile = {\n  dependencyPolicy: ${STARTER_BODY.replace(/\n/g, "\n  ")},\n};\n\nexport default policy;\n`;
+      return `${slash}\nimport type { PolicyFile } from "bye";\n\nconst policy: PolicyFile = ${STARTER_BODY};\n\nexport default policy;\n`;
   }
 }
 

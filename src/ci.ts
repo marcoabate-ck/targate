@@ -3,16 +3,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import { buildSignals } from "./analyze/index.js";
 import { getApproval, loadApprovals } from "./approvals.js";
-import { assessRisk, type AssessOptions } from "./ai.js";
+import type { AssessOptions } from "./ai.js";
 import { detectPackageManager } from "./installer.js";
 import { lockfileVersionIndex, resolveInstalledVersion, snapshotLockfile } from "./lockfile.js";
-import { osvUnavailable, queryOsv, type OsvResult } from "./osv.js";
-import { applyPolicy, loadPolicy } from "./policy.js";
-import { applyOsvFailurePolicy } from "./rules.js";
-import { quarantineTarball } from "./quarantine.js";
-import { fetchPackageMetadata } from "./registry.js";
+import { analyzePackage } from "./pipeline.js";
+import { loadPolicy } from "./policy.js";
 import type { RiskAssessment } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -123,44 +119,38 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
   const results: CiPackageResult[] = [];
   let exitCode = 0;
 
+  // The AI response cache is NEVER used in CI: strip any cache settings so a
+  // CI verdict always comes from a fresh assessment, whatever the caller
+  // passed in.
+  const assess: AssessOptions = { ...(opts.assess ?? { useAi: false }), cache: undefined };
+
   for (const change of changes) {
     const resolved = resolveInstalledVersion(change.name, change.range, lockIndex);
     log(
       `analyzing ${change.name}@${resolved.version || change.range} (${change.kind}, version from ${resolved.source})`,
     );
     try {
-      const metadata = await fetchPackageMetadata(change.name, resolved.version || undefined);
-      const quarantine = await quarantineTarball(metadata.tarballUrl);
-      try {
-        let osv: OsvResult;
-        try {
-          osv = await queryOsv(metadata.name, metadata.version);
-        } catch {
-          osv = osvUnavailable();
-        }
-        const signals = await buildSignals(metadata, quarantine.packageDir, osv);
-        let assessment = await assessRisk(signals, opts.assess ?? { useAi: false });
-        assessment = applyOsvFailurePolicy(assessment, signals, opts.failOnOsvError ?? false);
-        if (policy) assessment = applyPolicy(assessment, signals, policy.policy);
+      const { metadata, assessment } = await analyzePackage(
+        change.name,
+        resolved.version || undefined,
+        { assess, failOnOsvError: opts.failOnOsvError, policy },
+      );
 
-        const approved = getApproval(approvals, metadata.name, metadata.version) !== null;
-        if (
-          assessment.decision === "block" ||
-          (assessment.decision === "require_approval" && !approved)
-        ) {
-          exitCode = 2;
-        }
-        results.push({
-          name: metadata.name,
-          version: metadata.version,
-          versionSource: resolved.source,
-          change,
-          assessment,
-          approved,
-        });
-      } finally {
-        await quarantine.cleanup();
+      const approved = getApproval(approvals, metadata.name, metadata.version) !== null;
+      if (
+        assessment.decision === "block" ||
+        (assessment.decision === "require_approval" && !approved)
+      ) {
+        exitCode = 2;
       }
+      results.push({
+        name: metadata.name,
+        version: metadata.version,
+        versionSource: resolved.source,
+        change,
+        assessment,
+        approved,
+      });
     } catch (err) {
       exitCode = exitCode === 2 ? 2 : 1;
       results.push({
