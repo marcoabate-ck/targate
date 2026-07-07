@@ -160,6 +160,11 @@ function escalate(
  * blocked outright; any other deterministic BLOCK caps the downgrade at
  * require_approval, so a human reviews that specific version (and the
  * version-pinned approval cache — not the blanket allow list — records it).
+ *
+ * The allow list DOES override an AI-only block (one the deterministic rules
+ * engine did not raise): the rules engine is the security floor and the AI is
+ * advisory, so an explicit, committed "we trust this package" entry is allowed
+ * to overrule the model. It can never override the deterministic floor.
  */
 export function applyPolicy(
   assessment: RiskAssessment,

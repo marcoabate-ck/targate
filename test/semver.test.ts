@@ -16,6 +16,11 @@ describe("compareSemver", () => {
     expect(compareSemver("1.2.0-rc.1", "1.2.0")).toBeLessThan(0);
     expect(compareSemver("1.2.0", "1.2.0-rc.1")).toBeGreaterThan(0);
   });
+
+  it("ignores build metadata (semver §10)", () => {
+    expect(compareSemver("1.2.3+build.5", "1.2.3")).toBe(0);
+    expect(compareSemver("1.2.3+a", "1.2.3+b")).toBe(0);
+  });
 });
 
 describe("highestSemver", () => {
