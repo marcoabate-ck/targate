@@ -58,6 +58,8 @@ bye add <package>[@version] --yes
 - Add \`--deep\` for production/runtime dependencies to also analyze the full transitive tree: \`bye add <pkg> --yes --deep\`.
 - Add \`--json\` when you need to parse the verdict programmatically (prints \`{ metadata, signals, assessment, deep }\`; the decision is \`assessment.decision\`, one of \`allow\`, \`allow_with_warnings\`, \`require_approval\`, \`block\`).
 
+To install **all** dependencies of a project (a plain \`npm install\` / \`pnpm install\` / \`yarn install\` — e.g. after cloning), run \`bye install\` instead. It vets the entire dependency tree before the install runs any lifecycle scripts, refuses (exit 2) if any package is blocked or needs approval, and otherwise installs with scripts disabled by default (\`--allow-scripts\` to run them). Same exit-code contract as below.
+
 ## Interpret the exit code
 
 - **0** — proceed. The package was installed (or, with \`--dry-run\`, analyzed cleanly).
