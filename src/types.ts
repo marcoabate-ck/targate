@@ -18,7 +18,7 @@ export interface PackageMetadata {
   tarballUrl: string;
   scripts: Record<string, string>;
   dependencyCount: number;
-  weeklyDownloads?: number;
+  directDependencies: string[];
 }
 
 export interface NameSimilarity {
@@ -66,6 +66,8 @@ export interface Signals {
   version: string;
   lifecycleScripts: Record<string, string>;
   hasLifecycleScripts: boolean;
+  /** Deterministic findings from inspecting the lifecycle command strings. */
+  scriptCommandFindings: string[];
   hasNativeCode: boolean;
   nativeSurface: NativeSurface;
   rnHardening: RnHardeningSignals;
@@ -73,11 +75,19 @@ export interface Signals {
   knownMalicious: boolean;
   maliciousRecords: MaliciousRecord[];
   advisories: MaliciousRecord[];
+  /**
+   * True when the OSV lookup could not be completed (network error, offline).
+   * A malicious-package record cannot be ruled out — treat as "unknown", not
+   * "clean". See the OSV failure handling in the README.
+   */
+  osvUnavailable: boolean;
   repositoryMissing: boolean;
   recentPublish: boolean;
   ageInDays?: number;
   nameSimilarity: NameSimilarity | null;
   dependencyCount: number;
+  /** Direct dependency names (transitive deps are NOT analyzed — see README). */
+  directDependencies: string[];
 }
 
 export interface RiskAssessment {

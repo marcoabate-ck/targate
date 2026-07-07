@@ -27,6 +27,14 @@ export function evaluateRules(signals: Signals): RiskAssessment {
     signals.content.installTimeFindings.some((f) => f.includes("process.env")) &&
     signals.content.installTimeFindings.some((f) => f.includes("network"));
 
+  // A lifecycle command that fetches from the network and pipes into a
+  // shell / inline interpreter (curl … | bash, wget … | sh, node -e) is the
+  // canonical remote-payload install attack.
+  const cmd = signals.scriptCommandFindings.join(" ");
+  const scriptFetchesAndExecutes =
+    /downloads content from the network/.test(cmd) &&
+    /(invokes a shell|runs inline node code|uses eval)/.test(cmd);
+
   if (signals.nameSimilarity && signals.recentPublish) {
     reasons.push(
       `Name is very similar to popular package "${signals.nameSimilarity.similarTo}" (edit distance ${signals.nameSimilarity.distance}) and was published recently — possible typosquatting.`,
@@ -35,6 +43,11 @@ export function evaluateRules(signals: Signals): RiskAssessment {
   if (scriptTouchesEnvAndNetwork) {
     reasons.push(
       "Install-time code reads environment variables AND performs network calls — possible credential exfiltration.",
+    );
+  }
+  if (scriptFetchesAndExecutes) {
+    reasons.push(
+      `Lifecycle command downloads and executes remote code: ${signals.scriptCommandFindings.join("; ")}`,
     );
   }
   if (signals.repositoryMissing && signals.recentPublish && signals.hasLifecycleScripts) {
@@ -64,6 +77,9 @@ export function evaluateRules(signals: Signals): RiskAssessment {
       `Lifecycle scripts present: ${Object.keys(signals.lifecycleScripts).join(", ")}.`,
     );
   }
+  // Suspicious lifecycle command constructs that didn't rise to a BLOCK
+  // (e.g. a shell invocation or credential-file reference on its own).
+  reasons.push(...signals.scriptCommandFindings);
   // Build-time code execution declared in native build files is equivalent
   // to a lifecycle script: it runs on the developer machine.
   reasons.push(...signals.rnHardening.podspecFindings.filter((f) => /prepare_command|script_phase|downloads|remote/.test(f)));
@@ -130,7 +146,14 @@ export function evaluateRules(signals: Signals): RiskAssessment {
     );
   }
   if (signals.dependencyCount > 20) {
-    reasons.push(`Adds a large dependency tree (${signals.dependencyCount} direct dependencies).`);
+    reasons.push(
+      `Adds ${signals.dependencyCount} direct dependencies (transitive dependencies are not analyzed).`,
+    );
+  }
+  if (signals.osvUnavailable) {
+    reasons.push(
+      "OSV/OpenSSF lookup was unavailable — a known-malicious record could not be ruled out.",
+    );
   }
 
   if (reasons.length > 0) {
@@ -159,23 +182,61 @@ export function evaluateRules(signals: Signals): RiskAssessment {
 }
 
 /**
+ * Escalate a decision when the OSV lookup was unavailable and the caller
+ * asked to fail closed. Known-malicious detection is bye's strongest
+ * deterministic guarantee; when it couldn't run, fail-closed callers (CI)
+ * treat the package as requiring approval instead of silently trusting it.
+ */
+export function applyOsvFailurePolicy(
+  assessment: RiskAssessment,
+  signals: Signals,
+  failClosed: boolean,
+): RiskAssessment {
+  if (!failClosed || !signals.osvUnavailable) return assessment;
+  const order = { allow: 0, allow_with_warnings: 1, require_approval: 2, block: 3 } as const;
+  if (order[assessment.decision] >= order.require_approval) return assessment;
+  return {
+    ...assessment,
+    decision: "require_approval",
+    risk: assessment.risk === "low" ? "medium" : assessment.risk,
+    reasons: [
+      ...assessment.reasons,
+      "[fail-closed] OSV lookup unavailable — cannot confirm the package is not known-malicious.",
+    ],
+  };
+}
+
+/**
  * Clamp an AI decision so it can never be more permissive than the
- * deterministic policy on hard signals.
+ * deterministic rules engine. Every deterministic BLOCK is a HARD FLOOR:
+ * if evaluateRules() blocks the package, the AI's decision is forced to
+ * BLOCK regardless of what the model returned. The AI may only ever make a
+ * decision *stricter*, never weaker, than the rules engine's block verdict.
+ *
+ * (The AI is still free to escalate a rules "allow" to "require_approval",
+ * or to reach "block" on its own — the clamp only raises floors.)
  */
 export function clampDecision(
   ai: RiskAssessment,
   signals: Signals,
 ): RiskAssessment {
-  if (signals.knownMalicious && ai.decision !== "block") {
-    return {
-      ...ai,
-      risk: "high",
-      decision: "block",
-      reasons: [
-        "Overridden by policy: package has a known malicious-package record.",
-        ...ai.reasons,
-      ],
-    };
-  }
-  return ai;
+  if (ai.decision === "block") return ai;
+
+  const floor = evaluateRules(signals);
+  if (floor.decision !== "block") return ai;
+
+  const reason = signals.knownMalicious
+    ? "Overridden by policy: package has a known malicious-package record."
+    : "Overridden by policy: deterministic rules block this package; the AI cannot downgrade a hard BLOCK.";
+  return {
+    ...ai,
+    risk: "high",
+    decision: "block",
+    recommendedAction: floor.recommendedAction,
+    // Surface the deterministic block reasons alongside the AI's own so the
+    // developer sees exactly why the floor fired.
+    reasons: [reason, ...floor.reasons, ...ai.reasons],
+    suggestedAlternatives: ai.suggestedAlternatives ?? floor.suggestedAlternatives,
+    source: ai.source,
+  };
 }

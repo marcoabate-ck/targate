@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { compareSemver } from "./semver.js";
 import type { PackageManager } from "./types.js";
 
 const LOCKFILES: Record<PackageManager, string> = {
@@ -62,6 +63,63 @@ export async function snapshotLockfile(
   const file = path.join(cwd, lockfileName(pm));
   if (!existsSync(file)) return null;
   return readFile(file, "utf8");
+}
+
+/**
+ * Build a name -> resolved versions index from a lockfile. A package can
+ * legitimately appear at several versions (different transitive requirers),
+ * so the value is a sorted list, not a single string.
+ */
+export function lockfileVersionIndex(
+  pm: PackageManager,
+  content: string,
+): Map<string, string[]> {
+  const index = new Map<string, Set<string>>();
+  for (const entry of extractLockfileEntries(pm, content)) {
+    const at = entry.lastIndexOf("@");
+    if (at <= 0) continue;
+    const name = entry.slice(0, at);
+    const version = entry.slice(at + 1);
+    (index.get(name) ?? index.set(name, new Set()).get(name)!).add(version);
+  }
+  // Semver order (ascending) — resolveInstalledVersion takes the LAST entry
+  // as "highest", and a lexicographic sort would put 1.9.0 above 1.10.0.
+  return new Map([...index].map(([name, versions]) => [name, [...versions].sort(compareSemver)]));
+}
+
+export interface ResolvedVersion {
+  version: string;
+  /** How the version was determined. */
+  source: "lockfile" | "range" | "ambiguous-lockfile";
+}
+
+/**
+ * Resolve the version of a direct dependency that will actually be
+ * installed. Prefers the lockfile (the source of truth for what npm/pnpm/
+ * yarn will place on disk); falls back to the declared range, flagging when
+ * the lockfile lists several versions and the exact one can't be pinned.
+ */
+export function resolveInstalledVersion(
+  name: string,
+  declaredRange: string,
+  lockIndex: Map<string, string[]> | null,
+): ResolvedVersion {
+  const rangeVersion = declaredRange.match(/^[\^~]?(\d+\.\d+\.\d+(?:-[\w.]+)?)$/)?.[1];
+  const inLock = lockIndex?.get(name);
+
+  if (inLock && inLock.length === 1) {
+    return { version: inLock[0], source: "lockfile" };
+  }
+  if (inLock && inLock.length > 1 && rangeVersion && inLock.includes(rangeVersion)) {
+    // Multiple versions in the tree, but one matches the declared pin exactly.
+    return { version: rangeVersion, source: "lockfile" };
+  }
+  if (inLock && inLock.length > 1) {
+    // Ambiguous — pick the highest, but tell the caller resolution was fuzzy.
+    return { version: inLock[inLock.length - 1], source: "ambiguous-lockfile" };
+  }
+  if (rangeVersion) return { version: rangeVersion, source: "range" };
+  return { version: "", source: "range" };
 }
 
 export interface LockfileDiff {

@@ -1,5 +1,9 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import { describe, expect, it } from "vitest";
-import { diffDependencies, rangeToVersion } from "../src/ci.js";
+import { diffDependencies, initCiWorkflow } from "../src/ci.js";
 
 describe("diffDependencies", () => {
   it("detects added dependencies", () => {
@@ -48,18 +52,32 @@ describe("diffDependencies", () => {
   });
 });
 
-describe("rangeToVersion", () => {
-  it("strips caret and tilde", () => {
-    expect(rangeToVersion("^1.2.3")).toBe("1.2.3");
-    expect(rangeToVersion("~1.2.3")).toBe("1.2.3");
-    expect(rangeToVersion("1.2.3")).toBe("1.2.3");
-    expect(rangeToVersion("^1.2.3-beta.1")).toBe("1.2.3-beta.1");
-  });
+describe("initCiWorkflow", () => {
+  it("scaffolds a valid workflow that keeps GitHub context out of the run line", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "bye-workflow-"));
+    try {
+      const file = await initCiWorkflow(dir);
+      expect(file).toBe(path.join(dir, ".github", "workflows", "bye.yml"));
+      const content = await readFile(file!, "utf8");
 
-  it("returns undefined for non-pinnable ranges", () => {
-    expect(rangeToVersion("*")).toBeUndefined();
-    expect(rangeToVersion(">=1.0.0 <2.0.0")).toBeUndefined();
-    expect(rangeToVersion("latest")).toBeUndefined();
-    expect(rangeToVersion("workspace:*")).toBeUndefined();
+      // Parseable YAML with the expected job step.
+      const doc = parseYaml(content) as {
+        jobs?: { bye?: { steps?: Array<{ run?: string; env?: Record<string, string> }> } };
+      };
+      const steps = doc.jobs?.bye?.steps ?? [];
+      const analyze = steps.find((s) => s.run?.includes("bye ci"));
+      expect(analyze).toBeDefined();
+
+      // Script-injection defense: `${{ … }}` only in env values, never in run.
+      expect(analyze!.run).not.toContain("${{");
+      expect(analyze!.run).toContain('"origin/$BASE_REF"');
+      expect(analyze!.run).toContain("--fail-on-osv-error");
+      expect(analyze!.env?.BASE_REF).toBe("${{ github.base_ref }}");
+
+      // Second call is a no-op.
+      expect(await initCiWorkflow(dir)).toBeNull();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

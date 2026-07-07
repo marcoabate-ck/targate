@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { parse, stringify } from "yaml";
 import { loadConfigFile } from "./config-loader.js";
+import { evaluateRules } from "./rules.js";
 import type { RiskAssessment, Signals } from "./types.js";
 
 export const POLICY_BASENAME = "bye.policy";
@@ -17,9 +18,6 @@ export const POLICY_FILENAMES = [
   `${POLICY_BASENAME}.yml`,
   `${POLICY_BASENAME}.json`,
 ] as const;
-
-/** Kept for help/usage texts. */
-export const POLICY_FILENAME = `${POLICY_BASENAME}.yaml`;
 
 /** Team dependency policy — schema from the workshop proposal (§9 phase 6). */
 export interface DependencyPolicy {
@@ -154,8 +152,14 @@ function escalate(
  * Apply the team policy on top of an AI/rules assessment.
  *
  * The policy is escalation-only, with one exception: allowKnownPackages can
- * downgrade to "allow" — but NEVER for a package with a known malicious
- * record, which stays blocked no matter what the policy says.
+ * downgrade to "allow" — but it can never cross a deterministic BLOCK. The
+ * allow list is name-based (it trusts every future version of a package),
+ * while the BLOCK rules describe the *current* version's behavior: a
+ * compromised release of an allow-listed package that adds a `curl | bash`
+ * postinstall must not be waved through. Known-malicious packages stay
+ * blocked outright; any other deterministic BLOCK caps the downgrade at
+ * require_approval, so a human reviews that specific version (and the
+ * version-pinned approval cache — not the blanket allow list — records it).
  */
 export function applyPolicy(
   assessment: RiskAssessment,
@@ -172,6 +176,19 @@ export function applyPolicy(
   }
 
   if (p.allowKnownPackages?.includes(signals.package)) {
+    const floor = evaluateRules(signals);
+    if (floor.decision === "block") {
+      return {
+        ...result,
+        decision: "require_approval",
+        risk: "high",
+        reasons: [
+          ...result.reasons,
+          `[policy] "${signals.package}" is on the team allow list, but this version matches deterministic BLOCK rules — the allow list cannot override them. A human must approve this exact version.`,
+          ...floor.reasons,
+        ],
+      };
+    }
     return {
       ...result,
       decision: "allow",

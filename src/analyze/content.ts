@@ -16,6 +16,12 @@ interface FileScan {
   minified: boolean;
 }
 
+// These patterns are DELIBERATELY loose (e.g. the bare "axios" substring
+// flags any file that merely mentions the library): the scanner is a recall-
+// oriented heuristic whose hits become weak signals for the rules/AI layers,
+// not verdicts on their own. False positives cost a warning line; false
+// negatives cost a missed exfiltration path. See "Scope and limitations" in
+// the README before tightening these.
 function scanSource(relPath: string, source: string): FileScan {
   const lines = source.split("\n");
   const avgLineLength = source.length / Math.max(lines.length, 1);

@@ -4,6 +4,7 @@ import { checkCommand } from "./commands/check.js";
 import { ciCommand } from "./commands/ci.js";
 import { sandboxCommand } from "./commands/sandbox.js";
 import { initPolicy, type PolicyFormat } from "./policy.js";
+import type { SandboxNetwork } from "./sandbox.js";
 import type { ProviderName } from "./providers/index.js";
 import { dim, green, red, yellow } from "./report.js";
 
@@ -34,11 +35,14 @@ Options (add & ci):
   --base-url <url>        API base URL (required for --provider custom)
   --api-key <key>         API key (prefer env vars below over this flag)
   --reasoning             Enable model reasoning where the provider supports it
+  --fail-on-osv-error     Treat an unreachable OSV lookup as "unknown" and
+                          escalate to require-approval (recommended in CI)
   --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
 
 Options (sandbox):
   --image <image>         Docker image (default: node:20-alpine)
   --timeout <seconds>     Kill the sandbox after N seconds (default: 300)
+  --network <mode>        open (default, full egress) | none (offline trial)
 
 Provider auto-detection (first match wins):
   ANTHROPIC_API_KEY set        -> anthropic  (claude-opus-4-8)
@@ -70,8 +74,10 @@ async function main(): Promise<number> {
       "api-key": { type: "string" },
       reasoning: { type: "boolean", default: false },
       "base-ref": { type: "string" },
+      "fail-on-osv-error": { type: "boolean", default: false },
       image: { type: "string" },
       timeout: { type: "string" },
+      network: { type: "string" },
       format: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -112,6 +118,7 @@ async function main(): Promise<number> {
         json: values.json,
         dryRun: values["dry-run"],
         assumeYes: values.yes,
+        failOnOsvError: values["fail-on-osv-error"],
         assess,
       });
     }
@@ -121,10 +128,16 @@ async function main(): Promise<number> {
         console.error(red("Usage: bye sandbox <package>[@version]"));
         return 1;
       }
+      const network = (values.network ?? "open") as SandboxNetwork;
+      if (!["open", "none"].includes(network)) {
+        console.error(red(`Unknown --network value: ${values.network}. Valid options: open, none`));
+        return 1;
+      }
       return sandboxCommand({
         spec: rest[0],
         image: values.image,
         timeoutMs: values.timeout ? Number(values.timeout) * 1000 : undefined,
+        network,
       });
     }
 
@@ -133,6 +146,7 @@ async function main(): Promise<number> {
         init: rest[0] === "init",
         baseRef: values["base-ref"],
         json: values.json,
+        failOnOsvError: values["fail-on-osv-error"],
         assess,
       });
     }

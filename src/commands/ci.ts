@@ -6,6 +6,7 @@ export interface CiCommandOptions {
   init: boolean;
   baseRef?: string;
   json: boolean;
+  failOnOsvError?: boolean;
   assess: AssessOptions;
 }
 
@@ -32,6 +33,7 @@ export async function ciCommand(opts: CiCommandOptions): Promise<number> {
   const report = await runCiCheck({
     baseRef: opts.baseRef,
     assess: opts.assess,
+    failOnOsvError: opts.failOnOsvError,
     log: (line) => console.log(dim(`  ${line}`)),
   });
 

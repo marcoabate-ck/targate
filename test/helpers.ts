@@ -6,6 +6,7 @@ export function makeSignals(overrides: Partial<Signals> = {}): Signals {
     version: "1.0.0",
     lifecycleScripts: {},
     hasLifecycleScripts: false,
+    scriptCommandFindings: [],
     hasNativeCode: false,
     nativeSurface: {
       hasIos: false,
@@ -37,11 +38,13 @@ export function makeSignals(overrides: Partial<Signals> = {}): Signals {
     knownMalicious: false,
     maliciousRecords: [],
     advisories: [],
+    osvUnavailable: false,
     repositoryMissing: false,
     recentPublish: false,
     ageInDays: 800,
     nameSimilarity: null,
     dependencyCount: 2,
+    directDependencies: [],
     ...overrides,
   };
 }

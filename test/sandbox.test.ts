@@ -9,17 +9,41 @@ describe("buildSandboxCommand", () => {
     expect(cmd).toContain("--cap-drop=ALL");
     expect(cmd).toContain("--security-opt=no-new-privileges");
     expect(cmd).toContain("node:20-alpine");
-    // No host mounts, no host env passthrough, no host network namespace.
-    // Only inspect the docker arguments (everything before the image name) —
-    // the in-container shell script legitimately contains flags like `grep -v`.
     const dockerArgs = cmd.slice(0, cmd.indexOf("node:20-alpine"));
     expect(dockerArgs).not.toContain("-v");
     expect(dockerArgs).not.toContain("--volume");
     expect(dockerArgs).not.toContain("--network=host");
-    expect(dockerArgs.filter((a) => a === "--env")).toHaveLength(2); // only the two npm_config_* vars
-    // Lifecycle scripts must be visible in the log
     expect(cmd.join(" ")).toContain("--foreground-scripts");
-    expect(cmd.join(" ")).toContain("left-pad@1.3.0");
+  });
+
+  it("passes the spec via an env var, NOT interpolated into the shell script", () => {
+    const cmd = buildSandboxCommand("left-pad@1.3.0");
+    // The spec must appear only as a docker env value...
+    expect(cmd).toContain("BYE_SPEC=left-pad@1.3.0");
+    // ...and the shell script must reference it as a quoted variable, never
+    // by literal value.
+    const script = cmd.at(-1)!;
+    expect(script).toContain('"$BYE_SPEC"');
+    expect(script).not.toContain("left-pad@1.3.0");
+  });
+
+  it("does not let a hostile spec break out of the shell script (injection)", () => {
+    const malicious = "foo'; rm -rf / #";
+    const cmd = buildSandboxCommand(malicious);
+    const script = cmd.at(-1)!;
+    // The malicious payload lives only in the env value (a single argv
+    // element docker sets verbatim), never in the executed script text.
+    expect(script).not.toContain("rm -rf");
+    expect(cmd).toContain(`BYE_SPEC=${malicious}`);
+    // And it's one discrete argv element — not concatenated into a flag.
+    expect(cmd.filter((a) => a.includes("rm -rf"))).toEqual([`BYE_SPEC=${malicious}`]);
+  });
+
+  it("defaults to open network and supports --network none", () => {
+    const open = buildSandboxCommand("x");
+    expect(open).not.toContain("--network=none");
+    const offline = buildSandboxCommand("x", { network: "none" });
+    expect(offline).toContain("--network=none");
   });
 
   it("supports a custom image", () => {

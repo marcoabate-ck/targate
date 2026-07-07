@@ -6,8 +6,11 @@ import { promisify } from "node:util";
 import { buildSignals } from "./analyze/index.js";
 import { getApproval, loadApprovals } from "./approvals.js";
 import { assessRisk, type AssessOptions } from "./ai.js";
-import { queryOsv, type OsvResult } from "./osv.js";
+import { detectPackageManager } from "./installer.js";
+import { lockfileVersionIndex, resolveInstalledVersion, snapshotLockfile } from "./lockfile.js";
+import { osvUnavailable, queryOsv, type OsvResult } from "./osv.js";
 import { applyPolicy, loadPolicy } from "./policy.js";
+import { applyOsvFailurePolicy } from "./rules.js";
 import { quarantineTarball } from "./quarantine.js";
 import { fetchPackageMetadata } from "./registry.js";
 import type { RiskAssessment } from "./types.js";
@@ -45,12 +48,6 @@ export function diffDependencies(base: PackageJsonDeps, head: PackageJsonDeps): 
   return changes;
 }
 
-/** "^1.2.3" / "~1.2.3" / "1.2.3" -> "1.2.3"; anything else -> undefined (analyze latest). */
-export function rangeToVersion(range: string): string | undefined {
-  const match = range.match(/^[\^~]?(\d+\.\d+\.\d+(?:-[\w.]+)?)$/);
-  return match?.[1];
-}
-
 async function gitShow(ref: string, file: string, cwd: string): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync("git", ["show", `${ref}:${file}`], { cwd });
@@ -63,6 +60,8 @@ async function gitShow(ref: string, file: string, cwd: string): Promise<string |
 export interface CiPackageResult {
   name: string;
   version: string;
+  /** How `version` was determined: exact lockfile match, declared range, etc. */
+  versionSource: "lockfile" | "range" | "ambiguous-lockfile";
   change: DependencyChange;
   assessment: RiskAssessment;
   approved: boolean;
@@ -81,6 +80,8 @@ export interface CiOptions {
   baseRef?: string;
   cwd?: string;
   assess?: AssessOptions;
+  /** Escalate to require_approval when OSV can't be reached. */
+  failOnOsvError?: boolean;
   log?: (line: string) => void;
 }
 
@@ -109,25 +110,37 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
     log(`note: could not read package.json at ${baseRef} — treating all dependencies as added`);
   }
 
+  // Resolve exact installed versions from the lockfile when one is present.
+  const pm = detectPackageManager(cwd);
+  const lockContent = await snapshotLockfile(pm, cwd);
+  const lockIndex = lockContent ? lockfileVersionIndex(pm, lockContent) : null;
+  if (!lockIndex) {
+    log(`note: no ${pm} lockfile found — analyzing declared version ranges, not resolved versions`);
+  }
+
   const approvals = await loadApprovals(cwd);
   const policy = await loadPolicy(cwd);
   const results: CiPackageResult[] = [];
   let exitCode = 0;
 
   for (const change of changes) {
-    log(`analyzing ${change.name}@${change.range} (${change.kind})`);
+    const resolved = resolveInstalledVersion(change.name, change.range, lockIndex);
+    log(
+      `analyzing ${change.name}@${resolved.version || change.range} (${change.kind}, version from ${resolved.source})`,
+    );
     try {
-      const metadata = await fetchPackageMetadata(change.name, rangeToVersion(change.range));
+      const metadata = await fetchPackageMetadata(change.name, resolved.version || undefined);
       const quarantine = await quarantineTarball(metadata.tarballUrl);
       try {
         let osv: OsvResult;
         try {
           osv = await queryOsv(metadata.name, metadata.version);
         } catch {
-          osv = { knownMalicious: false, maliciousRecords: [], advisories: [] };
+          osv = osvUnavailable();
         }
         const signals = await buildSignals(metadata, quarantine.packageDir, osv);
         let assessment = await assessRisk(signals, opts.assess ?? { useAi: false });
+        assessment = applyOsvFailurePolicy(assessment, signals, opts.failOnOsvError ?? false);
         if (policy) assessment = applyPolicy(assessment, signals, policy.policy);
 
         const approved = getApproval(approvals, metadata.name, metadata.version) !== null;
@@ -140,6 +153,7 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
         results.push({
           name: metadata.name,
           version: metadata.version,
+          versionSource: resolved.source,
           change,
           assessment,
           approved,
@@ -152,6 +166,7 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
       results.push({
         name: change.name,
         version: change.range,
+        versionSource: "range",
         change,
         assessment: {
           risk: "high",
@@ -191,11 +206,16 @@ jobs:
         with:
           node-version: 22
       - name: Analyze changed dependencies
-        run: npx bye ci --base-ref "origin/\${{ github.base_ref }}"
-        # Optional: set ANTHROPIC_API_KEY (or another provider key) to add
-        # AI reasoning on top of the deterministic rules engine.
-        # env:
-        #   ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
+        # --fail-on-osv-error: if OSV is unreachable, treat malicious-package
+        # status as unknown and require approval rather than trusting silently.
+        env:
+          # Context values go through env, never interpolated into the run
+          # line (the canonical GitHub Actions script-injection defense).
+          BASE_REF: \${{ github.base_ref }}
+          # Optional: set ANTHROPIC_API_KEY (or another provider key) to add
+          # AI reasoning on top of the deterministic rules engine.
+          # ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
+        run: npx bye ci --base-ref "origin/$BASE_REF" --fail-on-osv-error
 `;
 
 /** Scaffold .github/workflows/bye.yml. Returns the path, or null if it exists. */

