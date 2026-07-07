@@ -76,4 +76,12 @@ describe("cli routing and validation", () => {
     expect(code).toBe(1);
     expect(stderr).toContain("Usage: bye agents init");
   });
+
+  it("lists the install subcommand in help", async () => {
+    const { code, stdout } = await runCli("--help");
+    expect(code).toBe(0);
+    expect(stdout).toContain("bye install");
+    expect(stdout).toContain("--frozen-lockfile");
+    expect(stdout).toContain("--allow-scripts");
+  });
 }, 60_000);

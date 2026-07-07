@@ -26,6 +26,27 @@ export function buildInstallCommand(
   }
 }
 
+/**
+ * Command for a FULL project install (`bye install` — no package spec):
+ * restore everything declared in the manifest/lockfile. Scripts are gated by
+ * default (--ignore-scripts); --frozen-lockfile maps to each PM's immutable
+ * install (npm uses `ci`).
+ */
+export function buildBootstrapInstallCommand(
+  pm: PackageManager,
+  opts: { ignoreScripts?: boolean; frozenLockfile?: boolean } = {},
+): string[] {
+  const scripts = opts.ignoreScripts ? ["--ignore-scripts"] : [];
+  switch (pm) {
+    case "pnpm":
+      return ["pnpm", "install", ...scripts, ...(opts.frozenLockfile ? ["--frozen-lockfile"] : [])];
+    case "yarn":
+      return ["yarn", "install", ...scripts, ...(opts.frozenLockfile ? ["--frozen-lockfile"] : [])];
+    case "npm":
+      return ["npm", opts.frozenLockfile ? "ci" : "install", ...scripts];
+  }
+}
+
 export async function confirm(question: string, defaultYes = false): Promise<boolean> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {

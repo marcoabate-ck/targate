@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { DEFAULT_AGENT_FORMATS, initAgentFiles, parseAgentFormats } from "./agents.js";
 import { checkCommand } from "./commands/check.js";
 import { ciCommand } from "./commands/ci.js";
+import { installCommand } from "./commands/install.js";
 import { sandboxCommand } from "./commands/sandbox.js";
 import { initPolicy, type PolicyFormat } from "./policy.js";
 import type { SandboxNetwork } from "./sandbox.js";
@@ -16,6 +17,8 @@ bye — Before You Execute: AI-gated package installation
 
 Usage:
   bye add <package>[@version]         Analyze a package, then gate the install
+  bye install                         Vet the WHOLE dependency tree, then gate a
+                                      full install (pnpm/npm/yarn install)
   bye sandbox <package>[@version]     Trial install in a disposable Docker container
   bye ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
   bye ci init                         Scaffold .github/workflows/bye.yml
@@ -45,6 +48,8 @@ Options (add & ci):
   --deep                  (add) Also analyze the FULL transitive dependency
                           tree; the strictest verdict in the tree gates the
                           install (slower; the AI cache softens repeat costs)
+  --frozen-lockfile       (install) Immutable install (npm ci / --frozen-lockfile)
+  --allow-scripts         (install) Run lifecycle scripts (default: disabled)
   --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
 
 Options (sandbox):
@@ -84,6 +89,8 @@ async function main(): Promise<number> {
       "base-ref": { type: "string" },
       "fail-on-osv-error": { type: "boolean", default: false },
       deep: { type: "boolean", default: false },
+      "frozen-lockfile": { type: "boolean", default: false },
+      "allow-scripts": { type: "boolean", default: false },
       image: { type: "string" },
       timeout: { type: "string" },
       network: { type: "string" },
@@ -129,6 +136,19 @@ async function main(): Promise<number> {
         assumeYes: values.yes,
         failOnOsvError: values["fail-on-osv-error"],
         deep: values.deep,
+        assess,
+      });
+    }
+
+    case "install": {
+      return installCommand({
+        packageManager: values["package-manager"],
+        json: values.json,
+        dryRun: values["dry-run"],
+        assumeYes: values.yes,
+        failOnOsvError: values["fail-on-osv-error"],
+        frozenLockfile: values["frozen-lockfile"],
+        allowScripts: values["allow-scripts"],
         assess,
       });
     }

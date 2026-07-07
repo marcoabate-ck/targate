@@ -40,6 +40,7 @@ By default only the **requested top-level package** is analyzed; `--deep` extend
 ```
 bye add <package>[@version]         Analyze a package, then gate the install
 (bye <package> without a subcommand is a shorthand for bye add)
+bye install                         Vet the whole dependency tree, then gate a full install
 bye sandbox <package>[@version]     Trial install in a disposable Docker container
 bye ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
 bye ci init                         Scaffold .github/workflows/bye.yml
@@ -178,6 +179,28 @@ The final decision is the **strictest verdict across the whole tree**: a blocked
 
 Cost: a deep run downloads and analyzes N tarballs and, with an AI provider configured, makes up to N model calls — the [AI response cache](#ai-response-cache) makes repeated and shared dependencies cheap. If npm cannot resolve the tree, the run fails loudly rather than silently degrading to top-level-only coverage.
 
+## Full-tree install — `bye install`
+
+`bye add` gates a single new package; `bye ci` gates the deps a change touches. Neither covers the highest-exposure moment: a plain `pnpm install` / `npm install` on a fresh clone or in CI, which restores the **entire** tree and runs **every** package's lifecycle scripts at once. `bye install` is the gate for that.
+
+```bash
+bye install                 # vet the whole tree, then install (scripts disabled)
+bye install --dry-run       # vet only; print the recommended install command
+bye install --frozen-lockfile   # immutable install (npm ci / pnpm|yarn --frozen-lockfile)
+bye install --allow-scripts     # run lifecycle scripts after the tree passes
+```
+
+What it does:
+
+1. **Enumerates the whole tree.** Prefers the committed lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock`) as the source of truth for what will land on disk; with no lockfile, npm resolves the manifest in a throwaway directory (`--package-lock-only --ignore-scripts`, nothing executes) — the report shows `source: lockfile` or `resolved`.
+2. **Vets every unique `name@version`** through the same pipeline as `--deep` (quarantine, OSV, signals, AI/rules, team policy), a few at a time, reusing the [AI response cache](#ai-response-cache).
+3. **Gates the install.** If any package is `block`, or `require_approval` and not in the committed `.bye/approvals.json`, bye **refuses** and exits `2` — it never runs the install. Otherwise it runs the real install.
+4. **Scripts off by default.** The actual install runs with `--ignore-scripts`; approve individual packages' build scripts via pnpm's `onlyBuiltDependencies` (see below) or re-run with `--allow-scripts` once reviewed.
+
+Exit codes: `0` vetted (and installed, unless `--dry-run`), `2` refused (blocked/unapproved package in the tree), `1` error. `--json` prints the full report (`{ packageManager, source, total, results, decision, exitCode }`).
+
+**Caveats.** A first cold scan of a large tree is heavy (N tarballs + OSV lookups; the cache amortizes re-runs). And bye vets *before* executing, so it is meaningful on a clean or `--frozen-lockfile` install — it cannot retroactively un-run scripts for packages already present in `node_modules`.
+
 ## Team workflow
 
 ### Approval cache — `.bye/approvals.*`
@@ -289,6 +312,7 @@ bye agents init --format all          # also cursor, windsurf, copilot, cline
 Existing files are never overwritten. Commit the results so every agent working in the repo is bound by the same contract, which is:
 
 - **Before adding any dependency, run `bye add <pkg> --yes`** (add `--deep` for production deps) instead of `npm`/`pnpm`/`yarn add`. With `--yes`, bye installs `allow` / `allow_with_warnings` packages automatically but **never** auto-installs `require_approval` / `block` — those still need a human.
+- **To install a whole project's dependencies** (a bare `npm`/`pnpm`/`yarn install`, e.g. after cloning), run **`bye install`** instead — it vets the entire tree before any script runs.
 - **Read the exit code**: `0` proceed, `2` stop (blocked or needs approval — surface the reasons), `1` error.
 - **Never bypass a BLOCK** by calling the package manager directly. This is the load-bearing guardrail; without it an agent will "just try npm" the moment bye refuses.
 - bye stays **provider-agnostic**: the skill never sets `--provider`, so bye auto-detects a model from the environment or falls back to its deterministic rules engine (works offline).
@@ -337,7 +361,7 @@ OSV/OpenSSF is bye's source of known-malicious-package intelligence — its **si
 ## Development
 
 ```bash
-pnpm test        # vitest suite (216 tests, incl. an end-to-end CI check on a fixture repo)
+pnpm test        # vitest suite (227 tests, incl. end-to-end CI and full-install checks on fixture repos)
 pnpm typecheck
 pnpm dev add <pkg>   # run from source
 ```
