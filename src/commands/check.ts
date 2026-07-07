@@ -46,7 +46,13 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     return 1;
   }
 
-  console.log(dim(`\nPre-install review started for ${bold(name)}${version ? `@${version}` : ""} ...`));
+  // In --json mode stdout must be ONLY the JSON document (agents parse it), so
+  // human progress is suppressed. Otherwise it narrates the review.
+  const note = (line: string): void => {
+    if (!opts.json) console.log(line);
+  };
+
+  note(dim(`\nPre-install review started for ${bold(name)}${version ? `@${version}` : ""} ...`));
 
   // Team policy loads BEFORE the analysis: it configures the AI cache and is
   // applied to every assessment (root and transitive) inside the pipeline.
@@ -63,23 +69,23 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   const onStage = (stage: AnalysisStage, detail?: string): void => {
     switch (stage) {
       case "metadata":
-        return console.log(dim(`  ✓ npm metadata resolved (${detail})`));
+        return note(dim(`  ✓ npm metadata resolved (${detail})`));
       case "quarantine":
-        return console.log(dim(`  ✓ tarball downloaded to quarantine`));
+        return note(dim(`  ✓ tarball downloaded to quarantine`));
       case "osv":
-        return console.log(dim(`  ✓ OSV/OpenSSF malicious-package lookup done`));
+        return note(dim(`  ✓ OSV/OpenSSF malicious-package lookup done`));
       case "osv-failed":
-        return console.log(
+        return note(
           (opts.failOnOsvError ? red : yellow)(
             `  ⚠ OSV lookup failed — malicious-package status is UNKNOWN`,
           ),
         );
       case "signals":
-        return console.log(dim(`  ✓ package contents inspected (scripts, native surface, RN hardening)`));
+        return note(dim(`  ✓ package contents inspected (scripts, native surface, RN hardening)`));
       case "assessment":
-        return console.log(dim(`  ✓ risk assessment complete (${detail})`));
+        return note(dim(`  ✓ risk assessment complete (${detail})`));
       case "policy":
-        return console.log(dim(`  ✓ team policy applied (${detail})`));
+        return note(dim(`  ✓ team policy applied (${detail})`));
     }
   };
 
@@ -108,9 +114,9 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   if (opts.deep) {
     const tree = await resolveTransitiveTree(metadata.name, metadata.version);
     if (tree.length === 0) {
-      console.log(dim(`  ✓ no transitive dependencies to analyze`));
+      note(dim(`  ✓ no transitive dependencies to analyze`));
     } else {
-      console.log(dim(`  … analyzing ${tree.length} transitive dependencies (--deep)`));
+      note(dim(`  … analyzing ${tree.length} transitive dependencies (--deep)`));
       deepResults = await analyzeTransitiveDeps(tree, {
         assess,
         failOnOsvError: opts.failOnOsvError,
@@ -118,7 +124,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
         onResult: (r) => {
           const icon = STAGE_ICON[r.assessment.decision] ?? "?";
           const paint = r.assessment.decision === "allow" ? dim : r.assessment.decision === "block" ? red : yellow;
-          console.log(paint(`    ${icon} ${r.name}@${r.version} → ${r.assessment.decision}`));
+          note(paint(`    ${icon} ${r.name}@${r.version} → ${r.assessment.decision}`));
         },
       });
     }
@@ -165,32 +171,32 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
 
   switch (result.mode) {
     case "blocked":
-      console.log(red(bold("\nInstallation blocked. This package was not installed.")));
+      note(red(bold("\nInstallation blocked. This package was not installed.")));
       return 2;
     case "skipped":
       if (opts.dryRun && result.command) {
-        console.log(dim(`\nDry run — recommended command: ${result.command.join(" ")}`));
+        note(dim(`\nDry run — recommended command: ${result.command.join(" ")}`));
       } else {
-        console.log(dim("\nNothing installed."));
+        note(dim("\nNothing installed."));
       }
       return 0;
     case "no-scripts":
     case "normal": {
-      console.log(
+      note(
         green(result.mode === "no-scripts" ? "\nInstalled with lifecycle scripts disabled." : "\nInstalled."),
       );
 
       // Phase 2 — record the human approval so the team doesn't re-review
       if (assessment.decision === "require_approval") {
         await recordApproval(metadata.name, metadata.version, result.mode);
-        console.log(dim(`  ✓ approval recorded in .bye/approvals.json (commit it to share)`));
+        note(dim(`  ✓ approval recorded in .bye/approvals.json (commit it to share)`));
         if (pm === "pnpm" && signals.hasLifecycleScripts) {
           const written = await recordBuildApproval(
             metadata.name,
             result.mode === "normal" ? "approved" : "ignored",
           );
           if (written) {
-            console.log(
+            note(
               dim(`  ✓ pnpm approve-builds updated (${written}): scripts ${result.mode === "normal" ? "allowed" : "ignored"}`),
             );
           }
@@ -201,9 +207,9 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       const lockAfter = await snapshotLockfile(pm);
       const diff = diffLockfiles(pm, lockBefore, lockAfter);
       if (diff.added.length > 0) {
-        console.log(cyan(`\nLockfile diff — ${diff.added.length} package(s) added:`));
-        for (const entry of diff.added.slice(0, 25)) console.log(dim(`  + ${entry}`));
-        if (diff.added.length > 25) console.log(dim(`  … and ${diff.added.length - 25} more`));
+        note(cyan(`\nLockfile diff — ${diff.added.length} package(s) added:`));
+        for (const entry of diff.added.slice(0, 25)) note(dim(`  + ${entry}`));
+        if (diff.added.length > 25) note(dim(`  … and ${diff.added.length - 25} more`));
       }
       return 0;
     }
