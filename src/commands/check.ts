@@ -4,8 +4,9 @@ import { getApproval, loadApprovals, recordApproval } from "../approvals.js";
 import { assessRisk, type AssessOptions } from "../ai.js";
 import { detectPackageManager, gateInstall } from "../installer.js";
 import { diffLockfiles, snapshotLockfile } from "../lockfile.js";
-import { queryOsv, type OsvResult } from "../osv.js";
+import { osvUnavailable, queryOsv, type OsvResult } from "../osv.js";
 import { applyPolicy, loadPolicy } from "../policy.js";
+import { applyOsvFailurePolicy } from "../rules.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
 import { quarantineTarball } from "../quarantine.js";
 import { fetchPackageMetadata, PackageNotFoundError, parsePackageSpec } from "../registry.js";
@@ -18,6 +19,8 @@ export interface CheckOptions {
   json: boolean;
   dryRun: boolean;
   assumeYes: boolean;
+  /** Escalate to require_approval when OSV can't be reached. */
+  failOnOsvError?: boolean;
   assess: AssessOptions;
 }
 
@@ -54,14 +57,19 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       osv = await queryOsv(metadata.name, metadata.version);
       console.log(dim(`  ✓ OSV/OpenSSF malicious-package lookup done`));
     } catch {
-      osv = { knownMalicious: false, maliciousRecords: [], advisories: [] };
-      console.log(yellow(`  ⚠ OSV lookup failed — continuing without it`));
+      osv = osvUnavailable();
+      console.log(
+        (opts.failOnOsvError ? red : yellow)(
+          `  ⚠ OSV lookup failed — malicious-package status is UNKNOWN`,
+        ),
+      );
     }
 
     const signals = await buildSignals(metadata, quarantine.packageDir, osv);
     console.log(dim(`  ✓ package contents inspected (scripts, native surface, RN hardening)`));
 
     let assessment = await assessRisk(signals, opts.assess);
+    assessment = applyOsvFailurePolicy(assessment, signals, opts.failOnOsvError ?? false);
     console.log(dim(`  ✓ risk assessment complete (${assessment.source})`));
 
     // Phase 6 — team policy on top of the AI/rules assessment

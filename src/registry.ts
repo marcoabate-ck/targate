@@ -1,3 +1,4 @@
+import { highestSemver } from "./semver.js";
 import type { PackageMetadata } from "./types.js";
 
 const REGISTRY = "https://registry.npmjs.org";
@@ -38,12 +39,22 @@ export async function fetchPackageMetadata(
     time?: Record<string, string>;
   };
 
+  // Without an explicit version or a `latest` dist-tag (rare, but registry
+  // key order is NOT guaranteed to be publish order), fall back to the
+  // semver-highest published version rather than whatever key comes last.
   const version =
-    requestedVersion ?? doc["dist-tags"]?.latest ?? Object.keys(doc.versions ?? {}).pop();
+    requestedVersion ?? doc["dist-tags"]?.latest ?? highestSemver(Object.keys(doc.versions ?? {}));
   if (!version || !doc.versions?.[version]) {
     throw new Error(`Version "${requestedVersion ?? "latest"}" of ${name} not found`);
   }
   const manifest = doc.versions[version];
+
+  // A manifest without dist.tarball (unpublished/malformed version) would
+  // otherwise surface as an opaque fetch(undefined) failure mid-analysis.
+  const tarballUrl = manifest.dist?.tarball;
+  if (typeof tarballUrl !== "string" || tarballUrl.length === 0) {
+    throw new Error(`${name}@${version} has no downloadable tarball on the npm registry`);
+  }
 
   const publishDate = doc.time?.[version];
   // Package age is measured from the FIRST publish of the package, not the
@@ -69,8 +80,9 @@ export async function fetchPackageMetadata(
     ),
     publishDate,
     ageInDays,
-    tarballUrl: manifest.dist?.tarball,
+    tarballUrl,
     scripts: manifest.scripts ?? {},
     dependencyCount: Object.keys(manifest.dependencies ?? {}).length,
+    directDependencies: Object.keys(manifest.dependencies ?? {}).sort(),
   };
 }

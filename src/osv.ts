@@ -6,6 +6,14 @@ export interface OsvResult {
   knownMalicious: boolean;
   maliciousRecords: MaliciousRecord[];
   advisories: MaliciousRecord[];
+  /** Set when the lookup failed — the result is "unknown", not "clean". */
+  unavailable: boolean;
+}
+
+/** Result to use when OSV cannot be reached. Fails OPEN by default but is
+ * explicitly marked unavailable so callers can choose to fail closed. */
+export function osvUnavailable(): OsvResult {
+  return { knownMalicious: false, maliciousRecords: [], advisories: [], unavailable: true };
 }
 
 /**
@@ -65,5 +73,6 @@ export async function queryOsv(name: string, version: string): Promise<OsvResult
     knownMalicious: maliciousRecords.length > 0,
     maliciousRecords,
     advisories,
+    unavailable: false,
   };
 }

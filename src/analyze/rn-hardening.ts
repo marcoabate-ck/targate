@@ -223,12 +223,3 @@ export async function analyzeRnHardening(
 
   return result;
 }
-
-export function hasHardeningFindings(rn: RnHardening): boolean {
-  return (
-    rn.podspecFindings.length > 0 ||
-    rn.gradleFindings.length > 0 ||
-    rn.dangerousPermissions.length > 0 ||
-    rn.autolinkingFindings.length > 0
-  );
-}

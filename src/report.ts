@@ -98,6 +98,15 @@ export function renderReport(
   );
   lines.push(
     "  " +
+      (signals.osvUnavailable
+        ? yellow("⚠ OSV/OpenSSF lookup unavailable — malicious-package status UNKNOWN")
+        : dim("✓ OSV/OpenSSF lookup completed")),
+  );
+  for (const finding of signals.scriptCommandFindings) {
+    lines.push("  " + red(`! ${finding}`));
+  }
+  lines.push(
+    "  " +
       (signals.hasNativeCode
         ? cyan(
             `ℹ native code detected (${[

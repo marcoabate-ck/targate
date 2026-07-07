@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { getApproval, loadApprovals, recordApproval } from "../src/approvals.js";
-import { diffLockfiles, extractLockfileEntries } from "../src/lockfile.js";
+import {
+  diffLockfiles,
+  extractLockfileEntries,
+  lockfileVersionIndex,
+  resolveInstalledVersion,
+} from "../src/lockfile.js";
 import { recordBuildApproval } from "../src/pnpm-builds.js";
 
 let dir: string;
@@ -140,5 +145,61 @@ describe("lockfile diff", () => {
   it("treats a missing before-snapshot as empty", () => {
     const after = JSON.stringify({ packages: { "node_modules/a": { version: "1.0.0" } } });
     expect(diffLockfiles("npm", null, after).added).toEqual(["a@1.0.0"]);
+  });
+});
+
+describe("resolveInstalledVersion (finding #5 — analyze resolved, not declared)", () => {
+  const lock = JSON.stringify({
+    packages: {
+      "node_modules/left-pad": { version: "1.3.0" },
+      "node_modules/axios": { version: "1.7.9" },
+      "node_modules/dep-a/node_modules/semver": { version: "6.3.1" },
+      "node_modules/semver": { version: "7.6.0" },
+    },
+  });
+  const index = lockfileVersionIndex("npm", lock);
+
+  it("prefers the exact version resolved in the lockfile over the declared range", () => {
+    // package.json says "^1.7.0" but the lockfile actually resolved 1.7.9
+    const r = resolveInstalledVersion("axios", "^1.7.0", index);
+    expect(r).toEqual({ version: "1.7.9", source: "lockfile" });
+  });
+
+  it("pins the declared exact version when several are in the tree", () => {
+    const r = resolveInstalledVersion("semver", "7.6.0", index);
+    expect(r).toEqual({ version: "7.6.0", source: "lockfile" });
+  });
+
+  it("flags ambiguity when multiple versions and the range doesn't pin one", () => {
+    const r = resolveInstalledVersion("semver", "^7.0.0", index);
+    expect(r.source).toBe("ambiguous-lockfile");
+    expect(["6.3.1", "7.6.0"]).toContain(r.version);
+  });
+
+  it("picks the semver-highest version in the ambiguous case (not lexicographic)", () => {
+    // "1.9.0" > "1.10.0" as strings — the ambiguous fallback must not fall
+    // for it and analyze a lower version than the one npm installs.
+    const trap = lockfileVersionIndex(
+      "npm",
+      JSON.stringify({
+        packages: {
+          "node_modules/pkg": { version: "1.10.0" },
+          "node_modules/dep-a/node_modules/pkg": { version: "1.9.0" },
+        },
+      }),
+    );
+    const r = resolveInstalledVersion("pkg", "^1.0.0", trap);
+    expect(r).toEqual({ version: "1.10.0", source: "ambiguous-lockfile" });
+  });
+
+  it("falls back to the declared range with no lockfile", () => {
+    expect(resolveInstalledVersion("left-pad", "^1.3.0", null)).toEqual({
+      version: "1.3.0",
+      source: "range",
+    });
+  });
+
+  it("returns an empty version for an unresolvable range with no lockfile", () => {
+    expect(resolveInstalledVersion("x", "*", null)).toEqual({ version: "", source: "range" });
   });
 });

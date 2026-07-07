@@ -25,13 +25,15 @@ developer intent → package inspection → AI risk reasoning → safe install d
 
 1. **Resolves metadata** from the npm registry (version, repository, maintainers, publish dates, scripts, dependencies).
 2. **Downloads the tarball into quarantine** (isolated temp dir, extracted with strict path checking, lifecycle scripts are never executed).
-3. **Detects lifecycle scripts** (`preinstall`, `install`, `postinstall`, `prepare`, `prepack`, `postpack`) and statically inspects the commands and the files they reference.
+3. **Detects lifecycle scripts** (`preinstall`, `install`, `postinstall`, `prepare`, `prepack`, `postpack`), statically inspects the **command strings** themselves (`curl … | bash`, `wget`, `node -e`, credential-file reads) and the files they reference.
 4. **Scans package contents** for `process.env` access, `child_process` usage, network calls, `eval`, and minified/obfuscated code — with special weight on install-time files.
 5. **Checks OSV / OpenSSF** for known malicious-package records (`MAL-*` and GHSA malware advisories) and vulnerability advisories.
 6. **Maps the React Native native surface**: `ios/`, `android/`, Podspecs, Gradle, CMake, `react-native.config.js`, binary artifacts, and Android permissions from `AndroidManifest.xml`.
 7. **Checks for typosquatting** against a curated list of popular RN/npm packages (edit distance).
-8. **Reasons over the signals with an AI provider** (structured JSON output). If no provider is configured, a deterministic rules engine produces the decision instead — and the AI can never be more permissive than the hard policy (known-malicious ⇒ always BLOCK).
+8. **Reasons over the signals with an AI provider** (structured JSON output). If no provider is configured, a deterministic rules engine produces the decision instead. **Every deterministic BLOCK is a hard floor** — the AI can make a decision stricter but can never downgrade a rules-engine BLOCK to a weaker verdict.
 9. **Gates the install**: `allow` / `allow_with_warnings` ask for confirmation, `require_approval` defaults to `--ignore-scripts`, `block` never installs.
+
+Only the **requested top-level package** is analyzed — see [Scope and limitations](#scope-and-limitations).
 
 ## Usage
 
@@ -60,6 +62,7 @@ Options (add & ci):
 Options (sandbox):
 --image <image>         Docker image (default: node:20-alpine)
 --timeout <seconds>     Kill the sandbox after N seconds (default: 300)
+--network <mode>        open (default, full egress) | none (offline trial)
 ```
 
 Exit codes: `0` ok, `1` error, `2` blocked (or suspicious sandbox / failed CI check).
@@ -126,12 +129,12 @@ bye add react-native-mmkv --no-ai
 
 | Decision | Trigger (rules engine) |
 |---|---|
-| **BLOCK** | Known malicious record (OSV/OpenSSF); typosquat-like name + recent publish; install-time code reading `process.env` **and** calling the network; recent package with scripts and no repository |
-| **REQUIRE APPROVAL** | Lifecycle scripts present; name similar to a popular package; package created very recently; suspicious install-time findings |
-| **ALLOW WITH WARNINGS** | Native code present; missing repository metadata; vulnerability advisories; large dependency tree |
+| **BLOCK** | Known malicious record (OSV/OpenSSF); typosquat-like name + recent publish; a lifecycle command that fetches and executes remote code (`curl … \| bash`, `wget … \| sh`, `node -e`); install-time code reading `process.env` **and** calling the network; recent package with scripts and no repository |
+| **REQUIRE APPROVAL** | Lifecycle scripts present; suspicious lifecycle command constructs (shell invocation, credential-file reads); name similar to a popular package; package created very recently; suspicious install-time findings |
+| **ALLOW WITH WARNINGS** | Native code present; missing repository metadata; vulnerability advisories; large direct-dependency count; OSV lookup unavailable |
 | **ALLOW** | No scripts, no records, consistent metadata |
 
-With an AI provider configured, the model weighs the same signals contextually (e.g. "this postinstall just compiles native bindings") but is clamped by the policy above regardless of provider.
+With an AI provider configured, the model weighs the same signals contextually (e.g. "this postinstall just compiles native bindings"). The clamp is one-directional: **the AI can escalate but never de-escalate a deterministic BLOCK.** Concretely, `clampDecision` re-runs the rules engine and, if it returns BLOCK, forces the final decision to BLOCK regardless of what the model returned — so a model that is jailbroken, prompt-injected, or simply wrong cannot turn a rules-engine BLOCK into ALLOW. The AI is still free to reach BLOCK or REQUIRE APPROVAL on its own when the rules engine was more permissive.
 
 ## Team workflow
 
@@ -188,7 +191,10 @@ const policy: PolicyFile = {
 export default policy;
 ```
 
-`.ts`/`.js` files are executed through [jiti](https://github.com/unjs/jiti) (default export; the type import is erased at runtime, so the file loads even where `bye` isn't installed as a dependency), and every format goes through the same schema validation. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages, but a known-malicious record can never be overridden, not even by the allow list.
+`.ts`/`.js` files are executed through [jiti](https://github.com/unjs/jiti) (default export; the type import is erased at runtime, so the file loads even where `bye` isn't installed as a dependency), and every format goes through the same schema validation. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages. That downgrade has hard limits, because the allow list is **name-based** (it would otherwise trust every future version of a package, including a compromised release):
+
+- a **known-malicious record** can never be overridden — the package stays blocked;
+- **any other deterministic BLOCK** (e.g. a `curl … | bash` postinstall, install-time env + network access) can't be waved through either: the allow list caps at `require_approval`, so a human must approve **that exact version** — and the version-pinned `.bye/approvals.json`, not the blanket allow list, is what records the decision.
 
 ## React Native hardening
 
@@ -209,23 +215,53 @@ Build-time execution findings (script phases, remote Gradle scripts) escalate to
 bye sandbox suspicious-package
 ```
 
-Runs `npm install` in a **disposable Docker container** (`node:20-alpine`): no host environment variables, no SSH agent, no npm/GitHub tokens, no host filesystem, all capabilities dropped, 1 CPU / 1 GB cap, killed after a timeout. Lifecycle scripts run with `--foreground-scripts` so their full output lands in the log, which is then scanned for exfiltration patterns (credential file references, raw network connections, base64 decoding, …); the container also reports filesystem writes outside the project directory. Exit code `2` means the log contains something you should read before installing on your machine.
+Runs `npm install` in a **disposable Docker container** (`node:20-alpine`): no host environment variables, no SSH agent, no npm/GitHub tokens, no host filesystem mounted, all Linux capabilities dropped, no privilege escalation, 1 CPU / 1 GB cap, killed after a timeout. The package spec is passed as a container environment variable, never interpolated into the container's shell script, so a hostile spec string cannot inject commands. Lifecycle scripts run with `--foreground-scripts` so their full output lands in the log, which is then scanned for exfiltration patterns (credential file references, raw network connections, base64 decoding, …); the container also reports filesystem writes outside the project directory. Exit code `2` means the log contains something you should read before installing on your machine.
+
+**Network — read this before relying on the sandbox as a jail.** By default the container has **full outbound network access** (docker's bridge network): npm needs it to download the package and its dependencies, and a malicious install script can use that same access to exfiltrate or phone home. The sandbox keeps that activity *off your host and out of your real environment*, and surfaces it in the log — it is an **observation sandbox, not a network jail**. It does not restrict *which* hosts the install can reach, and there is no per-host allowlist. `--network none` runs a fully offline trial (useful to confirm a script does **not** need the network — a phone-home attempt then fails loudly), but a normal cold install cannot fetch its dependencies with the network off.
 
 ## CI integration
 
 ```bash
-bye ci --base-ref origin/main   # in a PR: analyze added/updated dependencies
-bye ci init                     # scaffold .github/workflows/bye.yml
+bye ci --base-ref origin/main --fail-on-osv-error   # in a PR: analyze added/updated dependencies
+bye ci init                                          # scaffold .github/workflows/bye.yml
 ```
 
-`bye ci` diffs `package.json` against the base ref, runs the full analysis pipeline on every added/updated dependency and fails the build (exit `2`) when a package is **blocked** or **requires an approval that is not in the committed `.bye/approvals.json`** (approval drift). The generated GitHub Actions workflow triggers on PRs touching `package.json` or a lockfile; add a provider API key secret to enable AI reasoning in CI. The same command works on any CI system via exit codes and `--json`.
+`bye ci` diffs `package.json` against the base ref, resolves the **exact version that will be installed** from the lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock`) when present, runs the full analysis pipeline on every added/updated dependency, and fails the build (exit `2`) when a package is **blocked** or **requires an approval that is not in the committed `.bye/approvals.json`** (approval drift). Without a lockfile it analyzes the declared version range and logs that it did so. The generated GitHub Actions workflow triggers on PRs touching `package.json` or a lockfile, passes `--fail-on-osv-error`, and can take a provider API key secret to enable AI reasoning. The same command works on any CI system via exit codes and `--json`.
 
-> CI protects the repository. The local gate protects the developer — `bye ci` is the second line of defense, not a replacement for `bye <pkg>`.
+> CI protects the repository. The local gate protects the developer — `bye ci` is the second line of defense, not a replacement for `bye add <pkg>`.
+
+## OSV lookup failures
+
+OSV/OpenSSF is bye's source of known-malicious-package intelligence — its **single strongest deterministic guarantee**. When the lookup cannot be completed (offline, network error, OSV outage), bye marks the malicious-package status as **unknown**, not clean:
+
+- the report shows `OSV/OpenSSF lookup unavailable — malicious-package status UNKNOWN`;
+- the rules engine adds an explicit warning to the decision;
+- by default bye still **fails open** (proceeds with the rest of the analysis) so an OSV outage doesn't block all installs;
+- pass `--fail-on-osv-error` (recommended in CI, and set by the generated workflow) to **fail closed**: an unreachable OSV lookup escalates the decision to `require_approval` so a package is never silently trusted while the strongest check was skipped.
+
+## Scope and limitations
+
+`bye` is a decision aid that moves supply-chain review to the install decision point. It is **not** a malware sandbox or a guarantee of safety. Know exactly what it does and does not do:
+
+- **Only the requested top-level package is analyzed.** Transitive dependencies are **not** recursively fetched and inspected before install. A clean direct package can still pull in a malicious transitive dependency. bye surfaces the direct-dependency count and, after a real install, prints the full lockfile diff (direct + transitive added) so you can see what actually landed — but it does not run the pre-install analysis pipeline on each transitive package. Recursive analysis is a deliberate non-goal for now: it multiplies registry/tarball/OSV traffic by the size of the dependency tree and needs full range resolution to be meaningful. Treat a bye "allow" as "the package you named looks fine", not "the whole tree is fine". For transitive coverage, pair bye with a lockfile scanner / `npm audit` / OSV-Scanner in CI.
+- **Static detection is heuristic and bypassable.** The content and command scanners are regex/substring based. They reliably catch the common, un-obfuscated patterns (`curl … | bash`, `process.env` + network, `child_process`) but a determined attacker can evade them with obfuscation, string-splitting, encoding, or dynamic dispatch. A clean static result is not proof of safety.
+- **Content scan is bounded.** To stay fast, the scanner skips files larger than 2 MB and stops after 2000 files per package. A payload hidden past those limits will not be scanned. (Very large minified bundles are still flagged as minified/obfuscated by other checks.)
+- **Native analysis is source-level.** Podspec/Gradle review is static; pre-built `.xcframework`/`.so`/`.aar` binaries are flagged as "binary code you cannot read" but their contents are not disassembled.
+- **`approvedBy` is not authenticated.** The approver name in `.bye/approvals.json` comes from `$USER` and is informational only — it is trivially spoofable and must not be treated as a cryptographic attestation. Trust in an approval comes from code review of the committed `.bye/approvals.json` diff, not from the recorded name.
+- **Approvals are version-specific by design.** A new version of an approved package requires a new approval; this is intentional (a compromised release is a new version). CI flags the drift.
+- **AI output is advisory and clamped.** The deterministic rules engine is the security floor; the AI can only make decisions stricter (see [Decision policy](#decision-policy)). With `--no-ai`, or no provider configured, bye runs entirely on the rules engine.
+- **npm registry only.** Other registries, git/tarball/file specifiers, and monorepo `workspace:` protocols are not analyzed.
+
+## Compatibility notes
+
+- **Node**: requires Node ≥ 20 (uses the global `fetch` and `node:util` `parseArgs`).
+- **Anthropic SDK**: pinned to `@anthropic-ai/sdk` `^0.110`; the Anthropic provider uses `output_config.format` (server-enforced structured output) and adaptive thinking, which require a recent SDK/model. Other providers go through the OpenAI-compatible client and validate JSON client-side.
+- **Docker**: only the `sandbox` command needs Docker; every other command runs without it.
 
 ## Development
 
 ```bash
-pnpm test        # vitest unit suite
+pnpm test        # vitest suite (172 tests, incl. an end-to-end CI check on a fixture repo)
 pnpm typecheck
-pnpm dev <pkg>   # run from source
+pnpm dev add <pkg>   # run from source
 ```

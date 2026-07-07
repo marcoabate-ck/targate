@@ -1,10 +1,11 @@
-import { isDockerAvailable, runSandbox } from "../sandbox.js";
+import { isDockerAvailable, runSandbox, type SandboxNetwork } from "../sandbox.js";
 import { bold, cyan, dim, green, red, yellow } from "../report.js";
 
 export interface SandboxCommandOptions {
   spec: string;
   image?: string;
   timeoutMs?: number;
+  network?: SandboxNetwork;
 }
 
 /** Phase 4 — `bye sandbox <pkg>`: trial install in a disposable container. */
@@ -17,17 +18,22 @@ export async function sandboxCommand(opts: SandboxCommandOptions): Promise<numbe
     return 1;
   }
 
+  const network = opts.network ?? "open";
   console.log(bold(`\nSandboxed trial install of ${opts.spec}`));
   console.log(
     dim(
       "Disposable container: no host env vars, no SSH agent, no npm/GitHub tokens,\n" +
-        "no host filesystem, capabilities dropped, 1 CPU / 1 GB memory cap.\n",
+        "no host filesystem, capabilities dropped, 1 CPU / 1 GB memory cap.\n" +
+        (network === "none"
+          ? "Network: DISABLED (--network none) — offline trial.\n"
+          : "Network: FULL egress (npm needs it; a malicious script can use it too).\n"),
     ),
   );
 
   const result = await runSandbox(opts.spec, {
     image: opts.image,
     timeoutMs: opts.timeoutMs,
+    network,
   });
 
   console.log("");
