@@ -5,7 +5,7 @@ import { parse, stringify } from "yaml";
 import type { AiCachePolicy } from "./ai-cache.js";
 import { loadConfigFile } from "./config-loader.js";
 import { evaluateRules } from "./rules.js";
-import type { RiskAssessment, Signals } from "./types.js";
+import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
 
 export const POLICY_BASENAME = "bye.policy";
 
@@ -168,8 +168,7 @@ function escalate(
   to: "require_approval" | "block",
   reason: string,
 ): RiskAssessment {
-  const order = { allow: 0, allow_with_warnings: 1, require_approval: 2, block: 3 } as const;
-  if (order[assessment.decision] >= order[to]) {
+  if (DECISION_SEVERITY[assessment.decision] >= DECISION_SEVERITY[to]) {
     // Already at least as strict — just record the policy rule that fired.
     return { ...assessment, reasons: [...assessment.reasons, `[policy] ${reason}`] };
   }

@@ -6,6 +6,18 @@ export type Decision =
   | "require_approval"
   | "block";
 
+/**
+ * Severity rank of each decision. The single source of truth for "which
+ * decision is stricter" — used everywhere decisions are escalated or clamped
+ * (rules, policy, transitive aggregation). Higher = stricter.
+ */
+export const DECISION_SEVERITY: Record<Decision, number> = {
+  allow: 0,
+  allow_with_warnings: 1,
+  require_approval: 2,
+  block: 3,
+};
+
 export interface PackageMetadata {
   name: string;
   version: string;

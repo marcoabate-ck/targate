@@ -5,7 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { extractLockfileEntries } from "./lockfile.js";
 import { analyzePackage, type AnalyzePackageOptions } from "./pipeline.js";
-import type { Decision, RiskAssessment } from "./types.js";
+import { DECISION_SEVERITY, type RiskAssessment } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -164,13 +164,6 @@ export async function analyzeTransitiveDeps(
   });
 }
 
-const DECISION_ORDER: Record<Decision, number> = {
-  allow: 0,
-  allow_with_warnings: 1,
-  require_approval: 2,
-  block: 3,
-};
-
 const MAX_LISTED_FINDINGS = 10;
 
 /**
@@ -185,7 +178,9 @@ export function aggregateWithTransitive(
 ): RiskAssessment {
   const flagged = results
     .filter((r) => r.assessment.decision !== "allow")
-    .sort((a, b) => DECISION_ORDER[b.assessment.decision] - DECISION_ORDER[a.assessment.decision]);
+    .sort(
+      (a, b) => DECISION_SEVERITY[b.assessment.decision] - DECISION_SEVERITY[a.assessment.decision],
+    );
 
   if (flagged.length === 0) {
     return {
@@ -198,7 +193,7 @@ export function aggregateWithTransitive(
   }
 
   const worst = flagged[0].assessment.decision;
-  const escalate = DECISION_ORDER[worst] > DECISION_ORDER[root.decision];
+  const escalate = DECISION_SEVERITY[worst] > DECISION_SEVERITY[root.decision];
 
   const reasons = [
     ...root.reasons,

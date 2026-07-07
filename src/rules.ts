@@ -1,4 +1,4 @@
-import type { RiskAssessment, Signals } from "./types.js";
+import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
 
 /**
  * Deterministic policy engine — used as a fallback when no Anthropic API key
@@ -193,8 +193,7 @@ export function applyOsvFailurePolicy(
   failClosed: boolean,
 ): RiskAssessment {
   if (!failClosed || !signals.osvUnavailable) return assessment;
-  const order = { allow: 0, allow_with_warnings: 1, require_approval: 2, block: 3 } as const;
-  if (order[assessment.decision] >= order.require_approval) return assessment;
+  if (DECISION_SEVERITY[assessment.decision] >= DECISION_SEVERITY.require_approval) return assessment;
   return {
     ...assessment,
     decision: "require_approval",
