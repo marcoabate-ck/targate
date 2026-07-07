@@ -8,6 +8,7 @@
  *   export default policy;
  */
 export type { DependencyPolicy, PolicyFile } from "./policy.js";
+export type { AiCachePolicy } from "./ai-cache.js";
 export type { ApprovalRecord, ApprovalsMap } from "./approvals.js";
 export type { Decision, RiskAssessment, RiskLevel, Signals } from "./types.js";
 

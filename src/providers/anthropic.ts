@@ -14,8 +14,8 @@ export interface AnthropicProviderOptions {
 
 export class AnthropicProvider implements AiProvider {
   readonly name = "anthropic";
+  readonly model: string;
   private readonly client: Anthropic;
-  private readonly model: string;
 
   constructor(opts: AnthropicProviderOptions = {}) {
     this.client = opts.apiKey ? new Anthropic({ apiKey: opts.apiKey }) : new Anthropic();

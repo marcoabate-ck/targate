@@ -40,6 +40,44 @@ describe("parsePolicy", () => {
       parsePolicy("dependencyPolicy:\n  requireApprovalForNativeCode: 'yes'\n"),
     ).toThrow(PolicyError);
   });
+
+  it("parses the aiCache section", () => {
+    const parsed = parsePolicy(
+      [
+        "dependencyPolicy: {}",
+        "aiCache:",
+        "  enabled: false",
+        "  scope: project",
+        "  ttlHours: 72",
+        "  exclude: [internal-lib]",
+      ].join("\n"),
+    );
+    expect(parsed.aiCache).toEqual({
+      enabled: false,
+      scope: "project",
+      ttlHours: 72,
+      exclude: ["internal-lib"],
+    });
+  });
+
+  it("aiCache is optional", () => {
+    expect(parsePolicy("dependencyPolicy: {}").aiCache).toBeUndefined();
+  });
+
+  it("rejects invalid aiCache values", () => {
+    expect(() => parsePolicy("dependencyPolicy: {}\naiCache:\n  scope: global\n")).toThrow(
+      PolicyError,
+    );
+    expect(() => parsePolicy("dependencyPolicy: {}\naiCache:\n  ttlHours: -1\n")).toThrow(
+      PolicyError,
+    );
+    expect(() => parsePolicy("dependencyPolicy: {}\naiCache:\n  enabled: 'on'\n")).toThrow(
+      PolicyError,
+    );
+    expect(() => parsePolicy("dependencyPolicy: {}\naiCache:\n  exclude: nope\n")).toThrow(
+      PolicyError,
+    );
+  });
 });
 
 describe("applyPolicy", () => {

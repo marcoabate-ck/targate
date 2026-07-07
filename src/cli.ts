@@ -37,6 +37,9 @@ Options (add & ci):
   --reasoning             Enable model reasoning where the provider supports it
   --fail-on-osv-error     Treat an unreachable OSV lookup as "unknown" and
                           escalate to require-approval (recommended in CI)
+  --deep                  (add) Also analyze the FULL transitive dependency
+                          tree; the strictest verdict in the tree gates the
+                          install (slower; the AI cache softens repeat costs)
   --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
 
 Options (sandbox):
@@ -75,6 +78,7 @@ async function main(): Promise<number> {
       reasoning: { type: "boolean", default: false },
       "base-ref": { type: "string" },
       "fail-on-osv-error": { type: "boolean", default: false },
+      deep: { type: "boolean", default: false },
       image: { type: "string" },
       timeout: { type: "string" },
       network: { type: "string" },
@@ -119,6 +123,7 @@ async function main(): Promise<number> {
         dryRun: values["dry-run"],
         assumeYes: values.yes,
         failOnOsvError: values["fail-on-osv-error"],
+        deep: values.deep,
         assess,
       });
     }
@@ -180,6 +185,8 @@ async function main(): Promise<number> {
         json: values.json,
         dryRun: values["dry-run"],
         assumeYes: values.yes,
+        failOnOsvError: values["fail-on-osv-error"],
+        deep: values.deep,
         assess,
       });
   }
