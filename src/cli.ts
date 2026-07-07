@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { DEFAULT_AGENT_FORMATS, initAgentFiles, parseAgentFormats } from "./agents.js";
 import { checkCommand } from "./commands/check.js";
 import { ciCommand } from "./commands/ci.js";
 import { sandboxCommand } from "./commands/sandbox.js";
@@ -20,6 +21,10 @@ Usage:
   bye ci init                         Scaffold .github/workflows/bye.yml
   bye policy init [--format <fmt>]    Scaffold the team policy file
                                       (yaml default; also json, js, ts — typed)
+  bye agents init [--format <list>]   Scaffold agent-instruction files so AI
+                                      coding agents gate installs through bye
+                                      (default skill,agents; also cursor,
+                                      windsurf, copilot, cline, or all)
 
   (bye <package> without a subcommand is a shorthand for bye add <package>)
 
@@ -176,9 +181,31 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    case "agents": {
+      if (rest[0] !== "init") {
+        console.error(red("Usage: bye agents init [--format skill,agents,cursor,windsurf,copilot,cline|all]"));
+        return 1;
+      }
+      let formats;
+      try {
+        formats = values.format ? parseAgentFormats(values.format) : DEFAULT_AGENT_FORMATS;
+      } catch (err) {
+        console.error(red(err instanceof Error ? err.message : String(err)));
+        return 1;
+      }
+      const { written, skipped } = await initAgentFiles(process.cwd(), formats);
+      for (const f of written) console.log(green(`Created ${f}`));
+      for (const f of skipped) console.log(yellow(`${f} already exists — left unchanged.`));
+      if (written.length > 0) {
+        console.log(dim("Commit these so every agent working in this repo gates installs through bye."));
+      }
+      return 0;
+    }
+
     default:
       // Backward compatible shorthand: `bye <package>` behaves as `bye add`.
-      console.log(dim(`(shorthand for \`bye add ${command}\`)`));
+      // Suppressed in --json mode so stdout stays a single JSON document.
+      if (!values.json) console.log(dim(`(shorthand for \`bye add ${command}\`)`));
       return checkCommand({
         spec: command,
         packageManager: values["package-manager"],

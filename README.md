@@ -44,6 +44,8 @@ bye sandbox <package>[@version]     Trial install in a disposable Docker contain
 bye ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
 bye ci init                         Scaffold .github/workflows/bye.yml
 bye policy init [--format <fmt>]    Scaffold the team policy (yaml | json | js | ts)
+bye agents init [--format <list>]   Scaffold agent-instruction files (skill, agents,
+                                    cursor, windsurf, copilot, cline, or all)
 
 Options (add & ci):
 --package-manager <pm>  Force pnpm | npm | yarn (default: auto-detect from lockfile)
@@ -275,6 +277,35 @@ bye ci init                                          # scaffold .github/workflow
 
 > CI protects the repository. The local gate protects the developer — `bye ci` is the second line of defense, not a replacement for `bye add <pkg>`.
 
+## Using bye with AI coding agents
+
+AI coding agents install dependencies on your behalf — and `npm install <pkg>` is the exact moment a package's lifecycle scripts run on your machine. `bye agents init` scaffolds instruction files that make an agent route every install through bye instead:
+
+```bash
+bye agents init                       # writes skills/bye/SKILL.md and AGENTS.md
+bye agents init --format all          # also cursor, windsurf, copilot, cline
+```
+
+Existing files are never overwritten. Commit the results so every agent working in the repo is bound by the same contract, which is:
+
+- **Before adding any dependency, run `bye add <pkg> --yes`** (add `--deep` for production deps) instead of `npm`/`pnpm`/`yarn add`. With `--yes`, bye installs `allow` / `allow_with_warnings` packages automatically but **never** auto-installs `require_approval` / `block` — those still need a human.
+- **Read the exit code**: `0` proceed, `2` stop (blocked or needs approval — surface the reasons), `1` error.
+- **Never bypass a BLOCK** by calling the package manager directly. This is the load-bearing guardrail; without it an agent will "just try npm" the moment bye refuses.
+- bye stays **provider-agnostic**: the skill never sets `--provider`, so bye auto-detects a model from the environment or falls back to its deterministic rules engine (works offline).
+
+One canonical contract is rendered per ecosystem:
+
+| `--format` | File | Serves |
+|---|---|---|
+| `skill` | `skills/bye/SKILL.md` | Claude Code, Claude Agent SDK, claude.ai |
+| `agents` | `AGENTS.md` | Codex / "ChatGPT", Cursor, Continue, and other agents that read AGENTS.md |
+| `cursor` | `.cursor/rules/bye.mdc` | Cursor |
+| `windsurf` | `.windsurf/rules/bye.md` | Windsurf |
+| `copilot` | `.github/copilot-instructions.md` | GitHub Copilot |
+| `cline` | `.clinerules` | Cline |
+
+The default (`skill,agents`) covers the two most widely-read formats; the thin adapters carry the core rule and point back to `AGENTS.md`.
+
 ## OSV lookup failures
 
 OSV/OpenSSF is bye's source of known-malicious-package intelligence — its **single strongest deterministic guarantee**. When the lookup cannot be completed (offline, network error, OSV outage), bye marks the malicious-package status as **unknown**, not clean:
@@ -306,7 +337,7 @@ OSV/OpenSSF is bye's source of known-malicious-package intelligence — its **si
 ## Development
 
 ```bash
-pnpm test        # vitest suite (200 tests, incl. an end-to-end CI check on a fixture repo)
+pnpm test        # vitest suite (216 tests, incl. an end-to-end CI check on a fixture repo)
 pnpm typecheck
 pnpm dev add <pkg>   # run from source
 ```

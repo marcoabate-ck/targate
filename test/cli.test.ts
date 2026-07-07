@@ -58,4 +58,22 @@ describe("cli routing and validation", () => {
     expect(code).toBe(1);
     expect(stderr).toContain("Unknown policy format");
   });
+
+  it("lists the agents subcommand in help", async () => {
+    const { code, stdout } = await runCli("--help");
+    expect(code).toBe(0);
+    expect(stdout).toContain("bye agents init");
+  });
+
+  it("rejects an unknown agents format", async () => {
+    const { code, stderr } = await runCli("agents", "init", "--format", "bogus");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Unknown agent format");
+  });
+
+  it("rejects agents without the init subcommand", async () => {
+    const { code, stderr } = await runCli("agents");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Usage: bye agents init");
+  });
 }, 60_000);
