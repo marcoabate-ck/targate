@@ -76,10 +76,12 @@ export type InstallMode = "normal" | "no-scripts" | "skipped" | "blocked";
  * treated like require_approval: a human may approve it interactively, but it
  * is never auto-installed with --yes.
  *
- * --dry-run prevents ONLY the install command — it still runs the approval
- * flow, so accepting a require_approval / soft block records the approval
- * (the returned mode drives that upstream) without touching the project. The
- * `installed` flag in the result says whether the package manager actually ran.
+ * --dry-run is a pure PREVIEW: it never prompts and never installs — it just
+ * reports the recommended command (the scripts-disabled variant for anything
+ * that would need approval). To approve a package without installing it, use
+ * `targate approve`, not `targate add --dry-run`.
+ *
+ * The `installed` flag in the result says whether the package manager ran.
  */
 export async function gateInstall(
   decision: Decision,
@@ -104,26 +106,25 @@ export async function gateInstall(
   const noScripts = buildInstallCommand(pm, spec, { ignoreScripts: true });
 
   if (decision === "require_approval" || overridableBlock) {
-    if (opts.assumeYes) {
-      // Never auto-approve a package that requires human review — not even in
-      // --dry-run (an approval must come from a human).
+    // Never auto-approve a package that requires human review (--yes), and in
+    // --dry-run just report the recommended (scripts-disabled) command without
+    // prompting or installing. Approval itself is a separate action.
+    if (opts.assumeYes || dry) {
       return { mode: "skipped", command: noScripts, installed: false };
     }
-    const suffix = dry ? " (dry run — records the approval, does not install)" : ` (${noScripts.join(" ")})`;
     const approveNoScripts = await ask(
-      `This package needs manual approval. Approve WITHOUT lifecycle scripts${suffix}?`,
+      `This package needs manual approval. Approve WITHOUT lifecycle scripts (${noScripts.join(" ")})?`,
     );
     if (approveNoScripts) {
-      if (!dry) await runCommand(noScripts);
-      return { mode: "no-scripts", command: noScripts, installed: !dry };
+      await runCommand(noScripts);
+      return { mode: "no-scripts", command: noScripts, installed: true };
     }
-    const fullSuffix = dry ? " (dry run — records the approval, does not install)" : ` (${normal.join(" ")})`;
     const approveFull = await ask(
-      `Approve INCLUDING lifecycle scripts${fullSuffix}? Only do this if you trust the package.`,
+      `Approve INCLUDING lifecycle scripts (${normal.join(" ")})? Only do this if you trust the package.`,
     );
     if (approveFull) {
-      if (!dry) await runCommand(normal);
-      return { mode: "normal", command: normal, installed: !dry };
+      await runCommand(normal);
+      return { mode: "normal", command: normal, installed: true };
     }
     return { mode: "skipped", installed: false };
   }

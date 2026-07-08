@@ -84,4 +84,16 @@ describe("cli routing and validation", () => {
     expect(stdout).toContain("--frozen-lockfile");
     expect(stdout).toContain("--allow-scripts");
   });
+
+  it("lists the approve subcommand in help", async () => {
+    const { code, stdout } = await runCli("--help");
+    expect(code).toBe(0);
+    expect(stdout).toContain("targate approve <package>");
+  });
+
+  it("rejects approve without a package spec", async () => {
+    const { code, stderr } = await runCli("approve");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Usage: targate approve <package>");
+  });
 }, 60_000);

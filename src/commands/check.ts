@@ -182,6 +182,10 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     assumeYes: opts.assumeYes,
     dryRun: opts.dryRun,
     overridable: overridableBlock,
+    // --json is machine output: never write an interactive prompt to stdout.
+    // Anything that would need a confirmation is declined (an agent re-runs
+    // with --yes to install); --yes still auto-installs allow/warn as usual.
+    confirmFn: opts.json ? async () => false : undefined,
   });
 
   switch (result.mode) {
@@ -194,27 +198,29 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       } else {
         note(dim("\nNothing installed."));
       }
+      if (needsApproval) {
+        note(
+          dim(
+            `  To approve ${metadata.name}@${metadata.version} without installing it, run \`targate approve ${metadata.name}@${metadata.version}\`.`,
+          ),
+        );
+      }
       return 0;
     case "no-scripts":
     case "normal": {
-      if (result.installed) {
-        note(
-          green(result.mode === "no-scripts" ? "\nInstalled with lifecycle scripts disabled." : "\nInstalled."),
-        );
-      } else {
-        // --dry-run: the approval flow ran, but the install did not.
-        note(green(`\nApproved (${result.mode}) and recorded — dry run, package NOT installed.`));
-      }
+      // These modes are only reached on a REAL install (dry-run never prompts
+      // and never reaches here — it returns "skipped").
+      note(
+        green(result.mode === "no-scripts" ? "\nInstalled with lifecycle scripts disabled." : "\nInstalled."),
+      );
 
       // Phase 2 — record the human approval so the team doesn't re-review.
-      // Covers both require_approval and a freshly-approved soft block. This
-      // happens even in --dry-run (recording the approval is the point).
+      // Covers both require_approval and a freshly-approved soft block.
       if (needsApproval) {
         await recordApproval(metadata.name, metadata.version, result.mode);
         note(dim(`  ✓ approval recorded in .targate/approvals.json (commit it to share)`));
-        // pnpm approve-builds edits pnpm-workspace.yaml for the REAL install —
-        // only write it when we actually installed.
-        if (result.installed && pm === "pnpm" && signals.hasLifecycleScripts) {
+        // pnpm approve-builds edits pnpm-workspace.yaml for the install.
+        if (pm === "pnpm" && signals.hasLifecycleScripts) {
           const written = await recordBuildApproval(
             metadata.name,
             result.mode === "normal" ? "approved" : "ignored",
@@ -228,15 +234,12 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       }
 
       // Phase 2 — lockfile diff preview: what did this install actually add?
-      // Only meaningful for a real install (dry-run changes nothing).
-      if (result.installed) {
-        const lockAfter = await snapshotLockfile(pm);
-        const diff = diffLockfiles(pm, lockBefore, lockAfter);
-        if (diff.added.length > 0) {
-          note(cyan(`\nLockfile diff — ${diff.added.length} package(s) added:`));
-          for (const entry of diff.added.slice(0, 25)) note(dim(`  + ${entry}`));
-          if (diff.added.length > 25) note(dim(`  … and ${diff.added.length - 25} more`));
-        }
+      const lockAfter = await snapshotLockfile(pm);
+      const diff = diffLockfiles(pm, lockBefore, lockAfter);
+      if (diff.added.length > 0) {
+        note(cyan(`\nLockfile diff — ${diff.added.length} package(s) added:`));
+        for (const entry of diff.added.slice(0, 25)) note(dim(`  + ${entry}`));
+        if (diff.added.length > 25) note(dim(`  … and ${diff.added.length - 25} more`));
       }
       return 0;
     }
