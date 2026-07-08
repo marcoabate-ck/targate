@@ -5,6 +5,7 @@ import { detectPackageManager, gateInstall } from "../installer.js";
 import { diffLockfiles, snapshotLockfile } from "../lockfile.js";
 import { analyzePackage, type AnalysisStage } from "../pipeline.js";
 import { loadPolicy } from "../policy.js";
+import { isHardBlock } from "../rules.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
 import { PackageNotFoundError, parsePackageSpec } from "../registry.js";
 import { bold, cyan, dim, green, red, renderReport, yellow } from "../report.js";
@@ -132,13 +133,17 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   }
 
   // Phase 2 — committed approval cache: a version already reviewed by the
-  // team doesn't need a second human approval.
+  // team doesn't need a second human approval. A prior approval clears
+  // require_approval AND a SOFT block (heuristic, e.g. esbuild's env+network
+  // install script) — but never a HARD block (known-malicious / remote exec).
   const approvals = await loadApprovals();
   const priorApproval = getApproval(approvals, metadata.name, metadata.version);
-  if (priorApproval && assessment.decision === "require_approval") {
+  const softBlock = assessment.decision === "block" && !isHardBlock(signals);
+  if (priorApproval && (assessment.decision === "require_approval" || softBlock)) {
     assessment = {
       ...assessment,
       decision: "allow_with_warnings",
+      risk: assessment.risk === "high" ? "medium" : assessment.risk,
       reasons: [
         ...assessment.reasons,
         `[team] ${metadata.name}@${metadata.version} already approved${priorApproval.approvedBy ? ` by ${priorApproval.approvedBy}` : ""} on ${priorApproval.approvedAt.slice(0, 10)} (${priorApproval.mode}).`,
@@ -164,9 +169,15 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
 
   const lockBefore = await snapshotLockfile(pm);
 
+  // A soft block is approvable interactively (like require_approval) — a human
+  // can clear it and the approval is recorded. A hard block is never overridable.
+  const overridableBlock = assessment.decision === "block" && !isHardBlock(signals);
+  const needsApproval = assessment.decision === "require_approval" || overridableBlock;
+
   const result = await gateInstall(assessment.decision, pm, `${metadata.name}@${metadata.version}`, {
     assumeYes: opts.assumeYes,
     dryRun: opts.dryRun,
+    overridable: overridableBlock,
   });
 
   switch (result.mode) {
@@ -186,8 +197,9 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
         green(result.mode === "no-scripts" ? "\nInstalled with lifecycle scripts disabled." : "\nInstalled."),
       );
 
-      // Phase 2 — record the human approval so the team doesn't re-review
-      if (assessment.decision === "require_approval") {
+      // Phase 2 — record the human approval so the team doesn't re-review.
+      // Covers both require_approval and a freshly-approved soft block.
+      if (needsApproval) {
         await recordApproval(metadata.name, metadata.version, result.mode);
         note(dim(`  ✓ approval recorded in .targate/approvals.json (commit it to share)`));
         if (pm === "pnpm" && signals.hasLifecycleScripts) {

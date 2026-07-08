@@ -103,8 +103,9 @@ export interface InstallVetResult extends TransitiveResult {
 /**
  * Aggregate the whole-tree verdict (pure, so it is easy to test):
  * - decision = the STRICTEST decision anywhere in the tree.
- * - exitCode 2 when any package is blocked, or requires approval and is NOT
- *   in the committed approvals; otherwise 0.
+ * - exitCode 2 when any package is a HARD block, or is a soft block /
+ *   require_approval WITHOUT a committed approval; otherwise 0. A soft block
+ *   that carries a committed approval passes (e.g. esbuild once approved).
  */
 export function aggregateInstallDecision(results: InstallVetResult[]): {
   decision: Decision;
@@ -117,8 +118,9 @@ export function aggregateInstallDecision(results: InstallVetResult[]): {
       decision = r.assessment.decision;
     }
     if (
-      r.assessment.decision === "block" ||
-      (r.assessment.decision === "require_approval" && !r.approved)
+      r.hardBlock ||
+      ((r.assessment.decision === "block" || r.assessment.decision === "require_approval") &&
+        !r.approved)
     ) {
       exitCode = 2;
     }

@@ -145,11 +145,9 @@ describe("applyPolicy", () => {
     expect(result.decision).toBe("allow");
   });
 
-  it("allowKnownPackages cannot cross a deterministic BLOCK (curl|bash postinstall)", () => {
-    // A compromised release of an allow-listed package: the version under
-    // analysis matches the fetch-and-execute BLOCK rule. The name-based allow
-    // list must not wave it through — it caps at require_approval so a human
-    // reviews this exact version.
+  it("allowKnownPackages can NEVER cross a HARD block (curl|bash remote exec)", () => {
+    // A compromised release of an allow-listed package with a fetch-and-execute
+    // postinstall is a HARD block — the name-based allow list cannot clear it.
     const signals = makeSignals({
       package: "team-favorite",
       hasLifecycleScripts: true,
@@ -164,24 +162,37 @@ describe("applyPolicy", () => {
       signals,
       policy({ allowKnownPackages: ["team-favorite"] }),
     );
-    expect(result.decision).toBe("require_approval");
-    expect(result.risk).toBe("high");
-    expect(result.reasons.join(" ")).toContain("cannot override");
+    expect(result.decision).toBe("block");
+    expect(result.reasons.join(" ")).toContain("HARD block");
   });
 
-  it("allowKnownPackages cannot cross a typosquat BLOCK", () => {
+  it("allowKnownPackages CLEARS a soft (heuristic) block — the esbuild case", () => {
+    // Install script reads env AND hits the network — a soft block. An explicit
+    // allow-list entry is a deliberate human decision to trust the package.
     const signals = makeSignals({
-      package: "react-native-mmkv2",
-      recentPublish: true,
-      ageInDays: 2,
-      nameSimilarity: { similarTo: "react-native-mmkv", distance: 1 },
+      package: "esbuild",
+      hasLifecycleScripts: true,
+      lifecycleScripts: { postinstall: "node install.js" },
+      content: {
+        hasProcessEnvAccess: true,
+        hasChildProcessUsage: false,
+        hasNetworkCalls: true,
+        hasEvalUsage: false,
+        hasMinifiedCode: false,
+        suspiciousFiles: [],
+        installTimeFindings: [
+          "install-time file install.js reads process.env",
+          "install-time file install.js performs network calls",
+        ],
+      },
     });
     const result = applyPolicy(
       makeAssessment({ decision: "block", risk: "high" }),
       signals,
-      policy({ allowKnownPackages: ["react-native-mmkv2"] }),
+      policy({ allowKnownPackages: ["esbuild"] }),
     );
-    expect(result.decision).toBe("require_approval");
+    expect(result.decision).toBe("allow");
+    expect(result.reasons.join(" ")).toContain("allow list");
   });
 
   it("allowKnownPackages NEVER overrides a known-malicious block", () => {

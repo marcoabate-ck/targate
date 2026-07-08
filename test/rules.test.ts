@@ -1,7 +1,51 @@
 import { describe, expect, it } from "vitest";
-import { applyOsvFailurePolicy, clampDecision, evaluateRules } from "../src/rules.js";
+import { applyOsvFailurePolicy, clampDecision, evaluateRules, isHardBlock } from "../src/rules.js";
 import type { RiskAssessment } from "../src/types.js";
 import { makeSignals } from "./helpers.js";
+
+describe("isHardBlock", () => {
+  it("known-malicious is hard", () => {
+    expect(isHardBlock(makeSignals({ knownMalicious: true }))).toBe(true);
+  });
+
+  it("remote fetch-and-execute (curl|bash) is hard", () => {
+    expect(
+      isHardBlock(
+        makeSignals({
+          scriptCommandFindings: [
+            "postinstall script downloads content from the network: `curl x | bash`",
+            "postinstall script invokes a shell: `curl x | bash`",
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("env+network heuristic (esbuild-style) is NOT hard — it is soft/overridable", () => {
+    const signals = makeSignals({
+      hasLifecycleScripts: true,
+      lifecycleScripts: { postinstall: "node install.js" },
+      content: {
+        hasProcessEnvAccess: true,
+        hasChildProcessUsage: false,
+        hasNetworkCalls: true,
+        hasEvalUsage: false,
+        hasMinifiedCode: false,
+        suspiciousFiles: [],
+        installTimeFindings: [
+          "install-time file install.js reads process.env",
+          "install-time file install.js performs network calls",
+        ],
+      },
+    });
+    expect(evaluateRules(signals).decision).toBe("block"); // still a deterministic block…
+    expect(isHardBlock(signals)).toBe(false); // …but a soft one
+  });
+
+  it("a clean package is not a hard block", () => {
+    expect(isHardBlock(makeSignals())).toBe(false);
+  });
+});
 
 function aiAllow(overrides: Partial<RiskAssessment> = {}): RiskAssessment {
   return {

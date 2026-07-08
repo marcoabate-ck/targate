@@ -141,6 +141,20 @@ targate add react-native-mmkv --no-ai
 
 With an AI provider configured, the model weighs the same signals contextually (e.g. "this postinstall just compiles native bindings"). The clamp is one-directional: **the AI can escalate but never de-escalate a deterministic BLOCK.** Concretely, `clampDecision` re-runs the rules engine and, if it returns BLOCK, forces the final decision to BLOCK regardless of what the model returned — so a model that is jailbroken, prompt-injected, or simply wrong cannot turn a rules-engine BLOCK into ALLOW. The AI is still free to reach BLOCK or REQUIRE APPROVAL on its own when the rules engine was more permissive.
 
+### Hard vs soft blocks
+
+Not every BLOCK is equal. A **hard block** can never be overridden — by the AI, the allow list, or an approval:
+
+- a known-malicious OSV/OpenSSF record, or
+- a lifecycle command that **downloads and executes** remote code (`curl … | bash`, `wget … | sh`, `node -e`).
+
+Every other block is **soft** (heuristic) — a strong signal a human may deliberately clear for a specific package. The common case is a native-binary installer whose install script reads `process.env` **and** hits the network to fetch its platform binary (esbuild, swc, sharp, playwright…): indistinguishable by pattern from credential exfiltration, but routinely legitimate. A soft block:
+
+- can be **approved interactively** — `targate add esbuild` (without `--yes`) prompts you to install it (with or without scripts) and records a committable approval; a later `--yes` / CI run then passes on that exact version. It is **never** auto-installed with `--yes`.
+- can be **pre-cleared** by adding the package to `allowKnownPackages` in the team policy.
+
+A hard block does none of that — it stays blocked, and the allow list explicitly reports that it was ignored.
+
 ## AI response cache
 
 Interactive runs cache the AI's assessment so re-reviewing the same dependency (re-runs, `--deep` trees sharing packages across projects) doesn't pay for a new completion. The cache key is the **full evaluation context**:
@@ -261,10 +275,10 @@ const policy: PolicyFile = {
 export default policy;
 ```
 
-`.ts`/`.js` files are executed through [jiti](https://github.com/unjs/jiti) (default export; the type import is erased at runtime, so the file loads even where `targate` isn't installed as a dependency), and every format goes through the same schema validation. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages. That downgrade has hard limits, because the allow list is **name-based** (it would otherwise trust every future version of a package, including a compromised release):
+`.ts`/`.js` files are executed through [jiti](https://github.com/unjs/jiti) (default export; the type import is erased at runtime, so the file loads even where `targate` isn't installed as a dependency), and every format goes through the same schema validation. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages. Its power is bounded by the [hard/soft block](#hard-vs-soft-blocks) distinction:
 
-- a **known-malicious record** can never be overridden — the package stays blocked;
-- **any other deterministic BLOCK** (e.g. a `curl … | bash` postinstall, install-time env + network access) can't be waved through either: the allow list caps at `require_approval`, so a human must approve **that exact version** — and the version-pinned `.targate/approvals.json`, not the blanket allow list, is what records the decision.
+- a **hard block** (known-malicious record, or a `curl … | bash`-style download-and-execute) can never be overridden — the package stays blocked, and the report notes the allow list was ignored;
+- a **soft/heuristic block** (e.g. an install script that reads env + hits the network, like esbuild) **is** cleared to `allow` by an allow-list entry — a deliberate, committed decision to trust that package. Prefer a version-pinned `.targate/approvals.json` entry (recorded automatically when you approve interactively) when you want to trust one exact version rather than all future ones.
 
 ## React Native hardening
 
@@ -361,7 +375,7 @@ OSV/OpenSSF is targate's source of known-malicious-package intelligence — its 
 ## Development
 
 ```bash
-pnpm test        # vitest suite (227 tests, incl. end-to-end CI and full-install checks on fixture repos)
+pnpm test        # vitest suite (232 tests, incl. end-to-end CI and full-install checks on fixture repos)
 pnpm typecheck
 pnpm dev add <pkg>   # run from source
 ```

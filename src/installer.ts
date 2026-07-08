@@ -71,23 +71,27 @@ export function runCommand(command: string[]): Promise<number> {
 export type InstallMode = "normal" | "no-scripts" | "skipped" | "blocked";
 
 /**
- * Gate the real install behind the decision. Never installs on "block";
- * "require_approval" defaults to scripts-disabled installs.
+ * Gate the real install behind the decision. A HARD block never installs. A
+ * "soft" block (opts.overridable — a heuristic block such as env+network) is
+ * treated like require_approval: a human may approve it interactively, but it
+ * is never auto-installed with --yes. "require_approval" defaults to
+ * scripts-disabled installs.
  */
 export async function gateInstall(
   decision: Decision,
   pm: PackageManager,
   spec: string,
-  opts: { assumeYes?: boolean; dryRun?: boolean } = {},
+  opts: { assumeYes?: boolean; dryRun?: boolean; overridable?: boolean } = {},
 ): Promise<{ mode: InstallMode; command?: string[] }> {
-  if (decision === "block") {
+  const overridableBlock = decision === "block" && opts.overridable === true;
+  if (decision === "block" && !overridableBlock) {
     return { mode: "blocked" };
   }
 
   const normal = buildInstallCommand(pm, spec);
   const noScripts = buildInstallCommand(pm, spec, { ignoreScripts: true });
 
-  if (decision === "require_approval") {
+  if (decision === "require_approval" || overridableBlock) {
     if (opts.dryRun || opts.assumeYes) {
       // Never auto-approve a package that requires human review.
       return { mode: "skipped", command: noScripts };

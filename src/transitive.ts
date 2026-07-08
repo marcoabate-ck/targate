@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { extractLockfileEntries } from "./lockfile.js";
 import { analyzePackage, type AnalyzePackageOptions } from "./pipeline.js";
+import { isHardBlock } from "./rules.js";
 import { DECISION_SEVERITY, type RiskAssessment } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -95,6 +96,8 @@ export interface TransitiveResult {
   name: string;
   version: string;
   assessment: RiskAssessment;
+  /** True when the block is a HARD block (never overridable by an approval). */
+  hardBlock?: boolean;
   error?: string;
 }
 
@@ -142,7 +145,12 @@ export async function analyzeTransitiveDeps(
         failOnOsvError: opts.failOnOsvError,
         policy: opts.policy,
       });
-      result = { name: pkg.name, version: pkg.version, assessment: analysis.assessment };
+      result = {
+        name: pkg.name,
+        version: pkg.version,
+        assessment: analysis.assessment,
+        hardBlock: isHardBlock(analysis.signals),
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       result = {
