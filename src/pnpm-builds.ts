@@ -12,7 +12,7 @@ export type BuildApproval = "approved" | "ignored";
  * mechanism: approved packages go to onlyBuiltDependencies (their scripts
  * run), ignored ones to ignoredBuiltDependencies (installed, scripts
  * skipped, no interactive prompt). Editing pnpm-workspace.yaml is exactly
- * what `pnpm approve-builds` does — bye just decides WITH the analysis.
+ * what `pnpm approve-builds` does — targate just decides WITH the analysis.
  *
  * Returns the file path written, or null when the project has no
  * pnpm-workspace.yaml and none should be created (non-pnpm projects).

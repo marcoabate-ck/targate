@@ -23,7 +23,7 @@ function git(cwd: string, ...args: string[]): void {
 
 /** Minimal but real npm tarball: package/package.json inside a gzipped tar. */
 async function buildTarball(): Promise<Buffer> {
-  const work = await mkdtemp(path.join(tmpdir(), "bye-tarball-"));
+  const work = await mkdtemp(path.join(tmpdir(), "targate-tarball-"));
   try {
     await mkdir(path.join(work, "package"));
     await writeFile(
@@ -84,7 +84,7 @@ function stubNetwork(opts: StubOptions = {}): void {
 
 /** Git repo whose HEAD has no deps; the working tree adds left-pad. */
 async function makeFixtureRepo(): Promise<string> {
-  const repo = await mkdtemp(path.join(tmpdir(), "bye-ci-"));
+  const repo = await mkdtemp(path.join(tmpdir(), "targate-ci-"));
   await writeFile(
     path.join(repo, "package.json"),
     JSON.stringify({ name: "app", version: "1.0.0", dependencies: {} }, null, 2),
@@ -143,7 +143,7 @@ describe("runCiCheck — end to end on a fixture repo", () => {
     expect(["allow", "allow_with_warnings"]).toContain(result.assessment.decision);
     expect(report.exitCode).toBe(0);
     // The AI response cache is never used in CI — nothing may be persisted.
-    expect(existsSync(path.join(dir, ".bye", "ai-cache.json"))).toBe(false);
+    expect(existsSync(path.join(dir, ".targate", "ai-cache.json"))).toBe(false);
   });
 
   it("fails the build (exit 2) when the added dependency has a curl|bash postinstall", async () => {
@@ -159,7 +159,7 @@ describe("runCiCheck — end to end on a fixture repo", () => {
   });
 
   it("reports no changes when the working tree matches the base ref", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-ci-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-ci-"));
     await writeFile(
       path.join(dir, "package.json"),
       JSON.stringify({ name: "app", dependencies: { "left-pad": "^1.0.0" } }),

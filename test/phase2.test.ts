@@ -19,7 +19,7 @@ afterEach(async () => {
 
 describe("approvals cache", () => {
   it("records and retrieves version-specific approvals", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     await recordApproval("some-native-pkg", "2.0.0", "no-scripts", dir);
 
     const approvals = await loadApprovals(dir);
@@ -28,12 +28,12 @@ describe("approvals cache", () => {
   });
 
   it("returns empty map when no cache exists", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     expect(await loadApprovals(dir)).toEqual({});
   });
 
   it("keeps existing entries when adding new ones", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     await recordApproval("a", "1.0.0", "normal", dir);
     await recordApproval("b", "2.0.0", "no-scripts", dir);
     const approvals = await loadApprovals(dir);
@@ -43,7 +43,7 @@ describe("approvals cache", () => {
 
 describe("pnpm approve-builds integration", () => {
   it("adds approved packages to onlyBuiltDependencies", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     await writeFile(path.join(dir, "pnpm-workspace.yaml"), "packages:\n  - '.'\n");
 
     await recordBuildApproval("esbuild", "approved", dir);
@@ -54,7 +54,7 @@ describe("pnpm approve-builds integration", () => {
   });
 
   it("adds ignored packages to ignoredBuiltDependencies", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     await writeFile(path.join(dir, "pnpm-workspace.yaml"), "packages:\n  - '.'\n");
 
     await recordBuildApproval("sketchy-pkg", "ignored", dir);
@@ -64,7 +64,7 @@ describe("pnpm approve-builds integration", () => {
   });
 
   it("moves a package between lists instead of duplicating it", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     await writeFile(path.join(dir, "pnpm-workspace.yaml"), "packages:\n  - '.'\n");
 
     await recordBuildApproval("pkg-x", "ignored", dir);
@@ -76,7 +76,7 @@ describe("pnpm approve-builds integration", () => {
   });
 
   it("does nothing without pnpm-workspace.yaml unless asked to create it", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     expect(await recordBuildApproval("pkg", "approved", dir)).toBeNull();
     expect(
       await recordBuildApproval("pkg", "approved", dir, { createWorkspaceFile: true }),

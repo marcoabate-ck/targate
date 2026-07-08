@@ -8,13 +8,13 @@ export interface SandboxCommandOptions {
   network?: SandboxNetwork;
 }
 
-/** Phase 4 — `bye sandbox <pkg>`: trial install in a disposable container. */
+/** Phase 4 — `targate sandbox <pkg>`: trial install in a disposable container. */
 export async function sandboxCommand(opts: SandboxCommandOptions): Promise<number> {
   if (!(await isDockerAvailable())) {
     console.error(
       red("Docker is required for sandboxed installs but was not found (or the daemon is not running)."),
     );
-    console.error(dim("Install Docker Desktop / colima, or use `bye <pkg> --dry-run` for static analysis only."));
+    console.error(dim("Install Docker Desktop / colima, or use `targate <pkg> --dry-run` for static analysis only."));
     return 1;
   }
 

@@ -44,7 +44,7 @@ function paintResult(r: InstallVetResult): (s: string) => string {
 }
 
 /**
- * `bye install` — vet the WHOLE dependency tree, then gate the full bootstrap
+ * `targate install` — vet the WHOLE dependency tree, then gate the full bootstrap
  * install. Refuses to install when any package is blocked or requires an
  * approval that is not committed; otherwise runs the real install with
  * lifecycle scripts disabled by default.
@@ -85,7 +85,7 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
       },
     });
   } catch (err) {
-    console.error(red(`\nbye install: ${err instanceof Error ? err.message : String(err)}`));
+    console.error(red(`\ntargate install: ${err instanceof Error ? err.message : String(err)}`));
     return 1;
   }
 
@@ -118,11 +118,11 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
     note(
       red(
         bold(
-          `\nInstall refused: ${unresolved.length} package(s) are blocked or need an approval not in .bye/approvals.json.`,
+          `\nInstall refused: ${unresolved.length} package(s) are blocked or need an approval not in .targate/approvals.json.`,
         ),
       ),
     );
-    note(dim("Approve individual packages with `bye add <pkg>@<version>` (records a committable approval), or add them to the team allow list."));
+    note(dim("Approve individual packages with `targate add <pkg>@<version>` (records a committable approval), or add them to the team allow list."));
     return 2;
   }
 

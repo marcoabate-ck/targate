@@ -19,11 +19,11 @@ describe("buildSandboxCommand", () => {
   it("passes the spec via an env var, NOT interpolated into the shell script", () => {
     const cmd = buildSandboxCommand("left-pad@1.3.0");
     // The spec must appear only as a docker env value...
-    expect(cmd).toContain("BYE_SPEC=left-pad@1.3.0");
+    expect(cmd).toContain("TARGATE_SPEC=left-pad@1.3.0");
     // ...and the shell script must reference it as a quoted variable, never
     // by literal value.
     const script = cmd.at(-1)!;
-    expect(script).toContain('"$BYE_SPEC"');
+    expect(script).toContain('"$TARGATE_SPEC"');
     expect(script).not.toContain("left-pad@1.3.0");
   });
 
@@ -34,9 +34,9 @@ describe("buildSandboxCommand", () => {
     // The malicious payload lives only in the env value (a single argv
     // element docker sets verbatim), never in the executed script text.
     expect(script).not.toContain("rm -rf");
-    expect(cmd).toContain(`BYE_SPEC=${malicious}`);
+    expect(cmd).toContain(`TARGATE_SPEC=${malicious}`);
     // And it's one discrete argv element — not concatenated into a flag.
-    expect(cmd.filter((a) => a.includes("rm -rf"))).toEqual([`BYE_SPEC=${malicious}`]);
+    expect(cmd.filter((a) => a.includes("rm -rf"))).toEqual([`TARGATE_SPEC=${malicious}`]);
   });
 
   it("defaults to open network and supports --network none", () => {

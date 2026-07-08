@@ -14,11 +14,11 @@ import { DECISION_SEVERITY, type Decision, type PackageManager } from "./types.j
 const execFileAsync = promisify(execFile);
 
 /**
- * Full-project ("bootstrap") install vetting for `bye install` — analyze the
+ * Full-project ("bootstrap") install vetting for `targate install` — analyze the
  * ENTIRE dependency tree the way `pnpm install` / `npm install` would restore
  * it, BEFORE running the install that executes every package's lifecycle
  * scripts. This is the highest-exposure moment (the whole transitive tree's
- * install scripts run at once), and `bye add` / `bye ci` don't cover it:
+ * install scripts run at once), and `targate add` / `targate ci` don't cover it:
  * `add` is one new package, `ci` is only the deps a change touches.
  *
  * Reuses the same per-package pipeline, AI cache, and aggregation as
@@ -72,7 +72,7 @@ export async function resolveProjectTree(
   }
   const manifest = await readFile(manifestPath, "utf8");
 
-  const dir = await mkdtemp(path.join(tmpdir(), "bye-install-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "targate-install-"));
   try {
     await writeFile(path.join(dir, "package.json"), manifest);
     try {
@@ -83,7 +83,7 @@ export async function resolveProjectTree(
       );
     } catch (err) {
       throw new Error(
-        `bye install: npm could not resolve the dependency tree (no ${lockfileName(pm)} present): ${
+        `targate install: npm could not resolve the dependency tree (no ${lockfileName(pm)} present): ${
           err instanceof Error ? err.message.split("\n")[0] : String(err)
         }`,
       );

@@ -29,7 +29,7 @@ function metadata(overrides: Partial<PackageMetadata> = {}): PackageMetadata {
 
 describe("buildSignals wires lifecycle command inspection (finding #2)", () => {
   it("produces deterministic findings for a curl|bash postinstall and blocks", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     await writeFile(path.join(dir, "package.json"), "{}");
 
     const signals = await buildSignals(
@@ -47,7 +47,7 @@ describe("buildSignals wires lifecycle command inspection (finding #2)", () => {
   });
 
   it("propagates the OSV-unavailable flag into the signals", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     await writeFile(path.join(dir, "package.json"), "{}");
 
     const signals = await buildSignals(metadata(), dir, {
@@ -60,7 +60,7 @@ describe("buildSignals wires lifecycle command inspection (finding #2)", () => {
   });
 
   it("records direct dependencies (transitive are not analyzed)", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     await writeFile(path.join(dir, "package.json"), "{}");
 
     const signals = await buildSignals(

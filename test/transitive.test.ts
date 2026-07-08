@@ -32,7 +32,7 @@ function result(
 describe("parseResolvedTree", () => {
   const lock = JSON.stringify({
     packages: {
-      "": { name: "bye-deep-resolution" },
+      "": { name: "targate-deep-resolution" },
       "node_modules/root-pkg": { version: "2.0.0" },
       "node_modules/left-pad": { version: "1.3.0" },
       "node_modules/@scope/util": { version: "0.5.0" },

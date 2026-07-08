@@ -6,7 +6,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { checkCommand } from "../src/commands/check.js";
 
 /**
- * The agent skill tells agents to run `bye add <pkg> --json` and parse stdout
+ * The agent skill tells agents to run `targate add <pkg> --json` and parse stdout
  * as JSON. That only works if stdout is EXACTLY the JSON document — no
  * progress narration, no post-install lines. This guards that contract.
  */
@@ -16,7 +16,7 @@ let tarballBytes: Buffer;
 let cwd: string;
 
 async function buildTarball(): Promise<Buffer> {
-  const work = await mkdtemp(path.join(tmpdir(), "bye-tgz-"));
+  const work = await mkdtemp(path.join(tmpdir(), "targate-tgz-"));
   try {
     await mkdir(path.join(work, "package"));
     await writeFile(
@@ -75,10 +75,10 @@ afterEach(async () => {
   if (dir) await rm(dir, { recursive: true, force: true });
 });
 
-describe("bye add --json emits only JSON on stdout (agent contract)", () => {
+describe("targate add --json emits only JSON on stdout (agent contract)", () => {
   it("stdout parses as a single JSON document with the documented keys", async () => {
     cwd = process.cwd();
-    dir = await mkdtemp(path.join(tmpdir(), "bye-json-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-json-"));
     process.chdir(dir); // isolate cache/policy/approvals/lockfile lookups
     stubNetwork();
 

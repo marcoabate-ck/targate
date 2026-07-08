@@ -4,7 +4,7 @@ import path from "node:path";
 import { loadConfigFile } from "./config-loader.js";
 import type { InstallMode } from "./installer.js";
 
-export const APPROVALS_DIR = ".bye";
+export const APPROVALS_DIR = ".targate";
 export const APPROVALS_BASENAME = "approvals";
 
 /**
@@ -41,7 +41,7 @@ function isApprovalsMap(value: unknown): value is ApprovalsMap {
 }
 
 /**
- * Load team approvals from .bye/approvals.{ts,js,mjs,cjs,yaml,yml,json}.
+ * Load team approvals from .targate/approvals.{ts,js,mjs,cjs,yaml,yml,json}.
  * All existing files are merged: hand-curated ts/js/yaml sources first,
  * then the tool-managed approvals.json on top.
  */
@@ -66,7 +66,7 @@ export function getApproval(approvals: ApprovalsMap, name: string, version: stri
 }
 
 /**
- * Record a human approval. Writes are always to .bye/approvals.json — the
+ * Record a human approval. Writes are always to .targate/approvals.json — the
  * only format a tool can safely update. ts/js/yaml sources are read-only,
  * hand-curated files; loadApprovals() merges them all.
  */

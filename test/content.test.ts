@@ -7,7 +7,7 @@ import { analyzeContent } from "../src/analyze/content.js";
 let dir: string;
 
 async function fixture(files: Record<string, string>): Promise<string> {
-  dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+  dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
   for (const [rel, content] of Object.entries(files)) {
     const full = path.join(dir, rel);
     await mkdir(path.dirname(full), { recursive: true });

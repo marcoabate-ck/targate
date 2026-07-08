@@ -40,7 +40,7 @@ describe("renderAgentFile", () => {
     for (const format of AGENT_FORMATS) {
       const content = renderAgentFile(format);
       // The action every agent must take.
-      expect(content).toContain("bye add");
+      expect(content).toContain("targate add");
       // The critical guardrail: don't route around a refusal via a raw pm.
       expect(content.toLowerCase()).toMatch(/never (bypass|fall back)/);
     }
@@ -50,7 +50,7 @@ describe("renderAgentFile", () => {
     const skill = renderAgentFile("skill");
     expect(skill.startsWith("---\n")).toBe(true);
     const fm = skill.slice(4, skill.indexOf("\n---"));
-    expect(fm).toContain("name: bye");
+    expect(fm).toContain("name: targate");
     expect(fm).toMatch(/description:/);
     expect(fm.toLowerCase()).toMatch(/install|add|dependency/);
   });
@@ -58,34 +58,34 @@ describe("renderAgentFile", () => {
 
 describe("initAgentFiles", () => {
   it("writes the default formats to their canonical paths", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-agents-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-agents-"));
     const res = await initAgentFiles(dir);
-    expect(res.written).toEqual([path.join("skills", "bye", "SKILL.md"), "AGENTS.md"]);
+    expect(res.written).toEqual([path.join("skills", "targate", "SKILL.md"), "AGENTS.md"]);
     expect(res.skipped).toEqual([]);
     for (const rel of res.written) {
-      expect(await readFile(path.join(dir, rel), "utf8")).toContain("bye add");
+      expect(await readFile(path.join(dir, rel), "utf8")).toContain("targate add");
     }
   });
 
   it("writes every format with 'all' and lands each at the right path", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-agents-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-agents-"));
     await initAgentFiles(dir, parseAgentFormats("all"));
     const expected: Record<AgentFormat, string> = {
-      skill: "skills/bye/SKILL.md",
+      skill: "skills/targate/SKILL.md",
       agents: "AGENTS.md",
-      cursor: ".cursor/rules/bye.mdc",
-      windsurf: ".windsurf/rules/bye.md",
+      cursor: ".cursor/rules/targate.mdc",
+      windsurf: ".windsurf/rules/targate.md",
       copilot: ".github/copilot-instructions.md",
       cline: ".clinerules",
     };
     for (const format of AGENT_FORMATS) {
       expect(agentFilePath(format, dir)).toBe(path.join(dir, expected[format]));
-      expect(await readFile(agentFilePath(format, dir), "utf8")).toContain("bye add");
+      expect(await readFile(agentFilePath(format, dir), "utf8")).toContain("targate add");
     }
   });
 
   it("never overwrites an existing file and reports it as skipped", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-agents-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-agents-"));
     await writeFile(path.join(dir, "AGENTS.md"), "MY EXISTING RULES\n");
     const res = await initAgentFiles(dir, ["agents", "cline"]);
     expect(res.written).toEqual([".clinerules"]);
@@ -100,8 +100,8 @@ describe("initAgentFiles", () => {
 });
 
 describe("committed canonical files match the generator (drift guard)", () => {
-  it("skills/bye/SKILL.md is up to date", async () => {
-    const committed = await readFile(path.join(repoRoot, "skills", "bye", "SKILL.md"), "utf8");
+  it("skills/targate/SKILL.md is up to date", async () => {
+    const committed = await readFile(path.join(repoRoot, "skills", "targate", "SKILL.md"), "utf8");
     expect(committed).toBe(renderAgentFile("skill"));
   });
 

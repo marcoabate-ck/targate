@@ -9,7 +9,7 @@ import { applyOsvFailurePolicy } from "./rules.js";
 import type { PackageMetadata, RiskAssessment, Signals } from "./types.js";
 
 /**
- * The single per-package analysis pipeline, shared by `bye add`, `bye ci`
+ * The single per-package analysis pipeline, shared by `targate add`, `targate ci`
  * and the transitive (--deep) walker:
  *
  *   registry metadata → tarball quarantine → OSV lookup → deterministic

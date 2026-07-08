@@ -21,14 +21,14 @@ import type { RiskAssessment, Signals } from "./types.js";
  * cache (runCiCheck simply never passes settings in).
  */
 
-/** Shape of the `aiCache` section of bye.policy.* — all fields optional. */
+/** Shape of the `aiCache` section of targate.policy.* — all fields optional. */
 export interface AiCachePolicy {
   /** Master switch. Default: true. */
   enabled?: boolean;
   /**
    * Where the cache lives:
-   * - "user" (default): ~/.bye/ai-cache.json — private to the developer.
-   * - "project": <repo>/.bye/ai-cache.json — shared per checkout (gitignore it).
+   * - "user" (default): ~/.targate/ai-cache.json — private to the developer.
+   * - "project": <repo>/.targate/ai-cache.json — shared per checkout (gitignore it).
    */
   scope?: "user" | "project";
   /** Entries older than this are ignored and pruned. Default: 24. */
@@ -63,7 +63,7 @@ export function resolveCacheSettings(policy?: AiCachePolicy): AiCacheSettings {
 
 export function cacheFilePath(settings: AiCacheSettings, cwd: string = process.cwd()): string {
   const base = settings.scope === "project" ? cwd : homedir();
-  return path.join(base, ".bye", "ai-cache.json");
+  return path.join(base, ".targate", "ai-cache.json");
 }
 
 export interface CacheKeyInput {

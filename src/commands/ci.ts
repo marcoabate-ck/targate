@@ -17,15 +17,15 @@ const DECISION_ICON: Record<string, string> = {
   block: "✗",
 };
 
-/** Phase 5 — `bye ci`: analyze the dependencies a PR adds or updates. */
+/** Phase 5 — `targate ci`: analyze the dependencies a PR adds or updates. */
 export async function ciCommand(opts: CiCommandOptions): Promise<number> {
   if (opts.init) {
     const file = await initCiWorkflow();
     if (file) {
       console.log(green(`Created ${file}`));
-      console.log(dim("Commit it to run bye on every PR that touches dependencies."));
+      console.log(dim("Commit it to run targate on every PR that touches dependencies."));
     } else {
-      console.log(yellow(".github/workflows/bye.yml already exists — nothing written."));
+      console.log(yellow(".github/workflows/targate.yml already exists — nothing written."));
     }
     return 0;
   }
@@ -69,11 +69,11 @@ export async function ciCommand(opts: CiCommandOptions): Promise<number> {
     console.log(
       red(
         bold(
-          "\nCI check failed: at least one dependency is blocked or requires an approval not present in .bye/approvals.json.",
+          "\nCI check failed: at least one dependency is blocked or requires an approval not present in .targate/approvals.json.",
         ),
       ),
     );
-    console.log(dim("Approve locally with `bye add <pkg>` (the approval is recorded and committable)."));
+    console.log(dim("Approve locally with `targate add <pkg>` (the approval is recorded and committable)."));
   } else if (report.exitCode === 1) {
     console.log(yellow(bold("\nCI check finished with analysis errors — review the log.")));
   } else {

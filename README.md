@@ -1,6 +1,6 @@
-# bye — Before You Execute
+# targate — gate every dependency before it runs
 
-AI-gated package installation built on top of React Native teams needs. `bye` analyzes an npm package **before** it touches your machine: metadata, lifecycle scripts, tarball contents, React Native native surface, and known malicious-package records — then produces an allow / warn / approve / block decision and only runs the real install if the package passes.
+AI-gated package installation built on top of React Native teams needs. `targate` analyzes an npm package **before** it touches your machine: metadata, lifecycle scripts, tarball contents, React Native native surface, and known malicious-package records — then produces an allow / warn / approve / block decision and only runs the real install if the package passes.
 
 ## Quick start
 
@@ -15,7 +15,7 @@ pnpm dev add react-native-mmkv --dry-run
 pnpm dev add react-native-mmkv
 ```
 
-Or link the binary: `pnpm link --global` → `bye add <package>`.
+Or link the binary: `pnpm link --global` → `targate add <package>`.
 
 ## What it does
 
@@ -38,14 +38,14 @@ By default only the **requested top-level package** is analyzed; `--deep` extend
 ## Usage
 
 ```
-bye add <package>[@version]         Analyze a package, then gate the install
-(bye <package> without a subcommand is a shorthand for bye add)
-bye install                         Vet the whole dependency tree, then gate a full install
-bye sandbox <package>[@version]     Trial install in a disposable Docker container
-bye ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
-bye ci init                         Scaffold .github/workflows/bye.yml
-bye policy init [--format <fmt>]    Scaffold the team policy (yaml | json | js | ts)
-bye agents init [--format <list>]   Scaffold agent-instruction files (skill, agents,
+targate add <package>[@version]         Analyze a package, then gate the install
+(targate <package> without a subcommand is a shorthand for targate add)
+targate install                         Vet the whole dependency tree, then gate a full install
+targate sandbox <package>[@version]     Trial install in a disposable Docker container
+targate ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
+targate ci init                         Scaffold .github/workflows/targate.yml
+targate policy init [--format <fmt>]    Scaffold the team policy (yaml | json | js | ts)
+targate agents init [--format <list>]   Scaffold agent-instruction files (skill, agents,
                                     cursor, windsurf, copilot, cline, or all)
 
 Options (add & ci):
@@ -87,7 +87,7 @@ The reasoning layer is pluggable, the shipped tool supports swapping in a hosted
 | `ollama` | `OLLAMA_HOST` / `OLLAMA_MODEL` | `http://localhost:11434/v1` (or `$OLLAMA_HOST/v1`) | `$OLLAMA_MODEL` or `llama3.1` | Fully local, no API key. Auto-detected only if one of the env vars is set; otherwise pass `--provider ollama`. |
 | `custom` | `AI_API_KEY` (optional) | `--base-url` (required) | `--model` (required) | Any OpenAI-compatible endpoint: LM Studio, vLLM, llama.cpp server, self-hosted gateways. |
 
-3. If nothing is configured, `bye` runs entirely on the deterministic rules engine — no network call to any AI provider is made.
+3. If nothing is configured, `targate` runs entirely on the deterministic rules engine — no network call to any AI provider is made.
 
 Misconfiguration of a *selected* provider (e.g. `--provider deepseek` without `DEEPSEEK_API_KEY`) is reported explicitly instead of silently downgrading; a provider that is configured but fails at runtime (network error, malformed output) falls back to the rules engine, and the report notes it.
 
@@ -112,22 +112,22 @@ There is no standard reasoning knob across OpenAI-compatible backends, so the fl
 ```bash
 # Local model, no cloud dependency at all
 ollama pull llama3.1
-bye add react-native-mmkv --provider ollama
+targate add react-native-mmkv --provider ollama
 
 # Local reasoning model
-bye add react-native-mmkv --provider ollama --model qwen3:8b --reasoning
+targate add react-native-mmkv --provider ollama --model qwen3:8b --reasoning
 
 # DeepSeek (auto-detected from the env var)
-DEEPSEEK_API_KEY=sk-... bye add react-native-mmkv
+DEEPSEEK_API_KEY=sk-... targate add react-native-mmkv
 
 # DeepSeek with reasoning (uses deepseek-reasoner)
-DEEPSEEK_API_KEY=sk-... bye add react-native-mmkv --reasoning
+DEEPSEEK_API_KEY=sk-... targate add react-native-mmkv --reasoning
 
 # Any other OpenAI-compatible server
-bye add react-native-mmkv --provider custom --base-url http://localhost:1234/v1 --model local-model
+targate add react-native-mmkv --provider custom --base-url http://localhost:1234/v1 --model local-model
 
 # Rules engine only, no AI call at all
-bye add react-native-mmkv --no-ai
+targate add react-native-mmkv --no-ai
 ```
 
 ## Decision policy
@@ -152,66 +152,66 @@ provider / model / reasoning flag / name@version / sha256(signals)
 so the same lib checked with a different provider or model is always a fresh call, and any change in the deterministic evidence (a new OSV record, different tarball findings) is a cache miss by construction — a stale "allow" cannot survive new evidence. Two further guarantees:
 
 - **Cached answers are re-clamped on read.** The deterministic BLOCK floor is enforced at decision time, never trusted from disk — a hand-edited or poisoned cache entry cannot bypass it.
-- **CI never uses the cache.** `bye ci` strips cache settings unconditionally; a CI verdict is always a fresh assessment.
+- **CI never uses the cache.** `targate ci` strips cache settings unconditionally; a CI verdict is always a fresh assessment.
 
 Only successful AI responses are cached — rules-engine fallbacks are free to recompute and errors are never remembered. Configured through the `aiCache` section of the team policy:
 
 ```yaml
-# bye.policy.yaml
+# targate.policy.yaml
 aiCache:
   enabled: true      # master switch (default: true)
-  scope: user        # user: ~/.bye/ai-cache.json (default) | project: <repo>/.bye/ai-cache.json
+  scope: user        # user: ~/.targate/ai-cache.json (default) | project: <repo>/.targate/ai-cache.json
   ttlHours: 24       # entries older than this are ignored and pruned (default: 24)
   exclude: []        # package names never cached (e.g. internal libs under review)
 ```
 
-With `scope: project` the cache lives in the repo's `.bye/` directory — add `.bye/ai-cache.json` to `.gitignore` unless you deliberately want to share it.
+With `scope: project` the cache lives in the repo's `.targate/` directory — add `.targate/ai-cache.json` to `.gitignore` unless you deliberately want to share it.
 
 ## Transitive dependencies — `--deep`
 
 ```bash
-bye add glob --deep --dry-run
+targate add glob --deep --dry-run
 ```
 
-By default bye analyzes only the package you named. With `--deep` it first resolves the **exact dependency tree** a real install would produce — npm itself does the resolution (`--package-lock-only --ignore-scripts` in a throwaway directory: only a lockfile is generated, no `node_modules`, nothing from the tree executes) — then runs the same per-package pipeline (quarantine, OSV, signals, AI/rules, team policy) on **every unique `name@version`** in the tree, a few packages at a time.
+By default targate analyzes only the package you named. With `--deep` it first resolves the **exact dependency tree** a real install would produce — npm itself does the resolution (`--package-lock-only --ignore-scripts` in a throwaway directory: only a lockfile is generated, no `node_modules`, nothing from the tree executes) — then runs the same per-package pipeline (quarantine, OSV, signals, AI/rules, team policy) on **every unique `name@version`** in the tree, a few packages at a time.
 
 The final decision is the **strictest verdict across the whole tree**: a blocked transitive dependency blocks the install exactly like a blocked root; a `require_approval` anywhere in the tree escalates the run. Flagged packages are listed in the reasons (`--json` includes the full per-package results under `deep`).
 
 Cost: a deep run downloads and analyzes N tarballs and, with an AI provider configured, makes up to N model calls — the [AI response cache](#ai-response-cache) makes repeated and shared dependencies cheap. If npm cannot resolve the tree, the run fails loudly rather than silently degrading to top-level-only coverage.
 
-## Full-tree install — `bye install`
+## Full-tree install — `targate install`
 
-`bye add` gates a single new package; `bye ci` gates the deps a change touches. Neither covers the highest-exposure moment: a plain `pnpm install` / `npm install` on a fresh clone or in CI, which restores the **entire** tree and runs **every** package's lifecycle scripts at once. `bye install` is the gate for that.
+`targate add` gates a single new package; `targate ci` gates the deps a change touches. Neither covers the highest-exposure moment: a plain `pnpm install` / `npm install` on a fresh clone or in CI, which restores the **entire** tree and runs **every** package's lifecycle scripts at once. `targate install` is the gate for that.
 
 ```bash
-bye install                 # vet the whole tree, then install (scripts disabled)
-bye install --dry-run       # vet only; print the recommended install command
-bye install --frozen-lockfile   # immutable install (npm ci / pnpm|yarn --frozen-lockfile)
-bye install --allow-scripts     # run lifecycle scripts after the tree passes
+targate install                 # vet the whole tree, then install (scripts disabled)
+targate install --dry-run       # vet only; print the recommended install command
+targate install --frozen-lockfile   # immutable install (npm ci / pnpm|yarn --frozen-lockfile)
+targate install --allow-scripts     # run lifecycle scripts after the tree passes
 ```
 
 What it does:
 
 1. **Enumerates the whole tree.** Prefers the committed lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock`) as the source of truth for what will land on disk; with no lockfile, npm resolves the manifest in a throwaway directory (`--package-lock-only --ignore-scripts`, nothing executes) — the report shows `source: lockfile` or `resolved`.
 2. **Vets every unique `name@version`** through the same pipeline as `--deep` (quarantine, OSV, signals, AI/rules, team policy), a few at a time, reusing the [AI response cache](#ai-response-cache).
-3. **Gates the install.** If any package is `block`, or `require_approval` and not in the committed `.bye/approvals.json`, bye **refuses** and exits `2` — it never runs the install. Otherwise it runs the real install.
+3. **Gates the install.** If any package is `block`, or `require_approval` and not in the committed `.targate/approvals.json`, targate **refuses** and exits `2` — it never runs the install. Otherwise it runs the real install.
 4. **Scripts off by default.** The actual install runs with `--ignore-scripts`; approve individual packages' build scripts via pnpm's `onlyBuiltDependencies` (see below) or re-run with `--allow-scripts` once reviewed.
 
 Exit codes: `0` vetted (and installed, unless `--dry-run`), `2` refused (blocked/unapproved package in the tree), `1` error. `--json` prints the full report (`{ packageManager, source, total, results, decision, exitCode }`).
 
-**Caveats.** A first cold scan of a large tree is heavy (N tarballs + OSV lookups; the cache amortizes re-runs). And bye vets *before* executing, so it is meaningful on a clean or `--frozen-lockfile` install — it cannot retroactively un-run scripts for packages already present in `node_modules`.
+**Caveats.** A first cold scan of a large tree is heavy (N tarballs + OSV lookups; the cache amortizes re-runs). And targate vets *before* executing, so it is meaningful on a clean or `--frozen-lockfile` install — it cannot retroactively un-run scripts for packages already present in `node_modules`.
 
 ## Team workflow
 
-### Approval cache — `.bye/approvals.*`
+### Approval cache — `.targate/approvals.*`
 
-When a developer approves a `require_approval` package interactively, the approval (name@version, mode, who, when) is recorded in `.bye/approvals.json`. **Commit the file**: the rest of the team — and CI — treat that exact version as already reviewed. A new version requires a new approval.
+When a developer approves a `require_approval` package interactively, the approval (name@version, mode, who, when) is recorded in `.targate/approvals.json`. **Commit the file**: the rest of the team — and CI — treat that exact version as already reviewed. A new version requires a new approval.
 
-Approvals can also be hand-curated in `.bye/approvals.{ts,js,mjs,cjs,yaml,yml,json}` — all existing files are read and **merged**, with the tool-managed `approvals.json` winning on conflicts (a fresh interactive approval must always take effect). Automatic recording only ever writes `approvals.json`; the other formats are read-only sources. For typed files:
+Approvals can also be hand-curated in `.targate/approvals.{ts,js,mjs,cjs,yaml,yml,json}` — all existing files are read and **merged**, with the tool-managed `approvals.json` winning on conflicts (a fresh interactive approval must always take effect). Automatic recording only ever writes `approvals.json`; the other formats are read-only sources. For typed files:
 
 ```ts
-// .bye/approvals.ts
-import { defineApprovals } from "bye";
+// .targate/approvals.ts
+import { defineApprovals } from "targate";
 
 export default defineApprovals({
   "core-js@3.49.0": { mode: "no-scripts", approvedAt: "2026-07-07T00:00:00Z", approvedBy: "marco" },
@@ -227,14 +227,14 @@ On pnpm projects, an interactive approval also updates `pnpm-workspace.yaml` thr
 
 ### Lockfile diff preview
 
-After every real install, `bye` prints which packages the install actually added to the lockfile (direct + transitive), so surprise transitive dependencies are visible immediately.
+After every real install, `targate` prints which packages the install actually added to the lockfile (direct + transitive), so surprise transitive dependencies are visible immediately.
 
-### Team policy — `bye.policy.*`
+### Team policy — `targate.policy.*`
 
-`bye policy init [--format yaml|json|js|ts]` scaffolds the policy file from the proposal (§9 phase 6). Supported formats, first match wins: `bye.policy.{ts,js,mjs,cjs,yaml,yml,json}`.
+`targate policy init [--format yaml|json|js|ts]` scaffolds the policy file from the proposal (§9 phase 6). Supported formats, first match wins: `targate.policy.{ts,js,mjs,cjs,yaml,yml,json}`.
 
 ```yaml
-# bye.policy.yaml
+# targate.policy.yaml
 dependencyPolicy:
   blockRecentlyPublishedPackages: false
   minPackageAgeDays: 7
@@ -251,8 +251,8 @@ aiCache: # see "AI response cache"
 ```
 
 ```ts
-// bye.policy.ts — fully typed
-import type { PolicyFile } from "bye";
+// targate.policy.ts — fully typed
+import type { PolicyFile } from "targate";
 
 const policy: PolicyFile = {
   dependencyPolicy: { minPackageAgeDays: 7, requireApprovalForLifecycleScripts: true },
@@ -261,10 +261,10 @@ const policy: PolicyFile = {
 export default policy;
 ```
 
-`.ts`/`.js` files are executed through [jiti](https://github.com/unjs/jiti) (default export; the type import is erased at runtime, so the file loads even where `bye` isn't installed as a dependency), and every format goes through the same schema validation. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages. That downgrade has hard limits, because the allow list is **name-based** (it would otherwise trust every future version of a package, including a compromised release):
+`.ts`/`.js` files are executed through [jiti](https://github.com/unjs/jiti) (default export; the type import is erased at runtime, so the file loads even where `targate` isn't installed as a dependency), and every format goes through the same schema validation. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages. That downgrade has hard limits, because the allow list is **name-based** (it would otherwise trust every future version of a package, including a compromised release):
 
 - a **known-malicious record** can never be overridden — the package stays blocked;
-- **any other deterministic BLOCK** (e.g. a `curl … | bash` postinstall, install-time env + network access) can't be waved through either: the allow list caps at `require_approval`, so a human must approve **that exact version** — and the version-pinned `.bye/approvals.json`, not the blanket allow list, is what records the decision.
+- **any other deterministic BLOCK** (e.g. a `curl … | bash` postinstall, install-time env + network access) can't be waved through either: the allow list caps at `require_approval`, so a human must approve **that exact version** — and the version-pinned `.targate/approvals.json`, not the blanket allow list, is what records the decision.
 
 ## React Native hardening
 
@@ -282,7 +282,7 @@ Build-time execution findings (script phases, remote Gradle scripts) escalate to
 ## Sandboxed trial install
 
 ```bash
-bye sandbox suspicious-package
+targate sandbox suspicious-package
 ```
 
 Runs `npm install` in a **disposable Docker container** (`node:20-alpine`): no host environment variables, no SSH agent, no npm/GitHub tokens, no host filesystem mounted, all Linux capabilities dropped, no privilege escalation, 1 CPU / 1 GB cap, killed after a timeout. The package spec is passed as a container environment variable, never interpolated into the container's shell script, so a hostile spec string cannot inject commands. Lifecycle scripts run with `--foreground-scripts` so their full output lands in the log, which is then scanned for exfiltration patterns (credential file references, raw network connections, base64 decoding, …); the container also reports filesystem writes outside the project directory. Exit code `2` means the log contains something you should read before installing on your machine.
@@ -292,39 +292,39 @@ Runs `npm install` in a **disposable Docker container** (`node:20-alpine`): no h
 ## CI integration
 
 ```bash
-bye ci --base-ref origin/main --fail-on-osv-error   # in a PR: analyze added/updated dependencies
-bye ci init                                          # scaffold .github/workflows/bye.yml
+targate ci --base-ref origin/main --fail-on-osv-error   # in a PR: analyze added/updated dependencies
+targate ci init                                          # scaffold .github/workflows/targate.yml
 ```
 
-`bye ci` diffs `package.json` against the base ref, resolves the **exact version that will be installed** from the lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock`) when present, runs the full analysis pipeline on every added/updated dependency, and fails the build (exit `2`) when a package is **blocked** or **requires an approval that is not in the committed `.bye/approvals.json`** (approval drift). Without a lockfile it analyzes the declared version range and logs that it did so. The generated GitHub Actions workflow triggers on PRs touching `package.json` or a lockfile, passes `--fail-on-osv-error`, and can take a provider API key secret to enable AI reasoning. The same command works on any CI system via exit codes and `--json`.
+`targate ci` diffs `package.json` against the base ref, resolves the **exact version that will be installed** from the lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock`) when present, runs the full analysis pipeline on every added/updated dependency, and fails the build (exit `2`) when a package is **blocked** or **requires an approval that is not in the committed `.targate/approvals.json`** (approval drift). Without a lockfile it analyzes the declared version range and logs that it did so. The generated GitHub Actions workflow triggers on PRs touching `package.json` or a lockfile, passes `--fail-on-osv-error`, and can take a provider API key secret to enable AI reasoning. The same command works on any CI system via exit codes and `--json`.
 
-> CI protects the repository. The local gate protects the developer — `bye ci` is the second line of defense, not a replacement for `bye add <pkg>`.
+> CI protects the repository. The local gate protects the developer — `targate ci` is the second line of defense, not a replacement for `targate add <pkg>`.
 
-## Using bye with AI coding agents
+## Using targate with AI coding agents
 
-AI coding agents install dependencies on your behalf — and `npm install <pkg>` is the exact moment a package's lifecycle scripts run on your machine. `bye agents init` scaffolds instruction files that make an agent route every install through bye instead:
+AI coding agents install dependencies on your behalf — and `npm install <pkg>` is the exact moment a package's lifecycle scripts run on your machine. `targate agents init` scaffolds instruction files that make an agent route every install through targate instead:
 
 ```bash
-bye agents init                       # writes skills/bye/SKILL.md and AGENTS.md
-bye agents init --format all          # also cursor, windsurf, copilot, cline
+targate agents init                       # writes skills/targate/SKILL.md and AGENTS.md
+targate agents init --format all          # also cursor, windsurf, copilot, cline
 ```
 
 Existing files are never overwritten. Commit the results so every agent working in the repo is bound by the same contract, which is:
 
-- **Before adding any dependency, run `bye add <pkg> --yes`** (add `--deep` for production deps) instead of `npm`/`pnpm`/`yarn add`. With `--yes`, bye installs `allow` / `allow_with_warnings` packages automatically but **never** auto-installs `require_approval` / `block` — those still need a human.
-- **To install a whole project's dependencies** (a bare `npm`/`pnpm`/`yarn install`, e.g. after cloning), run **`bye install`** instead — it vets the entire tree before any script runs.
+- **Before adding any dependency, run `targate add <pkg> --yes`** (add `--deep` for production deps) instead of `npm`/`pnpm`/`yarn add`. With `--yes`, targate installs `allow` / `allow_with_warnings` packages automatically but **never** auto-installs `require_approval` / `block` — those still need a human.
+- **To install a whole project's dependencies** (a bare `npm`/`pnpm`/`yarn install`, e.g. after cloning), run **`targate install`** instead — it vets the entire tree before any script runs.
 - **Read the exit code**: `0` proceed, `2` stop (blocked or needs approval — surface the reasons), `1` error.
-- **Never bypass a BLOCK** by calling the package manager directly. This is the load-bearing guardrail; without it an agent will "just try npm" the moment bye refuses.
-- bye stays **provider-agnostic**: the skill never sets `--provider`, so bye auto-detects a model from the environment or falls back to its deterministic rules engine (works offline).
+- **Never bypass a BLOCK** by calling the package manager directly. This is the load-bearing guardrail; without it an agent will "just try npm" the moment targate refuses.
+- targate stays **provider-agnostic**: the skill never sets `--provider`, so targate auto-detects a model from the environment or falls back to its deterministic rules engine (works offline).
 
 One canonical contract is rendered per ecosystem:
 
 | `--format` | File | Serves |
 |---|---|---|
-| `skill` | `skills/bye/SKILL.md` | Claude Code, Claude Agent SDK, claude.ai |
+| `skill` | `skills/targate/SKILL.md` | Claude Code, Claude Agent SDK, claude.ai |
 | `agents` | `AGENTS.md` | Codex / "ChatGPT", Cursor, Continue, and other agents that read AGENTS.md |
-| `cursor` | `.cursor/rules/bye.mdc` | Cursor |
-| `windsurf` | `.windsurf/rules/bye.md` | Windsurf |
+| `cursor` | `.cursor/rules/targate.mdc` | Cursor |
+| `windsurf` | `.windsurf/rules/targate.md` | Windsurf |
 | `copilot` | `.github/copilot-instructions.md` | GitHub Copilot |
 | `cline` | `.clinerules` | Cline |
 
@@ -332,24 +332,24 @@ The default (`skill,agents`) covers the two most widely-read formats; the thin a
 
 ## OSV lookup failures
 
-OSV/OpenSSF is bye's source of known-malicious-package intelligence — its **single strongest deterministic guarantee**. When the lookup cannot be completed (offline, network error, OSV outage), bye marks the malicious-package status as **unknown**, not clean:
+OSV/OpenSSF is targate's source of known-malicious-package intelligence — its **single strongest deterministic guarantee**. When the lookup cannot be completed (offline, network error, OSV outage), targate marks the malicious-package status as **unknown**, not clean:
 
 - the report shows `OSV/OpenSSF lookup unavailable — malicious-package status UNKNOWN`;
 - the rules engine adds an explicit warning to the decision;
-- by default bye still **fails open** (proceeds with the rest of the analysis) so an OSV outage doesn't block all installs;
+- by default targate still **fails open** (proceeds with the rest of the analysis) so an OSV outage doesn't block all installs;
 - pass `--fail-on-osv-error` (recommended in CI, and set by the generated workflow) to **fail closed**: an unreachable OSV lookup escalates the decision to `require_approval` so a package is never silently trusted while the strongest check was skipped.
 
 ## Scope and limitations
 
-`bye` is a decision aid that moves supply-chain review to the install decision point. It is **not** a malware sandbox or a guarantee of safety. Know exactly what it does and does not do:
+`targate` is a decision aid that moves supply-chain review to the install decision point. It is **not** a malware sandbox or a guarantee of safety. Know exactly what it does and does not do:
 
-- **By default, only the requested top-level package is analyzed.** A clean direct package can still pull in a malicious transitive dependency. Use [`--deep`](#transitive-dependencies----deep) to run the full pre-install pipeline on every package of the resolved tree (slower, more network/AI traffic — softened by the response cache). Without `--deep`, treat a bye "allow" as "the package you named looks fine", not "the whole tree is fine"; bye still surfaces the direct-dependency count and prints the post-install lockfile diff (direct + transitive added). `bye ci` always analyzes only the changed top-level dependencies — pair it with a lockfile scanner / `npm audit` / OSV-Scanner for transitive coverage in CI.
+- **By default, only the requested top-level package is analyzed.** A clean direct package can still pull in a malicious transitive dependency. Use [`--deep`](#transitive-dependencies----deep) to run the full pre-install pipeline on every package of the resolved tree (slower, more network/AI traffic — softened by the response cache). Without `--deep`, treat a targate "allow" as "the package you named looks fine", not "the whole tree is fine"; targate still surfaces the direct-dependency count and prints the post-install lockfile diff (direct + transitive added). `targate ci` always analyzes only the changed top-level dependencies — pair it with a lockfile scanner / `npm audit` / OSV-Scanner for transitive coverage in CI.
 - **Static detection is heuristic and bypassable.** The content and command scanners are regex/substring based. They reliably catch the common, un-obfuscated patterns (`curl … | bash`, `process.env` + network, `child_process`) but a determined attacker can evade them with obfuscation, string-splitting, encoding, or dynamic dispatch. A clean static result is not proof of safety.
 - **Content scan is bounded.** To stay fast, the scanner skips files larger than 2 MB and stops after 2000 files per package. A payload hidden past those limits will not be scanned. (Very large minified bundles are still flagged as minified/obfuscated by other checks.)
 - **Native analysis is source-level.** Podspec/Gradle review is static; pre-built `.xcframework`/`.so`/`.aar` binaries are flagged as "binary code you cannot read" but their contents are not disassembled.
-- **`approvedBy` is not authenticated.** The approver name in `.bye/approvals.json` comes from `$USER` and is informational only — it is trivially spoofable and must not be treated as a cryptographic attestation. Trust in an approval comes from code review of the committed `.bye/approvals.json` diff, not from the recorded name.
+- **`approvedBy` is not authenticated.** The approver name in `.targate/approvals.json` comes from `$USER` and is informational only — it is trivially spoofable and must not be treated as a cryptographic attestation. Trust in an approval comes from code review of the committed `.targate/approvals.json` diff, not from the recorded name.
 - **Approvals are version-specific by design.** A new version of an approved package requires a new approval; this is intentional (a compromised release is a new version). CI flags the drift.
-- **AI output is advisory and clamped.** The deterministic rules engine is the security floor; the AI can only make decisions stricter (see [Decision policy](#decision-policy)). With `--no-ai`, or no provider configured, bye runs entirely on the rules engine.
+- **AI output is advisory and clamped.** The deterministic rules engine is the security floor; the AI can only make decisions stricter (see [Decision policy](#decision-policy)). With `--no-ai`, or no provider configured, targate runs entirely on the rules engine.
 - **npm registry only.** Other registries, git/tarball/file specifiers, and monorepo `workspace:` protocols are not analyzed.
 
 ## Compatibility notes
