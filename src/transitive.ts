@@ -10,7 +10,7 @@ import { DECISION_SEVERITY, type RiskAssessment } from "./types.js";
 const execFileAsync = promisify(execFile);
 
 /**
- * Transitive dependency analysis (`bye add --deep`).
+ * Transitive dependency analysis (`targate add --deep`).
  *
  * The tree is resolved by npm itself with `--package-lock-only`: only a
  * lockfile is produced — no node_modules, no tarball unpacking by npm, and
@@ -57,11 +57,11 @@ export async function resolveTransitiveTree(
   name: string,
   version: string,
 ): Promise<TreePackage[]> {
-  const dir = await mkdtemp(path.join(tmpdir(), "bye-deep-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "targate-deep-"));
   try {
     await writeFile(
       path.join(dir, "package.json"),
-      JSON.stringify({ name: "bye-deep-resolution", version: "0.0.0", private: true }),
+      JSON.stringify({ name: "targate-deep-resolution", version: "0.0.0", private: true }),
     );
     try {
       await execFileAsync(

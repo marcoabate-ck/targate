@@ -58,10 +58,10 @@ describe("resolveCacheSettings", () => {
 describe("cacheFilePath", () => {
   it("uses the home directory for user scope and cwd for project scope", () => {
     expect(cacheFilePath(projectSettings({ scope: "user" }), "/some/repo")).toBe(
-      path.join(homedir(), ".bye", "ai-cache.json"),
+      path.join(homedir(), ".targate", "ai-cache.json"),
     );
     expect(cacheFilePath(projectSettings(), "/some/repo")).toBe(
-      path.join("/some/repo", ".bye", "ai-cache.json"),
+      path.join("/some/repo", ".targate", "ai-cache.json"),
     );
   });
 });
@@ -96,7 +96,7 @@ describe("cacheKey", () => {
 
 describe("read/write cached assessments", () => {
   it("round-trips an assessment through the project-scoped cache", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
     const settings = projectSettings();
     await writeCachedAssessment("k1", assessment(), settings, "left-pad", dir);
 
@@ -106,7 +106,7 @@ describe("read/write cached assessments", () => {
   });
 
   it("misses on an unknown key and when disabled", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
     const settings = projectSettings();
     await writeCachedAssessment("k1", assessment(), settings, "left-pad", dir);
     expect(await readCachedAssessment("other", settings, "left-pad", dir)).toBeNull();
@@ -116,7 +116,7 @@ describe("read/write cached assessments", () => {
   });
 
   it("never reads or writes excluded packages", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
     const settings = projectSettings({ exclude: ["secret-lib"] });
     await writeCachedAssessment("k1", assessment(), settings, "secret-lib", dir);
     expect(await readCachedAssessment("k1", settings, "secret-lib", dir)).toBeNull();
@@ -125,7 +125,7 @@ describe("read/write cached assessments", () => {
   });
 
   it("expires entries past the TTL and prunes them on the next write", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
     const settings = projectSettings({ ttlHours: 1 });
     const file = cacheFilePath(settings, dir);
     await mkdir(path.dirname(file), { recursive: true });
@@ -143,7 +143,7 @@ describe("read/write cached assessments", () => {
   });
 
   it("does not lose entries under concurrent writes (the --deep path)", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
     const settings = projectSettings();
     // Mirrors the transitive walker: many assessments finishing at once.
     await Promise.all(
@@ -158,7 +158,7 @@ describe("read/write cached assessments", () => {
   });
 
   it("treats a corrupt cache file as empty instead of crashing", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
     const settings = projectSettings();
     const file = cacheFilePath(settings, dir);
     await mkdir(path.dirname(file), { recursive: true });
@@ -179,7 +179,7 @@ describe("assessWithCache", () => {
   }
 
   it("caches the first answer and serves the second run without calling the provider", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
     const provider = stubProvider(assessment());
     const signals = makeSignals();
     const opts = { cache: projectSettings(), cwd: dir, reasoning: false };
@@ -195,7 +195,7 @@ describe("assessWithCache", () => {
   });
 
   it("does not reuse an answer cached by a different provider or model", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
     const signals = makeSignals();
     const opts = { cache: projectSettings(), cwd: dir, reasoning: false };
 
@@ -210,7 +210,7 @@ describe("assessWithCache", () => {
   });
 
   it("clamps a cached answer against the deterministic floor at read time", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
     const settings = projectSettings();
     // A poisoned/hand-edited cache entry claiming "allow" for a package the
     // rules engine blocks must not bypass the floor.
@@ -238,7 +238,7 @@ describe("assessWithCache", () => {
   });
 
   it("skips the cache entirely when no settings are passed (the CI path)", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-cache-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
     const provider = stubProvider(assessment());
     const signals = makeSignals();
 
@@ -246,7 +246,7 @@ describe("assessWithCache", () => {
     await assessWithCache(provider, signals, { cwd: dir });
     expect(provider.assess).toHaveBeenCalledTimes(2); // fresh every time
     await expect(
-      readFile(path.join(dir, ".bye", "ai-cache.json"), "utf8"),
+      readFile(path.join(dir, ".targate", "ai-cache.json"), "utf8"),
     ).rejects.toThrow(); // nothing persisted
   });
 });

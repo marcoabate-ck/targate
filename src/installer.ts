@@ -27,7 +27,7 @@ export function buildInstallCommand(
 }
 
 /**
- * Command for a FULL project install (`bye install` — no package spec):
+ * Command for a FULL project install (`targate install` — no package spec):
  * restore everything declared in the manifest/lockfile. Scripts are gated by
  * default (--ignore-scripts); --frozen-lockfile maps to each PM's immutable
  * install (npm uses `ci`).

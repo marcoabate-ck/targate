@@ -87,7 +87,7 @@ describe("aggregateInstallDecision", () => {
 
 describe("vetInstall (over a fixture lockfile, injected analyzer)", () => {
   async function fixture(lock: string): Promise<string> {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-vet-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-vet-"));
     await writeFile(path.join(dir, "package.json"), JSON.stringify({ name: "app" }));
     await writeFile(path.join(dir, "package-lock.json"), lock);
     return dir;

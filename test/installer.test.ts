@@ -12,25 +12,25 @@ afterEach(async () => {
 
 describe("detectPackageManager", () => {
   it("detects pnpm from pnpm-lock.yaml", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     await writeFile(path.join(dir, "pnpm-lock.yaml"), "");
     expect(detectPackageManager(dir)).toBe("pnpm");
   });
 
   it("detects yarn from yarn.lock", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     await writeFile(path.join(dir, "yarn.lock"), "");
     expect(detectPackageManager(dir)).toBe("yarn");
   });
 
   it("detects npm from package-lock.json", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     await writeFile(path.join(dir, "package-lock.json"), "{}");
     expect(detectPackageManager(dir)).toBe("npm");
   });
 
   it("defaults to pnpm when no lockfile exists", async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "bye-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
     expect(detectPackageManager(dir)).toBe("pnpm");
   });
 });

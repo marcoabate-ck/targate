@@ -33,7 +33,7 @@ export interface SandboxResult {
 
 /**
  * Shell script executed INSIDE the disposable container. The package spec
- * is passed via the BYE_SPEC environment variable (NOT interpolated into the
+ * is passed via the TARGATE_SPEC environment variable (NOT interpolated into the
  * script text), so a hostile spec string cannot break out of the quoting and
  * inject shell commands. The install runs with --foreground-scripts so every
  * lifecycle script's output lands in the log, then we snapshot what the
@@ -44,9 +44,9 @@ const CONTAINER_SCRIPT = [
   "mkdir -p /sandbox/project && cd /sandbox/project",
   "npm init -y > /dev/null 2>&1",
   "find / -path /proc -prune -o -newer /sandbox -type f -print 2>/dev/null > /tmp/before.txt || true",
-  'echo "--- bye sandbox: installing $BYE_SPEC ---"',
-  'npm install "$BYE_SPEC" --foreground-scripts --loglevel info; STATUS=$?',
-  "echo '--- bye sandbox: filesystem writes outside the project ---'",
+  'echo "--- targate sandbox: installing $TARGATE_SPEC ---"',
+  'npm install "$TARGATE_SPEC" --foreground-scripts --loglevel info; STATUS=$?',
+  "echo '--- targate sandbox: filesystem writes outside the project ---'",
   "find /root /home /etc /usr/local -type f -newer /tmp/before.txt 2>/dev/null | grep -v -E '^/root/.npm|^/sandbox' || echo '(none)'",
   "exit $STATUS",
 ].join("\n");
@@ -86,7 +86,7 @@ export function buildSandboxCommand(spec: string, opts: SandboxOptions = {}): st
     "npm_config_audit=false",
     // Spec passed as data via env, not interpolated into the shell script.
     "--env",
-    `BYE_SPEC=${spec}`,
+    `TARGATE_SPEC=${spec}`,
     opts.image ?? DEFAULT_IMAGE,
     "sh",
     "-c",

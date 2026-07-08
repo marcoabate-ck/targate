@@ -7,7 +7,7 @@ import { loadConfigFile } from "./config-loader.js";
 import { evaluateRules } from "./rules.js";
 import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
 
-export const POLICY_BASENAME = "bye.policy";
+export const POLICY_BASENAME = "targate.policy";
 
 /** Supported policy formats, in lookup order (first existing file wins). */
 export const POLICY_FILENAMES = [
@@ -128,7 +128,7 @@ export function parsePolicy(source: string): PolicyFile {
   return validatePolicyObject(doc);
 }
 
-/** First bye.policy.* file found in the project root, or null. */
+/** First targate.policy.* file found in the project root, or null. */
 export function findPolicyFile(cwd: string = process.cwd()): string | null {
   for (const name of POLICY_FILENAMES) {
     const file = path.join(cwd, name);
@@ -292,7 +292,7 @@ const STARTER_POLICY: PolicyFile = {
 export type PolicyFormat = "yaml" | "json" | "js" | "ts";
 
 const POLICY_COMMENT = [
-  "bye team dependency policy — applied on top of the AI/rules assessment.",
+  "targate team dependency policy — applied on top of the AI/rules assessment.",
   "The policy can only make decisions stricter, except allowKnownPackages",
   "(pre-approved packages; known-malicious packages are always blocked).",
   "aiCache controls reuse of AI assessments (never used in CI).",
@@ -313,14 +313,14 @@ function policyTemplate(format: PolicyFormat): string {
     case "json":
       return JSON.stringify(STARTER_POLICY, null, 2) + "\n";
     case "js":
-      return `${slash}\n/** @type {import("bye").PolicyFile} */\nexport default ${STARTER_BODY};\n`;
+      return `${slash}\n/** @type {import("targate").PolicyFile} */\nexport default ${STARTER_BODY};\n`;
     case "ts":
-      return `${slash}\nimport type { PolicyFile } from "bye";\n\nconst policy: PolicyFile = ${STARTER_BODY};\n\nexport default policy;\n`;
+      return `${slash}\nimport type { PolicyFile } from "targate";\n\nconst policy: PolicyFile = ${STARTER_BODY};\n\nexport default policy;\n`;
   }
 }
 
 /**
- * Scaffold a starter bye.policy.<format>. Returns the file path, or null
+ * Scaffold a starter targate.policy.<format>. Returns the file path, or null
  * when a policy file (in ANY supported format) already exists.
  */
 export async function initPolicy(

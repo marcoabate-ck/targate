@@ -17,7 +17,7 @@ export interface Quarantine {
  * strict path checking, so entries cannot escape the quarantine directory.
  */
 export async function quarantineTarball(tarballUrl: string): Promise<Quarantine> {
-  const root = await mkdtemp(path.join(tmpdir(), "bye-"));
+  const root = await mkdtemp(path.join(tmpdir(), "targate-"));
   const tarballPath = path.join(root, "package.tgz");
 
   const res = await fetch(tarballUrl);

@@ -6,7 +6,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { installCommand } from "../src/commands/install.js";
 
 /**
- * End-to-end `bye install` over a fixture project (real lockfile + tarball
+ * End-to-end `targate install` over a fixture project (real lockfile + tarball
  * extraction; only the network is stubbed). Also guards the agent contract:
  * --json emits ONLY the report JSON on stdout.
  */
@@ -16,7 +16,7 @@ let cwd: string;
 let tarballBytes: Buffer;
 
 async function buildTarball(scripts: Record<string, string> = {}): Promise<Buffer> {
-  const work = await mkdtemp(path.join(tmpdir(), "bye-tgz-"));
+  const work = await mkdtemp(path.join(tmpdir(), "targate-tgz-"));
   try {
     await mkdir(path.join(work, "package"));
     await writeFile(
@@ -65,7 +65,7 @@ function stubNetwork(scripts: Record<string, string> = {}): void {
 }
 
 async function fixtureProject(): Promise<string> {
-  const d = await mkdtemp(path.join(tmpdir(), "bye-install-"));
+  const d = await mkdtemp(path.join(tmpdir(), "targate-install-"));
   await writeFile(
     path.join(d, "package.json"),
     JSON.stringify({ name: "app", dependencies: { "left-pad": "^1.0.0" } }),
@@ -88,7 +88,7 @@ afterEach(async () => {
   if (dir) await rm(dir, { recursive: true, force: true });
 });
 
-describe("bye install", () => {
+describe("targate install", () => {
   it("vets the whole tree from the lockfile and passes (--dry-run --json)", async () => {
     cwd = process.cwd();
     dir = await fixtureProject();

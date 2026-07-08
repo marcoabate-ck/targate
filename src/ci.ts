@@ -85,7 +85,7 @@ export interface CiOptions {
  * Phase-5 CI check: diff package.json against a base ref, run the full
  * pre-install analysis on every added/updated dependency, and fail the
  * build when a package is blocked — or requires an approval that is not in
- * the committed .bye/approvals.json (approval drift).
+ * the committed .targate/approvals.json (approval drift).
  */
 export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
   const cwd = opts.cwd ?? process.cwd();
@@ -175,7 +175,7 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
   return { baseRef, changes, results, exitCode };
 }
 
-const WORKFLOW_TEMPLATE = `name: bye — dependency pre-install review
+const WORKFLOW_TEMPLATE = `name: targate — dependency pre-install review
 
 on:
   pull_request:
@@ -186,7 +186,7 @@ on:
       - "yarn.lock"
 
 jobs:
-  bye:
+  targate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -205,12 +205,12 @@ jobs:
           # Optional: set ANTHROPIC_API_KEY (or another provider key) to add
           # AI reasoning on top of the deterministic rules engine.
           # ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
-        run: npx bye ci --base-ref "origin/$BASE_REF" --fail-on-osv-error
+        run: npx targate ci --base-ref "origin/$BASE_REF" --fail-on-osv-error
 `;
 
-/** Scaffold .github/workflows/bye.yml. Returns the path, or null if it exists. */
+/** Scaffold .github/workflows/targate.yml. Returns the path, or null if it exists. */
 export async function initCiWorkflow(cwd: string = process.cwd()): Promise<string | null> {
-  const file = path.join(cwd, ".github", "workflows", "bye.yml");
+  const file = path.join(cwd, ".github", "workflows", "targate.yml");
   if (existsSync(file)) return null;
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, WORKFLOW_TEMPLATE);

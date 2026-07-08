@@ -183,7 +183,7 @@ export function evaluateRules(signals: Signals): RiskAssessment {
 
 /**
  * Escalate a decision when the OSV lookup was unavailable and the caller
- * asked to fail closed. Known-malicious detection is bye's strongest
+ * asked to fail closed. Known-malicious detection is targate's strongest
  * deterministic guarantee; when it couldn't run, fail-closed callers (CI)
  * treat the package as requiring approval instead of silently trusting it.
  */

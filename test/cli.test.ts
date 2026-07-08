@@ -30,15 +30,15 @@ describe("cli routing and validation", () => {
   it("prints help and exits 0 with --help", async () => {
     const { code, stdout } = await runCli("--help");
     expect(code).toBe(0);
-    expect(stdout).toContain("bye add <package>");
-    expect(stdout).toContain("bye sandbox");
+    expect(stdout).toContain("targate add <package>");
+    expect(stdout).toContain("targate sandbox");
     expect(stdout).toContain("--fail-on-osv-error");
   });
 
   it("prints help and exits 1 with no arguments", async () => {
     const { code, stdout } = await runCli();
     expect(code).toBe(1);
-    expect(stdout).toContain("Before You Execute");
+    expect(stdout).toContain("gate every dependency before it runs");
   });
 
   it("rejects an unknown provider before doing any work", async () => {
@@ -62,7 +62,7 @@ describe("cli routing and validation", () => {
   it("lists the agents subcommand in help", async () => {
     const { code, stdout } = await runCli("--help");
     expect(code).toBe(0);
-    expect(stdout).toContain("bye agents init");
+    expect(stdout).toContain("targate agents init");
   });
 
   it("rejects an unknown agents format", async () => {
@@ -74,13 +74,13 @@ describe("cli routing and validation", () => {
   it("rejects agents without the init subcommand", async () => {
     const { code, stderr } = await runCli("agents");
     expect(code).toBe(1);
-    expect(stderr).toContain("Usage: bye agents init");
+    expect(stderr).toContain("Usage: targate agents init");
   });
 
   it("lists the install subcommand in help", async () => {
     const { code, stdout } = await runCli("--help");
     expect(code).toBe(0);
-    expect(stdout).toContain("bye install");
+    expect(stdout).toContain("targate install");
     expect(stdout).toContain("--frozen-lockfile");
     expect(stdout).toContain("--allow-scripts");
   });

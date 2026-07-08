@@ -1,4 +1,13 @@
-# Dependency installs — use targate
+---
+name: targate
+description: >-
+  Gate npm dependency installs through the targate security CLI. Use whenever
+  installing, adding, or upgrading an npm/pnpm/yarn package (npm install,
+  pnpm add, yarn add) or when the user asks to add a dependency. Runs a
+  pre-install analysis and refuses malicious or high-risk packages.
+---
+
+# Gate npm installs through targate
 
 `targate` is a pre-install security gate for npm packages. Installing a package runs its install-time lifecycle scripts on this machine, so every new dependency must be analyzed by `targate` **before** it is installed.
 

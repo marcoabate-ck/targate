@@ -13,23 +13,23 @@ import { dim, green, red, yellow } from "./report.js";
 const VALID_PROVIDERS: ProviderName[] = ["anthropic", "deepseek", "openai", "ollama", "custom"];
 
 const HELP = `
-bye — Before You Execute: AI-gated package installation
+targate — gate every dependency before it runs (AI-gated pre-install security)
 
 Usage:
-  bye add <package>[@version]         Analyze a package, then gate the install
-  bye install                         Vet the WHOLE dependency tree, then gate a
+  targate add <package>[@version]         Analyze a package, then gate the install
+  targate install                         Vet the WHOLE dependency tree, then gate a
                                       full install (pnpm/npm/yarn install)
-  bye sandbox <package>[@version]     Trial install in a disposable Docker container
-  bye ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
-  bye ci init                         Scaffold .github/workflows/bye.yml
-  bye policy init [--format <fmt>]    Scaffold the team policy file
+  targate sandbox <package>[@version]     Trial install in a disposable Docker container
+  targate ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
+  targate ci init                         Scaffold .github/workflows/targate.yml
+  targate policy init [--format <fmt>]    Scaffold the team policy file
                                       (yaml default; also json, js, ts — typed)
-  bye agents init [--format <list>]   Scaffold agent-instruction files so AI
-                                      coding agents gate installs through bye
+  targate agents init [--format <list>]   Scaffold agent-instruction files so AI
+                                      coding agents gate installs through targate
                                       (default skill,agents; also cursor,
                                       windsurf, copilot, cline, or all)
 
-  (bye <package> without a subcommand is a shorthand for bye add <package>)
+  (targate <package> without a subcommand is a shorthand for targate add <package>)
 
 Options (add & ci):
   --package-manager <pm>  Force pnpm | npm | yarn (default: auto-detect)
@@ -65,11 +65,11 @@ Provider auto-detection (first match wins):
   none of the above            -> deterministic rules engine (no AI)
 
 Examples:
-  bye add react-native-mmkv
-  bye add left-pad@1.3.0 --dry-run
-  bye sandbox suspicious-package
-  bye ci --base-ref origin/main
-  bye policy init
+  targate add react-native-mmkv
+  targate add left-pad@1.3.0 --dry-run
+  targate sandbox suspicious-package
+  targate ci --base-ref origin/main
+  targate policy init
 `;
 
 async function main(): Promise<number> {
@@ -125,7 +125,7 @@ async function main(): Promise<number> {
   switch (command) {
     case "add": {
       if (!rest[0]) {
-        console.error(red("Usage: bye add <package>[@version]"));
+        console.error(red("Usage: targate add <package>[@version]"));
         return 1;
       }
       return checkCommand({
@@ -155,7 +155,7 @@ async function main(): Promise<number> {
 
     case "sandbox": {
       if (!rest[0]) {
-        console.error(red("Usage: bye sandbox <package>[@version]"));
+        console.error(red("Usage: targate sandbox <package>[@version]"));
         return 1;
       }
       const network = (values.network ?? "open") as SandboxNetwork;
@@ -183,7 +183,7 @@ async function main(): Promise<number> {
 
     case "policy": {
       if (rest[0] !== "init") {
-        console.error(red("Usage: bye policy init [--format yaml|json|js|ts]"));
+        console.error(red("Usage: targate policy init [--format yaml|json|js|ts]"));
         return 1;
       }
       const format = (values.format ?? "yaml") as PolicyFormat;
@@ -194,16 +194,16 @@ async function main(): Promise<number> {
       const file = await initPolicy(process.cwd(), format);
       if (file) {
         console.log(green(`Created ${file}`));
-        console.log(dim("Edit the rules, then commit the file — it applies to every bye run in this repo."));
+        console.log(dim("Edit the rules, then commit the file — it applies to every targate run in this repo."));
       } else {
-        console.log(yellow(`A bye.policy.* file already exists — nothing written.`));
+        console.log(yellow(`A targate.policy.* file already exists — nothing written.`));
       }
       return 0;
     }
 
     case "agents": {
       if (rest[0] !== "init") {
-        console.error(red("Usage: bye agents init [--format skill,agents,cursor,windsurf,copilot,cline|all]"));
+        console.error(red("Usage: targate agents init [--format skill,agents,cursor,windsurf,copilot,cline|all]"));
         return 1;
       }
       let formats;
@@ -217,15 +217,15 @@ async function main(): Promise<number> {
       for (const f of written) console.log(green(`Created ${f}`));
       for (const f of skipped) console.log(yellow(`${f} already exists — left unchanged.`));
       if (written.length > 0) {
-        console.log(dim("Commit these so every agent working in this repo gates installs through bye."));
+        console.log(dim("Commit these so every agent working in this repo gates installs through targate."));
       }
       return 0;
     }
 
     default:
-      // Backward compatible shorthand: `bye <package>` behaves as `bye add`.
+      // Backward compatible shorthand: `targate <package>` behaves as `targate add`.
       // Suppressed in --json mode so stdout stays a single JSON document.
-      if (!values.json) console.log(dim(`(shorthand for \`bye add ${command}\`)`));
+      if (!values.json) console.log(dim(`(shorthand for \`targate add ${command}\`)`));
       return checkCommand({
         spec: command,
         packageManager: values["package-manager"],
@@ -242,6 +242,6 @@ async function main(): Promise<number> {
 main()
   .then((code) => process.exit(code))
   .catch((err) => {
-    console.error(red(`\nbye failed: ${err instanceof Error ? err.message : String(err)}`));
+    console.error(red(`\ntargate failed: ${err instanceof Error ? err.message : String(err)}`));
     process.exit(1);
   });

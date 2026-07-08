@@ -36,7 +36,7 @@ const STAGE_ICON: Record<string, string> = {
   block: "✗",
 };
 
-/** The original `bye <package>` flow: analyze, decide, gate the install. */
+/** The original `targate <package>` flow: analyze, decide, gate the install. */
 export async function checkCommand(opts: CheckOptions): Promise<number> {
   const { name, version } = parsePackageSpec(opts.spec);
 
@@ -189,7 +189,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       // Phase 2 — record the human approval so the team doesn't re-review
       if (assessment.decision === "require_approval") {
         await recordApproval(metadata.name, metadata.version, result.mode);
-        note(dim(`  ✓ approval recorded in .bye/approvals.json (commit it to share)`));
+        note(dim(`  ✓ approval recorded in .targate/approvals.json (commit it to share)`));
         if (pm === "pnpm" && signals.hasLifecycleScripts) {
           const written = await recordBuildApproval(
             metadata.name,

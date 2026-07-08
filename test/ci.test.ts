@@ -54,18 +54,18 @@ describe("diffDependencies", () => {
 
 describe("initCiWorkflow", () => {
   it("scaffolds a valid workflow that keeps GitHub context out of the run line", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "bye-workflow-"));
+    const dir = await mkdtemp(path.join(tmpdir(), "targate-workflow-"));
     try {
       const file = await initCiWorkflow(dir);
-      expect(file).toBe(path.join(dir, ".github", "workflows", "bye.yml"));
+      expect(file).toBe(path.join(dir, ".github", "workflows", "targate.yml"));
       const content = await readFile(file!, "utf8");
 
       // Parseable YAML with the expected job step.
       const doc = parseYaml(content) as {
-        jobs?: { bye?: { steps?: Array<{ run?: string; env?: Record<string, string> }> } };
+        jobs?: { targate?: { steps?: Array<{ run?: string; env?: Record<string, string> }> } };
       };
-      const steps = doc.jobs?.bye?.steps ?? [];
-      const analyze = steps.find((s) => s.run?.includes("bye ci"));
+      const steps = doc.jobs?.targate?.steps ?? [];
+      const analyze = steps.find((s) => s.run?.includes("targate ci"));
       expect(analyze).toBeDefined();
 
       // Script-injection defense: `${{ … }}` only in env values, never in run.

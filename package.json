@@ -1,10 +1,10 @@
 {
-  "name": "bye",
+  "name": "targate",
   "version": "0.1.0",
-  "description": "BYE (Before You Execute) — AI-gated package installation built on top of React Native teams needs; pre-install security analysis for npm packages",
+  "description": "targate — gate every dependency before it runs: AI-gated pre-install security analysis for npm packages, built around React Native teams' needs",
   "type": "module",
   "bin": {
-    "bye": "./dist/cli.js"
+    "targate": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -49,5 +49,6 @@
     "npm",
     "pre-install"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "packageManager": "pnpm@11.1.2+sha512.415a1cc25974731e75455c1468371be74c5aa5fb7621b50d4056d222451609f11412f23fd602e6169f1e060466641f798597e1be961a10688836a67b16569499"
 }
