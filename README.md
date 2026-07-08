@@ -45,6 +45,7 @@ Exit codes: `0` ok · `1` error · `2` blocked (or suspicious sandbox / failed C
 
 - **Deterministic security floor.** The rules engine decides first; the AI can only make a verdict *stricter*. A jailbroken or prompt-injected model cannot turn a rules-engine BLOCK into an allow. See [docs/decisions.md](docs/decisions.md).
 - **Hard vs soft blocks.** Known-malicious and remote-code-execution blocks can never be overridden; heuristic ("soft") blocks can be deliberately cleared by a committed approval or allow-list entry.
+- **Nothing untrusted executes during analysis.** Tarballs are checksum-verified against the registry manifest, extracted into quarantine with strict path checking, and only ever *read* — lifecycle scripts never run. (One caveat: `.ts`/`.js` **config** files do execute; set `TARGATE_NO_EXEC_CONFIG=1` in repos you don't trust — see [docs/security.md](docs/security.md).)
 - **Works offline.** With no AI provider configured, targate runs entirely on the rules engine — no network call to any model.
 - **Fail-closed option.** `--fail-on-osv-error` escalates when the malicious-package lookup can't complete, so a package is never silently trusted while the strongest check was skipped.
 
@@ -70,7 +71,7 @@ Full specifications live in [`docs/`](docs/README.md):
 ## Development
 
 ```bash
-pnpm test        # vitest suite (243 tests, incl. end-to-end CI and full-install checks on fixture repos)
+pnpm test        # vitest suite (257 tests, incl. end-to-end CI and full-install checks on fixture repos)
 pnpm typecheck
 pnpm dev add <pkg>   # run from source
 ```

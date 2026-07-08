@@ -91,6 +91,12 @@ export async function gateInstall(
     assumeYes?: boolean;
     dryRun?: boolean;
     overridable?: boolean;
+    /**
+     * Force --ignore-scripts on the allow path. Set when a recorded approval
+     * carries mode "no-scripts": the team cleared the package but explicitly
+     * did NOT authorize its lifecycle scripts, so the install must honor that.
+     */
+    ignoreScripts?: boolean;
     /** Prompt implementation — injectable for tests; defaults to interactive confirm(). */
     confirmFn?: (question: string, defaultYes?: boolean) => Promise<boolean>;
   } = {},
@@ -102,8 +108,9 @@ export async function gateInstall(
     return { mode: "blocked", installed: false };
   }
 
-  const normal = buildInstallCommand(pm, spec);
   const noScripts = buildInstallCommand(pm, spec, { ignoreScripts: true });
+  // A "no-scripts" approval caps the allow path at the scripts-disabled command.
+  const normal = opts.ignoreScripts ? noScripts : buildInstallCommand(pm, spec);
 
   if (decision === "require_approval" || overridableBlock) {
     // Never auto-approve a package that requires human review (--yes), and in
@@ -136,5 +143,5 @@ export async function gateInstall(
     (await ask(`Proceed with install (${normal.join(" ")})?`, decision === "allow"));
   if (!proceed) return { mode: "skipped", installed: false };
   await runCommand(normal);
-  return { mode: "normal", command: normal, installed: true };
+  return { mode: opts.ignoreScripts ? "no-scripts" : "normal", command: normal, installed: true };
 }

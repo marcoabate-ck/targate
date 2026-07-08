@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { loadConfigFile } from "./config-loader.js";
+import { execConfigDisabled, isExecConfigFile, loadConfigFile } from "./config-loader.js";
 import type { InstallMode } from "./installer.js";
 
 export const APPROVALS_DIR = ".targate";
@@ -47,9 +47,17 @@ function isApprovalsMap(value: unknown): value is ApprovalsMap {
  */
 export async function loadApprovals(cwd: string = process.cwd()): Promise<ApprovalsMap> {
   const merged: ApprovalsMap = {};
+  const noExec = execConfigDisabled();
   for (const name of APPROVALS_FILENAMES) {
     const file = path.join(cwd, APPROVALS_DIR, name);
     if (!existsSync(file)) continue;
+    if (noExec && isExecConfigFile(file)) {
+      // Skipping only loses approvals (packages ask again) — the safe direction.
+      console.error(
+        `[targate] TARGATE_NO_EXEC_CONFIG is set — ignoring .targate/${name} (executable config disabled).`,
+      );
+      continue;
+    }
     try {
       const doc = await loadConfigFile(file);
       if (isApprovalsMap(doc)) Object.assign(merged, doc);

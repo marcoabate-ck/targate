@@ -69,6 +69,17 @@ describe("gateInstall", () => {
     expect(result.installed).toBe(false);
   });
 
+  it("a no-scripts approval forces --ignore-scripts on the allow path", async () => {
+    // Security analysis finding 8: a package cleared by a "no-scripts"
+    // approval must NOT run its lifecycle scripts at install time.
+    const result = await gateInstall("allow_with_warnings", "pnpm", "esbuild@0.27.3", {
+      dryRun: true,
+      ignoreScripts: true,
+    });
+    expect(result.mode).toBe("skipped");
+    expect(result.command).toEqual(["pnpm", "add", "esbuild@0.27.3", "--ignore-scripts"]);
+  });
+
   const no = async () => false;
   const boom = async () => {
     throw new Error("prompt should not be called");

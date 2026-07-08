@@ -81,6 +81,8 @@ export async function fetchPackageMetadata(
     publishDate,
     ageInDays,
     tarballUrl,
+    integrity: typeof manifest.dist?.integrity === "string" ? manifest.dist.integrity : undefined,
+    shasum: typeof manifest.dist?.shasum === "string" ? manifest.dist.shasum : undefined,
     scripts: manifest.scripts ?? {},
     dependencyCount: Object.keys(manifest.dependencies ?? {}).length,
     directDependencies: Object.keys(manifest.dependencies ?? {}).sort(),

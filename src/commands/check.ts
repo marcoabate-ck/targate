@@ -139,7 +139,12 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   const approvals = await loadApprovals();
   const priorApproval = getApproval(approvals, metadata.name, metadata.version);
   const softBlock = assessment.decision === "block" && !isHardBlock(signals);
+  // When a prior approval clears the decision, its recorded mode is binding:
+  // "no-scripts" means the team cleared the package WITHOUT authorizing its
+  // lifecycle scripts — the eventual install must run with --ignore-scripts.
+  let enforceNoScripts = false;
   if (priorApproval && (assessment.decision === "require_approval" || softBlock)) {
+    enforceNoScripts = priorApproval.mode === "no-scripts";
     assessment = {
       ...assessment,
       decision: "allow_with_warnings",
@@ -182,6 +187,9 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     assumeYes: opts.assumeYes,
     dryRun: opts.dryRun,
     overridable: overridableBlock,
+    // A "no-scripts" prior approval is enforced, not advisory (security
+    // analysis finding 8): the cleared package installs with --ignore-scripts.
+    ignoreScripts: enforceNoScripts,
     // --json is machine output: never write an interactive prompt to stdout.
     // Anything that would need a confirmation is declined (an agent re-runs
     // with --yes to install); --yes still auto-installs allow/warn as usual.
