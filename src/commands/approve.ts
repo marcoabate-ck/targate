@@ -1,8 +1,9 @@
 import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
 import { recordApproval, type ApprovalRecord } from "../approvals.js";
-import { confirm } from "../installer.js";
+import { confirm, detectPackageManager } from "../installer.js";
 import { analyzePackage, type AnalysisStage } from "../pipeline.js";
+import { recordBuildApproval } from "../pnpm-builds.js";
 import { loadPolicy } from "../policy.js";
 import { isHardBlock } from "../rules.js";
 import { PackageNotFoundError, parsePackageSpec } from "../registry.js";
@@ -54,7 +55,24 @@ export function approveOutcome(decision: Decision, hardBlock: boolean): ApproveO
  * (locally or in CI); the exact version is then trusted by everyone who has
  * the committed `.targate/approvals.json`.
  */
+/** True in CI environments (the standard CI env var, "false" respected). */
+function isCiEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.CI) && env.CI !== "false";
+}
+
 export async function approveCommand(opts: ApproveOptions): Promise<number> {
+  // An approval is a HUMAN vouching for a version. CI is unattended by
+  // definition, so recording one there is always a mistake (or an attack):
+  // the reviewed, committed .targate/approvals.json is how approvals reach CI.
+  if (isCiEnvironment()) {
+    console.error(
+      red(
+        "targate approve is disabled in CI — approvals must come from a human on a dev machine. Commit .targate/approvals.json to share an approval with CI.",
+      ),
+    );
+    return 1;
+  }
+
   const { name, version } = parsePackageSpec(opts.spec);
 
   const note = (line: string): void => {
@@ -112,7 +130,9 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
   const hardBlock = isHardBlock(signals) || (deepResults ?? []).some((r) => r.hardBlock);
   const outcome = approveOutcome(assessment.decision, hardBlock);
 
-  // Decide the mode before any I/O so --json can report it.
+  // Recording requires EXPLICIT human intent: either an interactive
+  // confirmation or the --yes flag. --json alone never records — a machine
+  // parsing the verdict must not create an approval as a side effect.
   const interactive = !opts.assumeYes && !opts.json;
   let approval: ApprovalRecord | null = null;
 
@@ -122,22 +142,37 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     // and avoids a fragile second readline read. Default is the safer
     // scripts-disabled mode.
     const mode: ApprovalRecord["mode"] = opts.allowScripts ? "normal" : "no-scripts";
-    let cancelled = false;
+    let confirmed = opts.assumeYes;
     if (interactive) {
       if (!opts.json) console.log(renderReport(metadata, signals, assessment));
-      const proceed = await confirm(
+      confirmed = await confirm(
         `Record approval for ${metadata.name}@${metadata.version} (${mode}) in .targate/approvals.json? It is not installed now.`,
         true,
       );
-      if (!proceed) cancelled = true;
     }
-    if (!cancelled) {
+    if (confirmed) {
       await recordApproval(metadata.name, metadata.version, mode);
       approval = {
         mode,
         approvedAt: new Date().toISOString(),
         approvedBy: process.env.USER ?? process.env.USERNAME,
       };
+      // On pnpm projects, persist the scripts decision through pnpm's native
+      // approve-builds mechanism too, so even a later raw `pnpm install`
+      // honors it (no-scripts → ignoredBuiltDependencies).
+      if (signals.hasLifecycleScripts && detectPackageManager() === "pnpm") {
+        const written = await recordBuildApproval(
+          metadata.name,
+          mode === "normal" ? "approved" : "ignored",
+        );
+        if (written) {
+          note(
+            dim(
+              `  ✓ pnpm approve-builds updated (${written}): scripts ${mode === "normal" ? "allowed" : "ignored"}`,
+            ),
+          );
+        }
+      }
     }
   } else if (!opts.json) {
     // Nothing to prompt for; still show the report for context.

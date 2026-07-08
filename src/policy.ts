@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { parse, stringify } from "yaml";
 import type { AiCachePolicy } from "./ai-cache.js";
-import { loadConfigFile } from "./config-loader.js";
+import { execConfigDisabled, isExecConfigFile, loadConfigFile } from "./config-loader.js";
 import { isHardBlock } from "./rules.js";
 import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
 
@@ -130,9 +130,19 @@ export function parsePolicy(source: string): PolicyFile {
 
 /** First targate.policy.* file found in the project root, or null. */
 export function findPolicyFile(cwd: string = process.cwd()): string | null {
+  const noExec = execConfigDisabled();
   for (const name of POLICY_FILENAMES) {
     const file = path.join(cwd, name);
-    if (existsSync(file)) return file;
+    if (!existsSync(file)) continue;
+    if (noExec && isExecConfigFile(file)) {
+      // stderr, so --json stdout stays clean; the skip must be visible because
+      // it can remove strictness the repo's policy would otherwise add.
+      console.error(
+        `[targate] TARGATE_NO_EXEC_CONFIG is set — ignoring ${name} (executable config disabled). Use a .yaml/.json policy in untrusted repos.`,
+      );
+      continue;
+    }
+    return file;
   }
   return null;
 }

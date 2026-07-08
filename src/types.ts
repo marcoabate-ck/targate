@@ -28,6 +28,10 @@ export interface PackageMetadata {
   publishDate?: string;
   ageInDays?: number;
   tarballUrl: string;
+  /** SRI hash from the registry manifest (dist.integrity, e.g. "sha512-…"). */
+  integrity?: string;
+  /** Legacy sha1 hex digest from the registry manifest (dist.shasum). */
+  shasum?: string;
   scripts: Record<string, string>;
   dependencyCount: number;
   directDependencies: string[];

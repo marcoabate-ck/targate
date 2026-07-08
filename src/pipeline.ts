@@ -50,7 +50,10 @@ export async function analyzePackage(
   const metadata = await fetchPackageMetadata(name, version);
   opts.onStage?.("metadata", `${metadata.name}@${metadata.version}`);
 
-  const quarantine = await quarantineTarball(metadata.tarballUrl);
+  const quarantine = await quarantineTarball(metadata.tarballUrl, {
+    integrity: metadata.integrity,
+    shasum: metadata.shasum,
+  });
   opts.onStage?.("quarantine");
 
   try {
