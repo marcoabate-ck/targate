@@ -40,6 +40,7 @@ By default only the **requested top-level package** is analyzed; `--deep` extend
 ```
 targate add <package>[@version]         Analyze a package, then gate the install
 (targate <package> without a subcommand is a shorthand for targate add)
+targate approve <package>[@version]     Analyze and record a committable approval WITHOUT installing
 targate install                         Vet the whole dependency tree, then gate a full install
 targate sandbox <package>[@version]     Trial install in a disposable Docker container
 targate ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
@@ -51,8 +52,10 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 Options (add & ci):
 --package-manager <pm>  Force pnpm | npm | yarn (default: auto-detect from lockfile)
 --json                  Machine-readable output (metadata + signals + assessment)
---dry-run               Analyze and report only, never install
+--dry-run               Analyze and report only — never prompt, never install
+                        (to approve without installing, use `targate approve`)
 --yes                   Skip confirmation for allow/allow-with-warnings
+                        (approve: skip the lifecycle-scripts prompt)
 --no-ai                 Skip the AI reasoning layer, use rules only
 --provider <name>       anthropic | deepseek | openai | ollama | custom
 --model <name>          Override the model for the selected provider
@@ -60,8 +63,10 @@ Options (add & ci):
 --api-key <key>         API key (prefer env vars over this flag)
 --reasoning             Enable model reasoning where the provider supports it
                         (see "Reasoning support" below)
---deep                  (add) Also analyze the full transitive dependency tree;
-                        the strictest verdict in the tree gates the install
+--deep                  (add, approve) Also analyze the full transitive dependency
+                        tree; the strictest verdict in the tree gates it
+--allow-scripts         (approve) Record the approval as scripts-allowed (default:
+                        no-scripts) — (install) run lifecycle scripts
 --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
 
 Options (sandbox):
@@ -141,6 +146,21 @@ targate add react-native-mmkv --no-ai
 
 With an AI provider configured, the model weighs the same signals contextually (e.g. "this postinstall just compiles native bindings"). The clamp is one-directional: **the AI can escalate but never de-escalate a deterministic BLOCK.** Concretely, `clampDecision` re-runs the rules engine and, if it returns BLOCK, forces the final decision to BLOCK regardless of what the model returned — so a model that is jailbroken, prompt-injected, or simply wrong cannot turn a rules-engine BLOCK into ALLOW. The AI is still free to reach BLOCK or REQUIRE APPROVAL on its own when the rules engine was more permissive.
 
+### Hard vs soft blocks
+
+Not every BLOCK is equal. A **hard block** can never be overridden — by the AI, the allow list, or an approval:
+
+- a known-malicious OSV/OpenSSF record, or
+- a lifecycle command that **downloads and executes** remote code (`curl … | bash`, `wget … | sh`, `node -e`).
+
+Every other block is **soft** (heuristic) — a strong signal a human may deliberately clear for a specific package. The common case is a native-binary installer whose install script reads `process.env` **and** hits the network to fetch its platform binary (esbuild, swc, sharp, playwright…): indistinguishable by pattern from credential exfiltration, but routinely legitimate. A soft block:
+
+- can be **approved without installing** — `targate approve esbuild@0.27.3` reviews it and records a committable approval; a later `targate add` / `--yes` / CI run then passes on that exact version. This is the clean way to pre-clear a package.
+- can be **approved during an interactive install** — `targate add esbuild` (without `--yes`) prompts you to install it (with or without scripts) and records the same approval. It is **never** auto-installed with `--yes`.
+- can be **pre-cleared** by adding the package to `allowKnownPackages` in the team policy.
+
+A hard block does none of that — it stays blocked, and the allow list explicitly reports that it was ignored.
+
 ## AI response cache
 
 Interactive runs cache the AI's assessment so re-reviewing the same dependency (re-runs, `--deep` trees sharing packages across projects) doesn't pay for a new completion. The cache key is the **full evaluation context**:
@@ -203,9 +223,24 @@ Exit codes: `0` vetted (and installed, unless `--dry-run`), `2` refused (blocked
 
 ## Team workflow
 
+### Approving a package — `targate approve`
+
+There are two ways to record an approval, and both write the same committable entry:
+
+```bash
+targate approve esbuild@0.27.3          # review + record, WITHOUT installing
+targate add esbuild@0.27.3              # review + record + install (interactive)
+```
+
+Use **`targate approve`** when you want to clear a `require_approval` / [soft block](#hard-vs-soft-blocks) ahead of time — e.g. so a teammate's `targate add` or a CI run passes without stopping — but you don't want to install the package into your working tree right now. It analyzes the package, shows the report, and asks for a single confirmation before recording the approval. The approval is recorded as **scripts-disabled** (`no-scripts`) by default; add `--allow-scripts` to record it as scripts-allowed. Other flags: `--yes` skips the confirmation prompt, `--deep` also vets the transitive tree, `--json` prints the assessment plus the recorded `approval`.
+
+A **hard block** can never be approved — `targate approve` on a known-malicious / remote-exec package refuses and exits `2`. An already-`allow` package needs no approval and records nothing.
+
+`--dry-run` is *not* how you approve: it is a pure preview (analyze + report, no prompt, no install, nothing recorded).
+
 ### Approval cache — `.targate/approvals.*`
 
-When a developer approves a `require_approval` package interactively, the approval (name@version, mode, who, when) is recorded in `.targate/approvals.json`. **Commit the file**: the rest of the team — and CI — treat that exact version as already reviewed. A new version requires a new approval.
+Either path above records the approval (name@version, mode, who, when) in `.targate/approvals.json`. **Commit the file**: the rest of the team — and CI — treat that exact version as already reviewed. A new version requires a new approval.
 
 Approvals can also be hand-curated in `.targate/approvals.{ts,js,mjs,cjs,yaml,yml,json}` — all existing files are read and **merged**, with the tool-managed `approvals.json` winning on conflicts (a fresh interactive approval must always take effect). Automatic recording only ever writes `approvals.json`; the other formats are read-only sources. For typed files:
 
@@ -261,10 +296,10 @@ const policy: PolicyFile = {
 export default policy;
 ```
 
-`.ts`/`.js` files are executed through [jiti](https://github.com/unjs/jiti) (default export; the type import is erased at runtime, so the file loads even where `targate` isn't installed as a dependency), and every format goes through the same schema validation. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages. That downgrade has hard limits, because the allow list is **name-based** (it would otherwise trust every future version of a package, including a compromised release):
+`.ts`/`.js` files are executed through [jiti](https://github.com/unjs/jiti) (default export; the type import is erased at runtime, so the file loads even where `targate` isn't installed as a dependency), and every format goes through the same schema validation. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages. Its power is bounded by the [hard/soft block](#hard-vs-soft-blocks) distinction:
 
-- a **known-malicious record** can never be overridden — the package stays blocked;
-- **any other deterministic BLOCK** (e.g. a `curl … | bash` postinstall, install-time env + network access) can't be waved through either: the allow list caps at `require_approval`, so a human must approve **that exact version** — and the version-pinned `.targate/approvals.json`, not the blanket allow list, is what records the decision.
+- a **hard block** (known-malicious record, or a `curl … | bash`-style download-and-execute) can never be overridden — the package stays blocked, and the report notes the allow list was ignored;
+- a **soft/heuristic block** (e.g. an install script that reads env + hits the network, like esbuild) **is** cleared to `allow` by an allow-list entry — a deliberate, committed decision to trust that package. Prefer a version-pinned `.targate/approvals.json` entry (recorded automatically when you approve interactively) when you want to trust one exact version rather than all future ones.
 
 ## React Native hardening
 
@@ -361,7 +396,7 @@ OSV/OpenSSF is targate's source of known-malicious-package intelligence — its 
 ## Development
 
 ```bash
-pnpm test        # vitest suite (227 tests, incl. end-to-end CI and full-install checks on fixture repos)
+pnpm test        # vitest suite (243 tests, incl. end-to-end CI and full-install checks on fixture repos)
 pnpm typecheck
 pnpm dev add <pkg>   # run from source
 ```

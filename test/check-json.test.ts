@@ -104,4 +104,32 @@ describe("targate add --json emits only JSON on stdout (agent contract)", () => 
     expect(parsed.assessment.decision).toBe("allow");
     expect(parsed.deep).toBeNull();
   });
+
+  it("does not write an interactive install prompt to stdout without --yes", async () => {
+    // Without --yes and without --dry-run, an `allow` package used to trigger
+    // gateInstall's "Proceed with install?" readline prompt on stdout, which
+    // corrupts the JSON document. --json must stay non-interactive.
+    cwd = process.cwd();
+    dir = await mkdtemp(path.join(tmpdir(), "targate-json-"));
+    process.chdir(dir);
+    stubNetwork();
+
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
+      lines.push(args.join(" "));
+    });
+
+    const code = await checkCommand({
+      spec: "left-pad@1.3.0",
+      json: true,
+      dryRun: false,
+      assumeYes: false,
+      assess: { useAi: false },
+    });
+    spy.mockRestore();
+
+    expect(code).toBe(0);
+    expect(lines).toHaveLength(1);
+    expect(() => JSON.parse(lines[0])).not.toThrow();
+  });
 });

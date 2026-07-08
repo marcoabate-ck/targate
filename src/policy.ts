@@ -4,7 +4,7 @@ import path from "node:path";
 import { parse, stringify } from "yaml";
 import type { AiCachePolicy } from "./ai-cache.js";
 import { loadConfigFile } from "./config-loader.js";
-import { evaluateRules } from "./rules.js";
+import { isHardBlock } from "./rules.js";
 import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
 
 export const POLICY_BASENAME = "targate.policy";
@@ -184,19 +184,14 @@ function escalate(
  * Apply the team policy on top of an AI/rules assessment.
  *
  * The policy is escalation-only, with one exception: allowKnownPackages can
- * downgrade to "allow" — but it can never cross a deterministic BLOCK. The
- * allow list is name-based (it trusts every future version of a package),
- * while the BLOCK rules describe the *current* version's behavior: a
- * compromised release of an allow-listed package that adds a `curl | bash`
- * postinstall must not be waved through. Known-malicious packages stay
- * blocked outright; any other deterministic BLOCK caps the downgrade at
- * require_approval, so a human reviews that specific version (and the
- * version-pinned approval cache — not the blanket allow list — records it).
- *
- * The allow list DOES override an AI-only block (one the deterministic rules
- * engine did not raise): the rules engine is the security floor and the AI is
- * advisory, so an explicit, committed "we trust this package" entry is allowed
- * to overrule the model. It can never override the deterministic floor.
+ * downgrade to "allow" — but never across a HARD block. A hard block
+ * (known-malicious OSV record or a lifecycle command that downloads AND
+ * executes remote code, see isHardBlock) can never be overridden. A soft
+ * block (heuristics such as "install script reads env AND hits the network" —
+ * exactly what native-binary installers like esbuild do) CAN be cleared by an
+ * explicit, committed allow-list entry: that is a deliberate human decision to
+ * trust the package. AI-only blocks (the rules engine didn't block) are soft
+ * too — the AI is advisory.
  */
 export function applyPolicy(
   assessment: RiskAssessment,
@@ -213,16 +208,13 @@ export function applyPolicy(
   }
 
   if (p.allowKnownPackages?.includes(signals.package)) {
-    const floor = evaluateRules(signals);
-    if (floor.decision === "block") {
+    if (result.decision === "block" && isHardBlock(signals)) {
+      // Hard block — the allow list cannot touch it. Leave it blocked.
       return {
         ...result,
-        decision: "require_approval",
-        risk: "high",
         reasons: [
           ...result.reasons,
-          `[policy] "${signals.package}" is on the team allow list, but this version matches deterministic BLOCK rules — the allow list cannot override them. A human must approve this exact version.`,
-          ...floor.reasons,
+          `[policy] "${signals.package}" is on the allow list, but it matches a HARD block (known-malicious record or remote code execution) that the allow list cannot override.`,
         ],
       };
     }
@@ -232,7 +224,7 @@ export function applyPolicy(
       risk: "low",
       reasons: [
         ...result.reasons,
-        `[policy] "${signals.package}" is on the team allow list — pre-approved.`,
+        `[policy] "${signals.package}" is on the team allow list — pre-approved (heuristic findings acknowledged).`,
       ],
     };
   }

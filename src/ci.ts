@@ -9,6 +9,7 @@ import { detectPackageManager } from "./installer.js";
 import { lockfileVersionIndex, resolveInstalledVersion, snapshotLockfile } from "./lockfile.js";
 import { analyzePackage } from "./pipeline.js";
 import { loadPolicy } from "./policy.js";
+import { isHardBlock } from "./rules.js";
 import type { RiskAssessment } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -130,16 +131,19 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
       `analyzing ${change.name}@${resolved.version || change.range} (${change.kind}, version from ${resolved.source})`,
     );
     try {
-      const { metadata, assessment } = await analyzePackage(
+      const { metadata, signals, assessment } = await analyzePackage(
         change.name,
         resolved.version || undefined,
         { assess, failOnOsvError: opts.failOnOsvError, policy },
       );
 
+      // A hard block always fails CI. A soft block or require_approval fails
+      // only when it lacks a committed approval (approval drift).
       const approved = getApproval(approvals, metadata.name, metadata.version) !== null;
+      const hard = isHardBlock(signals);
       if (
-        assessment.decision === "block" ||
-        (assessment.decision === "require_approval" && !approved)
+        hard ||
+        ((assessment.decision === "block" || assessment.decision === "require_approval") && !approved)
       ) {
         exitCode = 2;
       }

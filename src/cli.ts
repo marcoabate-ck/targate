@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { DEFAULT_AGENT_FORMATS, initAgentFiles, parseAgentFormats } from "./agents.js";
+import { approveCommand } from "./commands/approve.js";
 import { checkCommand } from "./commands/check.js";
 import { ciCommand } from "./commands/ci.js";
 import { installCommand } from "./commands/install.js";
@@ -17,6 +18,9 @@ targate — gate every dependency before it runs (AI-gated pre-install security)
 
 Usage:
   targate add <package>[@version]         Analyze a package, then gate the install
+  targate approve <package>[@version]     Analyze a package and record a committable
+                                      approval WITHOUT installing it (clears a
+                                      require_approval / soft block ahead of time)
   targate install                         Vet the WHOLE dependency tree, then gate a
                                       full install (pnpm/npm/yarn install)
   targate sandbox <package>[@version]     Trial install in a disposable Docker container
@@ -34,8 +38,10 @@ Usage:
 Options (add & ci):
   --package-manager <pm>  Force pnpm | npm | yarn (default: auto-detect)
   --json                  Print machine-readable JSON instead of the report
-  --dry-run               Analyze and report only, never install
+  --dry-run               Analyze and report only — never prompt, never install.
+                          (To approve without installing, use targate approve.)
   --yes                   Skip confirmation for allow/allow-with-warnings
+                          (approve: skip the lifecycle-scripts prompt)
   --no-ai                 Skip the AI reasoning layer, use rules only
   --provider <name>       anthropic | deepseek | openai | ollama | custom
                           (default: auto-detect from env vars, see below)
@@ -45,11 +51,12 @@ Options (add & ci):
   --reasoning             Enable model reasoning where the provider supports it
   --fail-on-osv-error     Treat an unreachable OSV lookup as "unknown" and
                           escalate to require-approval (recommended in CI)
-  --deep                  (add) Also analyze the FULL transitive dependency
-                          tree; the strictest verdict in the tree gates the
-                          install (slower; the AI cache softens repeat costs)
+  --deep                  (add, approve) Also analyze the FULL transitive
+                          dependency tree; the strictest verdict in the tree
+                          gates it (slower; the AI cache softens repeat costs)
   --frozen-lockfile       (install) Immutable install (npm ci / --frozen-lockfile)
   --allow-scripts         (install) Run lifecycle scripts (default: disabled)
+                          (approve) Record the approval as scripts-allowed
   --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
 
 Options (sandbox):
@@ -67,6 +74,7 @@ Provider auto-detection (first match wins):
 Examples:
   targate add react-native-mmkv
   targate add left-pad@1.3.0 --dry-run
+  targate approve esbuild@0.27.3
   targate sandbox suspicious-package
   targate ci --base-ref origin/main
   targate policy init
@@ -134,6 +142,22 @@ async function main(): Promise<number> {
         json: values.json,
         dryRun: values["dry-run"],
         assumeYes: values.yes,
+        failOnOsvError: values["fail-on-osv-error"],
+        deep: values.deep,
+        assess,
+      });
+    }
+
+    case "approve": {
+      if (!rest[0]) {
+        console.error(red("Usage: targate approve <package>[@version]"));
+        return 1;
+      }
+      return approveCommand({
+        spec: rest[0],
+        json: values.json,
+        assumeYes: values.yes,
+        allowScripts: values["allow-scripts"],
         failOnOsvError: values["fail-on-osv-error"],
         deep: values.deep,
         assess,

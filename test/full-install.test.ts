@@ -30,8 +30,8 @@ function assessment(decision: Decision): RiskAssessment {
   };
 }
 
-function vet(name: string, decision: Decision, approved = false): InstallVetResult {
-  return { name, version: "1.0.0", assessment: assessment(decision), approved };
+function vet(name: string, decision: Decision, approved = false, hardBlock = false): InstallVetResult {
+  return { name, version: "1.0.0", assessment: assessment(decision), approved, hardBlock };
 }
 
 describe("treeFromLockfile", () => {
@@ -82,6 +82,15 @@ describe("aggregateInstallDecision", () => {
       decision: "allow_with_warnings",
       exitCode: 0,
     });
+  });
+
+  it("a soft block passes once approved, but a hard block never does", () => {
+    // soft block (hardBlock=false) + approved → exit 0 (esbuild once approved)
+    expect(aggregateInstallDecision([vet("esbuild", "block", true, false)]).exitCode).toBe(0);
+    // soft block, not approved → exit 2
+    expect(aggregateInstallDecision([vet("esbuild", "block", false, false)]).exitCode).toBe(2);
+    // hard block stays exit 2 even with an approval
+    expect(aggregateInstallDecision([vet("evil", "block", true, true)]).exitCode).toBe(2);
   });
 });
 

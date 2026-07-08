@@ -1,6 +1,36 @@
 import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
 
 /**
+ * A lifecycle command that fetches from the network and pipes into a shell /
+ * inline interpreter (curl … | bash, wget … | sh, node -e) — the canonical
+ * remote-payload install attack.
+ */
+function fetchesAndExecutes(signals: Signals): boolean {
+  const cmd = signals.scriptCommandFindings.join(" ");
+  return (
+    /downloads content from the network/.test(cmd) &&
+    /(invokes a shell|runs inline node code|uses eval)/.test(cmd)
+  );
+}
+
+/**
+ * A "hard" block can NEVER be overridden — not by team policy, an approval,
+ * or the AI: a known-malicious OSV record, or a lifecycle command that
+ * downloads AND executes remote code.
+ *
+ * Every other deterministic block is "soft" (heuristic): a strong signal that
+ * a human may deliberately clear for a specific package. The classic example
+ * is a native-binary installer (esbuild, swc, sharp, playwright…) whose
+ * install script legitimately reads process.env AND hits the network to fetch
+ * its platform binary — indistinguishable by pattern from exfiltration, but
+ * routinely legitimate. Soft blocks can be cleared by allowKnownPackages or a
+ * committed version-pinned approval; hard blocks cannot.
+ */
+export function isHardBlock(signals: Signals): boolean {
+  return signals.knownMalicious || fetchesAndExecutes(signals);
+}
+
+/**
  * Deterministic policy engine — used as a fallback when no Anthropic API key
  * is available, and as a hard floor for AI decisions (the AI can never be
  * more permissive than the BLOCK rules below).
@@ -27,13 +57,7 @@ export function evaluateRules(signals: Signals): RiskAssessment {
     signals.content.installTimeFindings.some((f) => f.includes("process.env")) &&
     signals.content.installTimeFindings.some((f) => f.includes("network"));
 
-  // A lifecycle command that fetches from the network and pipes into a
-  // shell / inline interpreter (curl … | bash, wget … | sh, node -e) is the
-  // canonical remote-payload install attack.
-  const cmd = signals.scriptCommandFindings.join(" ");
-  const scriptFetchesAndExecutes =
-    /downloads content from the network/.test(cmd) &&
-    /(invokes a shell|runs inline node code|uses eval)/.test(cmd);
+  const scriptFetchesAndExecutes = fetchesAndExecutes(signals);
 
   if (signals.nameSimilarity && signals.recentPublish) {
     reasons.push(

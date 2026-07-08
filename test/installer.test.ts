@@ -66,5 +66,50 @@ describe("gateInstall", () => {
     const result = await gateInstall("allow", "pnpm", "left-pad", { dryRun: true });
     expect(result.mode).toBe("skipped");
     expect(result.command).toEqual(["pnpm", "add", "left-pad"]);
+    expect(result.installed).toBe(false);
+  });
+
+  const no = async () => false;
+  const boom = async () => {
+    throw new Error("prompt should not be called");
+  };
+
+  it("dry-run is a pure preview: never prompts, reports the scripts-disabled command", async () => {
+    // confirmFn throws to prove --dry-run does NOT run the approval flow.
+    const result = await gateInstall("require_approval", "pnpm", "some-pkg", {
+      dryRun: true,
+      confirmFn: boom,
+    });
+    expect(result.mode).toBe("skipped");
+    expect(result.command).toEqual(["pnpm", "add", "some-pkg", "--ignore-scripts"]);
+    expect(result.installed).toBe(false);
+  });
+
+  it("dry-run previews a SOFT block without prompting or installing", async () => {
+    const result = await gateInstall("block", "pnpm", "esbuild", {
+      dryRun: true,
+      overridable: true,
+      confirmFn: boom,
+    });
+    expect(result.mode).toBe("skipped");
+    expect(result.installed).toBe(false);
+  });
+
+  it("declining every approval prompt installs nothing", async () => {
+    // Interactive (not dry-run): both prompts declined → nothing runs.
+    const result = await gateInstall("require_approval", "pnpm", "some-pkg", {
+      confirmFn: no,
+    });
+    expect(result.mode).toBe("skipped");
+    expect(result.installed).toBe(false);
+  });
+
+  it("a HARD block is never installable or approvable", async () => {
+    const result = await gateInstall("block", "pnpm", "evil", {
+      overridable: false,
+      confirmFn: boom,
+    });
+    expect(result.mode).toBe("blocked");
+    expect(result.installed).toBe(false);
   });
 });
