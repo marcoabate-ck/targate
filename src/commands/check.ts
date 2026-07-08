@@ -170,8 +170,12 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   const lockBefore = await snapshotLockfile(pm);
 
   // A soft block is approvable interactively (like require_approval) — a human
-  // can clear it and the approval is recorded. A hard block is never overridable.
-  const overridableBlock = assessment.decision === "block" && !isHardBlock(signals);
+  // can clear it and the approval is recorded. A block is HARD (never
+  // overridable) if the root package is a hard block, or — under --deep — any
+  // analyzed transitive dependency is.
+  const hardBlock =
+    isHardBlock(signals) || (deepResults ?? []).some((r) => r.hardBlock);
+  const overridableBlock = assessment.decision === "block" && !hardBlock;
   const needsApproval = assessment.decision === "require_approval" || overridableBlock;
 
   const result = await gateInstall(assessment.decision, pm, `${metadata.name}@${metadata.version}`, {
@@ -193,16 +197,24 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       return 0;
     case "no-scripts":
     case "normal": {
-      note(
-        green(result.mode === "no-scripts" ? "\nInstalled with lifecycle scripts disabled." : "\nInstalled."),
-      );
+      if (result.installed) {
+        note(
+          green(result.mode === "no-scripts" ? "\nInstalled with lifecycle scripts disabled." : "\nInstalled."),
+        );
+      } else {
+        // --dry-run: the approval flow ran, but the install did not.
+        note(green(`\nApproved (${result.mode}) and recorded — dry run, package NOT installed.`));
+      }
 
       // Phase 2 — record the human approval so the team doesn't re-review.
-      // Covers both require_approval and a freshly-approved soft block.
+      // Covers both require_approval and a freshly-approved soft block. This
+      // happens even in --dry-run (recording the approval is the point).
       if (needsApproval) {
         await recordApproval(metadata.name, metadata.version, result.mode);
         note(dim(`  ✓ approval recorded in .targate/approvals.json (commit it to share)`));
-        if (pm === "pnpm" && signals.hasLifecycleScripts) {
+        // pnpm approve-builds edits pnpm-workspace.yaml for the REAL install —
+        // only write it when we actually installed.
+        if (result.installed && pm === "pnpm" && signals.hasLifecycleScripts) {
           const written = await recordBuildApproval(
             metadata.name,
             result.mode === "normal" ? "approved" : "ignored",
@@ -216,12 +228,15 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       }
 
       // Phase 2 — lockfile diff preview: what did this install actually add?
-      const lockAfter = await snapshotLockfile(pm);
-      const diff = diffLockfiles(pm, lockBefore, lockAfter);
-      if (diff.added.length > 0) {
-        note(cyan(`\nLockfile diff — ${diff.added.length} package(s) added:`));
-        for (const entry of diff.added.slice(0, 25)) note(dim(`  + ${entry}`));
-        if (diff.added.length > 25) note(dim(`  … and ${diff.added.length - 25} more`));
+      // Only meaningful for a real install (dry-run changes nothing).
+      if (result.installed) {
+        const lockAfter = await snapshotLockfile(pm);
+        const diff = diffLockfiles(pm, lockBefore, lockAfter);
+        if (diff.added.length > 0) {
+          note(cyan(`\nLockfile diff — ${diff.added.length} package(s) added:`));
+          for (const entry of diff.added.slice(0, 25)) note(dim(`  + ${entry}`));
+          if (diff.added.length > 25) note(dim(`  … and ${diff.added.length - 25} more`));
+        }
       }
       return 0;
     }

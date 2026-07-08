@@ -51,7 +51,9 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 Options (add & ci):
 --package-manager <pm>  Force pnpm | npm | yarn (default: auto-detect from lockfile)
 --json                  Machine-readable output (metadata + signals + assessment)
---dry-run               Analyze and report only, never install
+--dry-run               Never execute the install. `add` still runs the approval
+                        prompt and records an approval if you accept (so you can
+                        pre-approve a package without installing it yet)
 --yes                   Skip confirmation for allow/allow-with-warnings
 --no-ai                 Skip the AI reasoning layer, use rules only
 --provider <name>       anthropic | deepseek | openai | ollama | custom
@@ -375,7 +377,7 @@ OSV/OpenSSF is targate's source of known-malicious-package intelligence — its 
 ## Development
 
 ```bash
-pnpm test        # vitest suite (232 tests, incl. end-to-end CI and full-install checks on fixture repos)
+pnpm test        # vitest suite (236 tests, incl. end-to-end CI and full-install checks on fixture repos)
 pnpm typecheck
 pnpm dev add <pkg>   # run from source
 ```

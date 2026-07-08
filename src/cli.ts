@@ -34,7 +34,8 @@ Usage:
 Options (add & ci):
   --package-manager <pm>  Force pnpm | npm | yarn (default: auto-detect)
   --json                  Print machine-readable JSON instead of the report
-  --dry-run               Analyze and report only, never install
+  --dry-run               Never execute the install. (add: still runs the
+                          approval prompt and records an approval if you accept)
   --yes                   Skip confirmation for allow/allow-with-warnings
   --no-ai                 Skip the AI reasoning layer, use rules only
   --provider <name>       anthropic | deepseek | openai | ollama | custom

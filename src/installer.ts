@@ -74,52 +74,66 @@ export type InstallMode = "normal" | "no-scripts" | "skipped" | "blocked";
  * Gate the real install behind the decision. A HARD block never installs. A
  * "soft" block (opts.overridable — a heuristic block such as env+network) is
  * treated like require_approval: a human may approve it interactively, but it
- * is never auto-installed with --yes. "require_approval" defaults to
- * scripts-disabled installs.
+ * is never auto-installed with --yes.
+ *
+ * --dry-run prevents ONLY the install command — it still runs the approval
+ * flow, so accepting a require_approval / soft block records the approval
+ * (the returned mode drives that upstream) without touching the project. The
+ * `installed` flag in the result says whether the package manager actually ran.
  */
 export async function gateInstall(
   decision: Decision,
   pm: PackageManager,
   spec: string,
-  opts: { assumeYes?: boolean; dryRun?: boolean; overridable?: boolean } = {},
-): Promise<{ mode: InstallMode; command?: string[] }> {
+  opts: {
+    assumeYes?: boolean;
+    dryRun?: boolean;
+    overridable?: boolean;
+    /** Prompt implementation — injectable for tests; defaults to interactive confirm(). */
+    confirmFn?: (question: string, defaultYes?: boolean) => Promise<boolean>;
+  } = {},
+): Promise<{ mode: InstallMode; command?: string[]; installed: boolean }> {
+  const dry = opts.dryRun === true;
+  const ask = opts.confirmFn ?? confirm;
   const overridableBlock = decision === "block" && opts.overridable === true;
   if (decision === "block" && !overridableBlock) {
-    return { mode: "blocked" };
+    return { mode: "blocked", installed: false };
   }
 
   const normal = buildInstallCommand(pm, spec);
   const noScripts = buildInstallCommand(pm, spec, { ignoreScripts: true });
 
   if (decision === "require_approval" || overridableBlock) {
-    if (opts.dryRun || opts.assumeYes) {
-      // Never auto-approve a package that requires human review.
-      return { mode: "skipped", command: noScripts };
+    if (opts.assumeYes) {
+      // Never auto-approve a package that requires human review — not even in
+      // --dry-run (an approval must come from a human).
+      return { mode: "skipped", command: noScripts, installed: false };
     }
-    const approveNoScripts = await confirm(
-      `This package requires manual approval. Install with scripts DISABLED (${noScripts.join(" ")})?`,
+    const suffix = dry ? " (dry run — records the approval, does not install)" : ` (${noScripts.join(" ")})`;
+    const approveNoScripts = await ask(
+      `This package needs manual approval. Approve WITHOUT lifecycle scripts${suffix}?`,
     );
     if (approveNoScripts) {
-      if (opts.dryRun) return { mode: "skipped", command: noScripts };
-      await runCommand(noScripts);
-      return { mode: "no-scripts", command: noScripts };
+      if (!dry) await runCommand(noScripts);
+      return { mode: "no-scripts", command: noScripts, installed: !dry };
     }
-    const approveFull = await confirm(
-      `Install normally anyway, INCLUDING lifecycle scripts (${normal.join(" ")})? Only do this if a reviewer approved it.`,
+    const fullSuffix = dry ? " (dry run — records the approval, does not install)" : ` (${normal.join(" ")})`;
+    const approveFull = await ask(
+      `Approve INCLUDING lifecycle scripts${fullSuffix}? Only do this if you trust the package.`,
     );
     if (approveFull) {
-      await runCommand(normal);
-      return { mode: "normal", command: normal };
+      if (!dry) await runCommand(normal);
+      return { mode: "normal", command: normal, installed: !dry };
     }
-    return { mode: "skipped" };
+    return { mode: "skipped", installed: false };
   }
 
-  // allow / allow_with_warnings
-  if (opts.dryRun) return { mode: "skipped", command: normal };
+  // allow / allow_with_warnings — nothing to approve; dry-run just reports.
+  if (dry) return { mode: "skipped", command: normal, installed: false };
   const proceed =
     opts.assumeYes ||
-    (await confirm(`Proceed with install (${normal.join(" ")})?`, decision === "allow"));
-  if (!proceed) return { mode: "skipped" };
+    (await ask(`Proceed with install (${normal.join(" ")})?`, decision === "allow"));
+  if (!proceed) return { mode: "skipped", installed: false };
   await runCommand(normal);
-  return { mode: "normal", command: normal };
+  return { mode: "normal", command: normal, installed: true };
 }
