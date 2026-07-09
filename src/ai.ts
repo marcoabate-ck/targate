@@ -1,9 +1,11 @@
 import {
   cacheKey,
+  type CachedAssessment,
   readCachedAssessment,
   writeCachedAssessment,
   type AiCacheSettings,
 } from "./ai-cache.js";
+import { DEFAULT_CONCURRENCY, mapLimit } from "./concurrency.js";
 import { resolveProvider, type ProviderSelection } from "./providers/index.js";
 import type { AiProvider } from "./providers/types.js";
 import { clampDecision, evaluateRules } from "./rules.js";
@@ -43,18 +45,7 @@ export async function assessWithCache(
 
   if (key && opts.cache) {
     const hit = await readCachedAssessment(key, opts.cache, signals.package, opts.cwd);
-    if (hit) {
-      return clampDecision(
-        {
-          ...hit.assessment,
-          reasons: [
-            ...hit.assessment.reasons,
-            `[cache] reused ${provider.name}/${provider.model} assessment from ${hit.cachedAt.slice(0, 16).replace("T", " ")} — signals unchanged.`,
-          ],
-        },
-        signals,
-      );
-    }
+    if (hit) return shapeCacheHit(provider, hit, signals);
   }
 
   const assessment = await provider.assess(signals);
@@ -62,6 +53,108 @@ export async function assessWithCache(
     await writeCachedAssessment(key, assessment, opts.cache, signals.package, opts.cwd);
   }
   return clampDecision(assessment, signals);
+}
+
+/** Cache-hit shaping shared by the single and batched paths: annotate + clamp. */
+function shapeCacheHit(
+  provider: AiProvider,
+  hit: CachedAssessment,
+  signals: Signals,
+): RiskAssessment {
+  return clampDecision(
+    {
+      ...hit.assessment,
+      reasons: [
+        ...hit.assessment.reasons,
+        `[cache] reused ${provider.name}/${provider.model} assessment from ${hit.cachedAt.slice(0, 16).replace("T", " ")} — signals unchanged.`,
+      ],
+    },
+    signals,
+  );
+}
+
+/** Resolve a provider for batched assessment, or null when batching can't apply
+ * (AI disabled, or no provider configured / misconfigured — the caller then
+ * uses the per-package path, which reports misconfiguration per package). */
+export function resolveBatchProvider(opts: AssessOptions): AiProvider | null {
+  if (!opts.useAi) return null;
+  try {
+    return resolveProvider(opts);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Assess many packages with far fewer round-trips: cache hits are served
+ * first, the misses are grouped into batches of `batchSize` and sent to the
+ * provider's assessBatch in one prompt each. Every result is clamped against
+ * its OWN signals (the deterministic floor is per-package, unaffected by
+ * batching) and the raw model output is cached exactly as the single path
+ * does. Any package the batch doesn't return — a short/misaligned response or
+ * a whole-batch failure — falls back to an isolated assessWithCache, so a
+ * verdict is never dropped. Returns assessments aligned to signalsList.
+ */
+export async function assessManyWithCache(
+  provider: AiProvider,
+  signalsList: Signals[],
+  opts: Pick<AssessOptions, "cache" | "cwd" | "reasoning">,
+  batchSize = 8,
+  concurrency: number = DEFAULT_CONCURRENCY,
+): Promise<RiskAssessment[]> {
+  const results = new Array<RiskAssessment | undefined>(signalsList.length);
+  const keyFor = (signals: Signals) =>
+    cacheKey({
+      provider: provider.name,
+      model: provider.model,
+      reasoning: opts.reasoning ?? false,
+      signals,
+    });
+
+  // 1. Serve cache hits; collect the misses.
+  const misses: { index: number; signals: Signals }[] = [];
+  await Promise.all(
+    signalsList.map(async (signals, index) => {
+      if (opts.cache) {
+        const hit = await readCachedAssessment(keyFor(signals), opts.cache, signals.package, opts.cwd);
+        if (hit) {
+          results[index] = shapeCacheHit(provider, hit, signals);
+          return;
+        }
+      }
+      misses.push({ index, signals });
+    }),
+  );
+
+  // 2. Batch the misses; concurrency bounds how many batches are in flight.
+  const batches: { index: number; signals: Signals }[][] = [];
+  for (let i = 0; i < misses.length; i += batchSize) batches.push(misses.slice(i, i + batchSize));
+
+  await mapLimit(batches, concurrency, async (batch) => {
+    let byId = new Map<string, RiskAssessment>();
+    try {
+      const batchResults = await provider.assessBatch(batch.map((m) => m.signals));
+      byId = new Map(batchResults.map((r) => [r.package, r.assessment]));
+    } catch {
+      byId = new Map(); // whole-batch failure -> every item falls back below
+    }
+    await Promise.all(
+      batch.map(async ({ index, signals }) => {
+        const raw = byId.get(`${signals.package}@${signals.version}`);
+        if (raw) {
+          if (opts.cache) {
+            await writeCachedAssessment(keyFor(signals), raw, opts.cache, signals.package, opts.cwd);
+          }
+          results[index] = clampDecision(raw, signals);
+        } else {
+          // Missing/misaligned item -> isolated call (clamps + caches inside).
+          results[index] = await assessWithCache(provider, signals, opts);
+        }
+      }),
+    );
+  });
+
+  return results as RiskAssessment[];
 }
 
 /**

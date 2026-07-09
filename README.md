@@ -71,7 +71,7 @@ Full specifications live in [`docs/`](docs/README.md):
 ## Development
 
 ```bash
-pnpm test        # vitest suite (257 tests, incl. end-to-end CI and full-install checks on fixture repos)
+pnpm test        # vitest suite (273 tests, incl. end-to-end CI and full-install checks on fixture repos)
 pnpm typecheck
 pnpm dev add <pkg>   # run from source
 ```

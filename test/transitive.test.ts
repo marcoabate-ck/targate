@@ -81,6 +81,7 @@ describe("analyzeTransitiveDeps", () => {
       assess: { useAi: false },
       analyze,
       concurrency: 2,
+      osvBatch: async () => new Map(),
     });
 
     expect(analyze).toHaveBeenCalledTimes(3);
@@ -101,6 +102,7 @@ describe("analyzeTransitiveDeps", () => {
     const results = await analyzeTransitiveDeps(packages, {
       assess: { useAi: false },
       analyze,
+      osvBatch: async () => new Map(),
     });
     const failed = results[1];
     expect(failed.error).toContain("registry exploded");
@@ -116,9 +118,95 @@ describe("analyzeTransitiveDeps", () => {
         signals: makeSignals(),
         assessment: assessment(),
       }),
+      osvBatch: async () => new Map(),
       onResult: (r) => seen.push(r.name),
     });
     expect(seen.sort()).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("analyzeTransitiveDeps — batched AI path", () => {
+  const packages = [
+    { name: "a", version: "1.0.0" },
+    { name: "b", version: "2.0.0" },
+    { name: "evil", version: "9.9.9" },
+  ];
+
+  // A provider that batches; each package resolves to a verdict we dictate.
+  function fakeProvider(verdicts: Record<string, RiskAssessment["decision"]>) {
+    const assess = vi.fn(async (): Promise<RiskAssessment> => assessment());
+    const assessBatch = vi.fn(async (signalsList: ReturnType<typeof makeSignals>[]) =>
+      signalsList.map((s) => ({
+        package: `${s.package}@${s.version}`,
+        assessment: assessment({ decision: verdicts[s.package] ?? "allow" }),
+      })),
+    );
+    return { provider: { name: "fake", model: "m", assess, assessBatch }, assess, assessBatch };
+  }
+
+  function batchOpts(fake: ReturnType<typeof fakeProvider>, extra = {}) {
+    return {
+      assess: { useAi: true },
+      osvBatch: async () => new Map(),
+      buildSignals: async (name: string, version: string | undefined) => ({
+        metadata: {} as PackageAnalysis["metadata"],
+        signals: makeSignals({ package: name, version }),
+      }),
+      resolveProvider: () => fake.provider,
+      assessMany: undefined,
+      ...extra,
+    };
+  }
+
+  it("assesses the whole tree in ONE batch and keeps input order", async () => {
+    const fake = fakeProvider({ b: "require_approval" });
+    const results = await analyzeTransitiveDeps(packages, batchOpts(fake) as never);
+
+    expect(fake.assessBatch).toHaveBeenCalledTimes(1); // 3 packages, batchSize 8 -> 1 call
+    expect(fake.assess).not.toHaveBeenCalled();
+    expect(results.map((r) => r.name)).toEqual(["a", "b", "evil"]);
+    expect(results[1].assessment.decision).toBe("require_approval");
+  });
+
+  it("clamp still BLOCKs a known-malicious package even if the batch returns allow (cross-package injection defense)", async () => {
+    // Simulate a successful injection: the model returns "allow" for the
+    // malicious package. The per-package clamp must override it.
+    const fake = fakeProvider({ evil: "allow" });
+    const results = await analyzeTransitiveDeps(packages, {
+      ...batchOpts(fake),
+      buildSignals: async (name: string, version: string | undefined) => ({
+        metadata: {} as PackageAnalysis["metadata"],
+        signals: makeSignals({
+          package: name,
+          version,
+          knownMalicious: name === "evil",
+          maliciousRecords: name === "evil" ? [{ id: "MAL-2024-1" }] : [],
+        }),
+      }),
+    } as never);
+
+    const evil = results.find((r) => r.name === "evil")!;
+    expect(evil.assessment.decision).toBe("block");
+    expect(evil.hardBlock).toBe(true);
+  });
+
+  it("--no-ai-batch never calls assessBatch (isolated per-package path)", async () => {
+    const fake = fakeProvider({});
+    const analyze = vi.fn(async (name: string, version: string | undefined) => ({
+      metadata: {} as PackageAnalysis["metadata"],
+      signals: makeSignals({ package: name, version }),
+      assessment: assessment(),
+    }));
+    await analyzeTransitiveDeps(packages, {
+      assess: { useAi: true },
+      osvBatch: async () => new Map(),
+      resolveProvider: () => fake.provider,
+      analyze,
+      noAiBatch: true,
+    } as never);
+
+    expect(fake.assessBatch).not.toHaveBeenCalled();
+    expect(analyze).toHaveBeenCalledTimes(3);
   });
 });
 

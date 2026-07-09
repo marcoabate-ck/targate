@@ -145,6 +145,8 @@ export interface VetInstallOptions {
   policy?: LoadedPolicy | null;
   failOnOsvError?: boolean;
   concurrency?: number;
+  /** Force isolated per-package AI calls instead of batching (--no-ai-batch). */
+  noAiBatch?: boolean;
   onResult?: (result: InstallVetResult, index: number, total: number) => void;
   /** Injection point for tests — defaults to the real transitive walker. */
   analyzeAll?: typeof analyzeTransitiveDeps;
@@ -160,6 +162,7 @@ export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport
     failOnOsvError: opts.failOnOsvError,
     policy: opts.policy ?? undefined,
     concurrency: opts.concurrency,
+    noAiBatch: opts.noAiBatch,
     onResult: (r, i, total) => {
       const approved = getApproval(opts.approvals, r.name, r.version) !== null;
       opts.onResult?.({ ...r, approved }, i, total);

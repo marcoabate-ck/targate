@@ -3,12 +3,24 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { assessManyWithCache, resolveBatchProvider, type AssessOptions } from "./ai.js";
+import { DEFAULT_CONCURRENCY, mapLimit } from "./concurrency.js";
 import { extractLockfileEntries } from "./lockfile.js";
-import { analyzePackage, type AnalyzePackageOptions } from "./pipeline.js";
+import { queryOsvBatch, type OsvResult } from "./osv.js";
+import {
+  analyzePackage,
+  buildPackageSignals,
+  finalizeAssessment,
+  type AnalyzePackageOptions,
+} from "./pipeline.js";
+import type { AiProvider } from "./providers/types.js";
 import { isHardBlock } from "./rules.js";
-import { DECISION_SEVERITY, type RiskAssessment } from "./types.js";
+import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
 
 const execFileAsync = promisify(execFile);
+
+/** Packages assessed per AI request in the batched path. */
+const DEFAULT_BATCH_SIZE = 8;
 
 /**
  * Transitive dependency analysis (`targate add --deep`).
@@ -101,49 +113,81 @@ export interface TransitiveResult {
   error?: string;
 }
 
-/** Small concurrency pool — the tree can be large, the registry should not be hammered. */
-async function mapLimit<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i]);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
-
 export interface AnalyzeTransitiveOptions extends AnalyzePackageOptions {
   concurrency?: number;
+  /** Force isolated per-package AI calls instead of batching (--no-ai-batch). */
+  noAiBatch?: boolean;
   onResult?: (result: TransitiveResult, index: number, total: number) => void;
-  /** Injection point for tests — defaults to the real pipeline. */
+  /** Injection point for tests — the per-package pipeline (non-batch path). */
   analyze?: typeof analyzePackage;
+  /** Injection points for tests of the batched path. */
+  buildSignals?: typeof buildPackageSignals;
+  assessMany?: typeof assessManyWithCache;
+  resolveProvider?: (opts: AssessOptions) => AiProvider | null;
+  /** Injection point for tests — the whole-tree OSV lookup. */
+  osvBatch?: typeof queryOsvBatch;
+}
+
+/** A package whose analysis failed — reported as require_approval (unknown is not clean). */
+function errorResult(pkg: TreePackage, message: string): TransitiveResult {
+  return {
+    name: pkg.name,
+    version: pkg.version,
+    error: message,
+    assessment: {
+      risk: "high",
+      decision: "require_approval",
+      summary: `Analysis of transitive dependency ${pkg.name}@${pkg.version} failed`,
+      reasons: [message],
+      recommendedAction: "Investigate manually.",
+      source: "rules",
+    },
+  };
 }
 
 /**
- * Run the per-package pipeline over every package of the resolved tree.
- * A package whose analysis fails (registry error, missing tarball) is
- * reported as require_approval — unknown is not clean.
+ * Run the analysis pipeline over every package of the resolved tree. OSV is
+ * queried for the whole tree in one batched request up front; when an AI
+ * provider is configured (and --no-ai-batch is not set) the assessment is
+ * batched several packages per prompt. Otherwise each package goes through the
+ * per-package pipeline. Either way the deterministic hard-block floor is
+ * enforced per package.
  */
 export async function analyzeTransitiveDeps(
   packages: TreePackage[],
   opts: AnalyzeTransitiveOptions,
 ): Promise<TransitiveResult[]> {
+  const concurrency = opts.concurrency ?? DEFAULT_CONCURRENCY;
+
+  // One OSV round-trip for the whole tree. On failure, an empty map means each
+  // package falls back to its own queryOsv inside the pipeline (today's behavior).
+  let osvMap = new Map<string, OsvResult>();
+  try {
+    osvMap = await (opts.osvBatch ?? queryOsvBatch)(packages);
+  } catch {
+    /* per-package fallback */
+  }
+  const osvFor = (pkg: TreePackage) => osvMap.get(`${pkg.name}@${pkg.version}`);
+
+  const provider = opts.noAiBatch
+    ? null
+    : (opts.resolveProvider ?? resolveBatchProvider)(opts.assess);
+
+  if (provider) {
+    return analyzeTreeBatched(provider, packages, osvFor, concurrency, opts);
+  }
+
+  // Non-batch path: per-package pipeline (still gets batched OSV + concurrency).
   const analyze = opts.analyze ?? analyzePackage;
   let done = 0;
-  return mapLimit(packages, opts.concurrency ?? 4, async (pkg) => {
+  return mapLimit(packages, concurrency, async (pkg) => {
     let result: TransitiveResult;
     try {
       const analysis = await analyze(pkg.name, pkg.version, {
         assess: opts.assess,
         failOnOsvError: opts.failOnOsvError,
         policy: opts.policy,
+        osv: osvFor(pkg),
       });
       result = {
         name: pkg.name,
@@ -152,24 +196,82 @@ export async function analyzeTransitiveDeps(
         hardBlock: isHardBlock(analysis.signals),
       };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      result = {
-        name: pkg.name,
-        version: pkg.version,
-        error: message,
-        assessment: {
-          risk: "high",
-          decision: "require_approval",
-          summary: `Analysis of transitive dependency ${pkg.name}@${pkg.version} failed`,
-          reasons: [message],
-          recommendedAction: "Investigate manually.",
-          source: "rules",
-        },
-      };
+      result = errorResult(pkg, err instanceof Error ? err.message : String(err));
     }
     opts.onResult?.(result, done++, packages.length);
     return result;
   });
+}
+
+/**
+ * Batched path: build every package's signals concurrently, assess the built
+ * ones in batches (fewer AI round-trips + one shared prompt), then finalize
+ * (OSV-failure + team policy) and clamp each package on its own signals.
+ */
+async function analyzeTreeBatched(
+  provider: AiProvider,
+  packages: TreePackage[],
+  osvFor: (pkg: TreePackage) => OsvResult | undefined,
+  concurrency: number,
+  opts: AnalyzeTransitiveOptions,
+): Promise<TransitiveResult[]> {
+  const buildSignals = opts.buildSignals ?? buildPackageSignals;
+  const assessMany = opts.assessMany ?? assessManyWithCache;
+
+  // Phase A — signals for every package (the network I/O), concurrently.
+  type Built =
+    | { pkg: TreePackage; signals: Signals; ok: true }
+    | { pkg: TreePackage; error: string; ok: false };
+  const built = await mapLimit(packages, concurrency, async (pkg): Promise<Built> => {
+    try {
+      const { signals } = await buildSignals(pkg.name, pkg.version, {
+        failOnOsvError: opts.failOnOsvError,
+        osv: osvFor(pkg),
+      });
+      return { pkg, signals, ok: true };
+    } catch (err) {
+      return { pkg, error: err instanceof Error ? err.message : String(err), ok: false };
+    }
+  });
+
+  // Phase B — batched AI assessment over the successfully-built packages.
+  const okItems = built.filter((b): b is Extract<Built, { ok: true }> => b.ok);
+  const rawAssessments = okItems.length
+    ? await assessMany(
+        provider,
+        okItems.map((b) => b.signals),
+        opts.assess,
+        DEFAULT_BATCH_SIZE,
+        concurrency,
+      )
+    : [];
+
+  // Phase C — finalize each (OSV-failure + team policy) and assemble in order.
+  const finalByKey = new Map<string, TransitiveResult>();
+  await Promise.all(
+    okItems.map(async (b, i) => {
+      const assessment = await finalizeAssessment(b.signals, rawAssessments[i], {
+        failOnOsvError: opts.failOnOsvError,
+        policy: opts.policy,
+      });
+      finalByKey.set(`${b.pkg.name}@${b.pkg.version}`, {
+        name: b.pkg.name,
+        version: b.pkg.version,
+        assessment,
+        hardBlock: isHardBlock(b.signals),
+      });
+    }),
+  );
+
+  const results = packages.map((pkg, i) => {
+    const failed = built[i];
+    const result =
+      finalByKey.get(`${pkg.name}@${pkg.version}`) ??
+      errorResult(pkg, !failed.ok ? failed.error : "assessment missing");
+    return result;
+  });
+  results.forEach((r, i) => opts.onResult?.(r, i, packages.length));
+  return results;
 }
 
 const MAX_LISTED_FINDINGS = 10;
