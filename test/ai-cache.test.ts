@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cacheFilePath,
   cacheKey,
+  cacheStats,
+  clearCache,
   readCachedAssessment,
   resolveCacheSettings,
   writeCachedAssessment,
@@ -23,7 +25,7 @@ afterEach(async () => {
 });
 
 function projectSettings(overrides: Partial<AiCacheSettings> = {}): AiCacheSettings {
-  return { enabled: true, scope: "project", ttlHours: 24, exclude: [], ...overrides };
+  return { enabled: true, scope: "project", ttlHours: 24, exclude: [], refresh: false, ...overrides };
 }
 
 function assessment(overrides: Partial<RiskAssessment> = {}): RiskAssessment {
@@ -45,13 +47,18 @@ describe("resolveCacheSettings", () => {
       scope: "user",
       ttlHours: 24,
       exclude: [],
+      refresh: false,
     });
   });
 
   it("applies policy overrides", () => {
     expect(
       resolveCacheSettings({ enabled: false, scope: "project", ttlHours: 1, exclude: ["x"] }),
-    ).toEqual({ enabled: false, scope: "project", ttlHours: 1, exclude: ["x"] });
+    ).toEqual({ enabled: false, scope: "project", ttlHours: 1, exclude: ["x"], refresh: false });
+  });
+
+  it("carries the refresh override (--no-cache)", () => {
+    expect(resolveCacheSettings(undefined, { refresh: true }).refresh).toBe(true);
   });
 });
 
@@ -248,5 +255,74 @@ describe("assessWithCache", () => {
     await expect(
       readFile(path.join(dir, ".targate", "ai-cache.json"), "utf8"),
     ).rejects.toThrow(); // nothing persisted
+  });
+
+  it("--no-cache (refresh) ignores an existing entry but still refreshes it", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
+    const signals = makeSignals();
+    const opts = { cache: projectSettings(), cwd: dir, reasoning: false };
+
+    // Warm the cache with a first (allow) answer.
+    const first = stubProvider(assessment());
+    await assessWithCache(first, signals, opts);
+    expect(first.assess).toHaveBeenCalledTimes(1);
+
+    // Same signals, but --no-cache: must recompute (not serve the cached allow)…
+    const second = stubProvider(assessment({ decision: "allow_with_warnings", risk: "medium" }));
+    const refreshed = await assessWithCache(second, signals, {
+      ...opts,
+      cache: projectSettings({ refresh: true }),
+    });
+    expect(second.assess).toHaveBeenCalledTimes(1); // recomputed despite the hit
+    expect(refreshed.decision).toBe("allow_with_warnings");
+
+    // …and the fresh answer was written back, so a normal run now serves it.
+    const third = stubProvider(assessment());
+    const cached = await assessWithCache(third, signals, opts);
+    expect(third.assess).not.toHaveBeenCalled(); // served from the refreshed cache
+    expect(cached.decision).toBe("allow_with_warnings");
+  });
+});
+
+describe("clearCache", () => {
+  it("deletes an existing cache file and reports it", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
+    const settings = projectSettings();
+    await writeCachedAssessment("k", assessment(), settings, "left-pad", dir);
+    const file = cacheFilePath(settings, dir);
+
+    const cleared = await clearCache(settings, dir);
+    expect(cleared.existed).toBe(true);
+    expect(cleared.path).toBe(file);
+    await expect(readFile(file, "utf8")).rejects.toThrow(); // gone
+
+    const again = await clearCache(settings, dir);
+    expect(again.existed).toBe(false); // idempotent
+  });
+});
+
+describe("cacheStats", () => {
+  it("reports absence, then total and fresh counts", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "targate-cache-"));
+    const settings = projectSettings({ ttlHours: 1 });
+    expect((await cacheStats(settings, dir)).exists).toBe(false);
+
+    const file = cacheFilePath(settings, dir);
+    await mkdir(path.dirname(file), { recursive: true });
+    const stale = new Date(Date.now() - 2 * 3_600_000).toISOString();
+    const fresh = new Date().toISOString();
+    await writeFile(
+      file,
+      JSON.stringify({
+        entries: {
+          old: { assessment: assessment(), cachedAt: stale },
+          new: { assessment: assessment(), cachedAt: fresh },
+        },
+      }),
+    );
+    const stats = await cacheStats(settings, dir);
+    expect(stats.exists).toBe(true);
+    expect(stats.total).toBe(2);
+    expect(stats.fresh).toBe(1);
   });
 });

@@ -11,6 +11,8 @@ targate sandbox <package>[@version]     Trial install in a disposable Docker con
 targate ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
 targate ci init                         Scaffold .github/workflows/targate.yml
 targate policy init [--format <fmt>]    Scaffold the team policy (yaml | json | js | ts)
+targate cache info                      Show the AI response cache location + size
+targate cache clear [--scope <s>]       Delete the AI response cache (user | project)
 targate agents init [--format <list>]   Scaffold agent-instruction files (skill, agents,
                                     cursor, windsurf, copilot, cline, or all)
 ```
@@ -23,6 +25,7 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 | `sandbox` | a disposable Docker trial install | [Sandbox](sandbox.md) |
 | `ci` | dependencies a change adds/updates, in a PR | [CI integration](ci.md) |
 | `policy init` | scaffolds the team policy file | [Team workflow](team-workflow.md#team-policy--targatepolicy) |
+| `cache` | inspect / clear the AI response cache | [AI response cache](ai-cache.md#invalidating-the-cache) |
 | `agents init` | scaffolds agent-instruction files | [AI coding agents](agents.md) |
 
 ## Options (add & ci)
@@ -35,6 +38,8 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 --yes                   Skip confirmation for allow/allow-with-warnings
                         (approve: skip the lifecycle-scripts prompt)
 --no-ai                 Skip the AI reasoning layer, use rules only
+--no-cache              Ignore cached AI assessments for this run (recompute);
+                        fresh results still refresh the cache
 --provider <name>       anthropic | deepseek | openai | ollama | custom
 --model <name>          Override the model for the selected provider
 --base-url <url>        API base URL (required for --provider custom)

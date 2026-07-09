@@ -101,8 +101,11 @@ export async function assessManyWithCache(
   opts: Pick<AssessOptions, "cache" | "cwd" | "reasoning">,
   batchSize = 8,
   concurrency: number = DEFAULT_CONCURRENCY,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<RiskAssessment[]> {
   const results = new Array<RiskAssessment | undefined>(signalsList.length);
+  let completed = 0;
+  const bump = (): void => onProgress?.(++completed, signalsList.length);
   const keyFor = (signals: Signals) =>
     cacheKey({
       provider: provider.name,
@@ -119,6 +122,7 @@ export async function assessManyWithCache(
         const hit = await readCachedAssessment(keyFor(signals), opts.cache, signals.package, opts.cwd);
         if (hit) {
           results[index] = shapeCacheHit(provider, hit, signals);
+          bump();
           return;
         }
       }
@@ -150,6 +154,7 @@ export async function assessManyWithCache(
           // Missing/misaligned item -> isolated call (clamps + caches inside).
           results[index] = await assessWithCache(provider, signals, opts);
         }
+        bump();
       }),
     );
   });

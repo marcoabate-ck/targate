@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { RiskAssessment, Signals } from "./types.js";
@@ -43,6 +44,12 @@ export interface AiCacheSettings {
   scope: "user" | "project";
   ttlHours: number;
   exclude: string[];
+  /**
+   * When true (the `--no-cache` flag), ignore existing cache entries for this
+   * run — every package is reassessed. Fresh results are still written, so the
+   * cache stays warm for the next run.
+   */
+  refresh: boolean;
 }
 
 export const DEFAULT_CACHE_SETTINGS: AiCacheSettings = {
@@ -50,14 +57,19 @@ export const DEFAULT_CACHE_SETTINGS: AiCacheSettings = {
   scope: "user",
   ttlHours: 24,
   exclude: [],
+  refresh: false,
 };
 
-export function resolveCacheSettings(policy?: AiCachePolicy): AiCacheSettings {
+export function resolveCacheSettings(
+  policy?: AiCachePolicy,
+  overrides?: { refresh?: boolean },
+): AiCacheSettings {
   return {
     enabled: policy?.enabled ?? DEFAULT_CACHE_SETTINGS.enabled,
     scope: policy?.scope ?? DEFAULT_CACHE_SETTINGS.scope,
     ttlHours: policy?.ttlHours ?? DEFAULT_CACHE_SETTINGS.ttlHours,
     exclude: policy?.exclude ?? DEFAULT_CACHE_SETTINGS.exclude,
+    refresh: overrides?.refresh ?? DEFAULT_CACHE_SETTINGS.refresh,
   };
 }
 
@@ -125,7 +137,9 @@ export async function readCachedAssessment(
   packageName: string,
   cwd: string = process.cwd(),
 ): Promise<CachedAssessment | null> {
-  if (!settings.enabled || settings.exclude.includes(packageName)) return null;
+  // `refresh` (--no-cache) forces a miss so the package is reassessed; the
+  // fresh result is still written by writeCachedAssessment.
+  if (!settings.enabled || settings.refresh || settings.exclude.includes(packageName)) return null;
   const { entries } = await readCacheFile(cacheFilePath(settings, cwd));
   const entry = entries[key];
   if (!entry || !isFresh(entry, settings.ttlHours, Date.now())) return null;
@@ -186,4 +200,42 @@ export async function writeCachedAssessment(
       /* best-effort */
     }
   });
+}
+
+/** Delete the cache file for the given scope. Reports the path and whether it existed. */
+export async function clearCache(
+  settings: AiCacheSettings,
+  cwd: string = process.cwd(),
+): Promise<{ path: string; existed: boolean }> {
+  const file = cacheFilePath(settings, cwd);
+  const existed = existsSync(file);
+  if (existed) await rm(file, { force: true });
+  return { path: file, existed };
+}
+
+export interface CacheStats {
+  path: string;
+  exists: boolean;
+  /** Total entries on disk. */
+  total: number;
+  /** Entries still within the TTL (the rest would be pruned on the next write). */
+  fresh: number;
+}
+
+/** Inspect the cache file for the given scope (path, entry counts). */
+export async function cacheStats(
+  settings: AiCacheSettings,
+  cwd: string = process.cwd(),
+): Promise<CacheStats> {
+  const file = cacheFilePath(settings, cwd);
+  if (!existsSync(file)) return { path: file, exists: false, total: 0, fresh: 0 };
+  const { entries } = await readCacheFile(file);
+  const now = Date.now();
+  const all = Object.values(entries);
+  return {
+    path: file,
+    exists: true,
+    total: all.length,
+    fresh: all.filter((e) => isFresh(e, settings.ttlHours, now)).length,
+  };
 }

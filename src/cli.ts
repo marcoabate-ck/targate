@@ -2,6 +2,7 @@
 import { parseArgs } from "node:util";
 import { DEFAULT_AGENT_FORMATS, initAgentFiles, parseAgentFormats } from "./agents.js";
 import { approveCommand } from "./commands/approve.js";
+import { cacheCommand } from "./commands/cache.js";
 import { checkCommand } from "./commands/check.js";
 import { ciCommand } from "./commands/ci.js";
 import { installCommand } from "./commands/install.js";
@@ -28,6 +29,9 @@ Usage:
   targate ci init                         Scaffold .github/workflows/targate.yml
   targate policy init [--format <fmt>]    Scaffold the team policy file
                                       (yaml default; also json, js, ts — typed)
+  targate cache info                      Show the AI response cache location + size
+  targate cache clear [--scope <s>]       Delete the AI response cache
+                                      (--scope user | project; default: policy's)
   targate agents init [--format <list>]   Scaffold agent-instruction files so AI
                                       coding agents gate installs through targate
                                       (default skill,agents; also cursor,
@@ -43,6 +47,8 @@ Options (add & ci):
   --yes                   Skip confirmation for allow/allow-with-warnings
                           (approve: skip the lifecycle-scripts prompt)
   --no-ai                 Skip the AI reasoning layer, use rules only
+  --no-cache              Ignore cached AI assessments for this run (recompute);
+                          fresh results still refresh the cache
   --provider <name>       anthropic | deepseek | openai | ollama | custom
                           (default: auto-detect from env vars, see below)
   --model <name>          Override the model for the selected provider
@@ -95,6 +101,7 @@ async function main(): Promise<number> {
       "dry-run": { type: "boolean", default: false },
       yes: { type: "boolean", default: false },
       "no-ai": { type: "boolean", default: false },
+      "no-cache": { type: "boolean", default: false },
       provider: { type: "string" },
       model: { type: "string" },
       "base-url": { type: "string" },
@@ -111,6 +118,7 @@ async function main(): Promise<number> {
       timeout: { type: "string" },
       network: { type: "string" },
       format: { type: "string" },
+      scope: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -161,6 +169,7 @@ async function main(): Promise<number> {
         deep: values.deep,
         concurrency,
         noAiBatch: values["no-ai-batch"],
+        noCache: values["no-cache"],
         assess,
       });
     }
@@ -177,6 +186,7 @@ async function main(): Promise<number> {
         allowScripts: values["allow-scripts"],
         failOnOsvError: values["fail-on-osv-error"],
         deep: values.deep,
+        noCache: values["no-cache"],
         assess,
       });
     }
@@ -192,6 +202,7 @@ async function main(): Promise<number> {
         allowScripts: values["allow-scripts"],
         concurrency,
         noAiBatch: values["no-ai-batch"],
+        noCache: values["no-cache"],
         assess,
       });
     }
@@ -244,6 +255,14 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    case "cache": {
+      return cacheCommand({
+        action: rest[0],
+        scope: values.scope,
+        json: values.json,
+      });
+    }
+
     case "agents": {
       if (rest[0] !== "init") {
         console.error(red("Usage: targate agents init [--format skill,agents,cursor,windsurf,copilot,cline|all]"));
@@ -279,6 +298,7 @@ async function main(): Promise<number> {
         deep: values.deep,
         concurrency,
         noAiBatch: values["no-ai-batch"],
+        noCache: values["no-cache"],
         assess,
       });
   }

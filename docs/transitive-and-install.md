@@ -19,6 +19,10 @@ Tuning flags (also apply to `targate install`):
 - `--concurrency <n>` — how many packages are analyzed in parallel (default 16). Lower it if a cloud AI provider rate-limits you.
 - `--no-ai-batch` — assess each package in its own AI request instead of batching several per request. Stricter per-package isolation (see the security note in [AI providers](ai-providers.md#batched-assessment-on-large-trees)) at the cost of speed and tokens.
 
+While the tree is being analyzed, an interactive terminal shows a **live progress line** — phase (downloading & scanning → AI risk assessment), done/total counters, elapsed time and an ETA; non-interactive output (CI logs) gets plain milestone lines instead, and `--json` stays silent.
+
+**Interactive approval.** When the walk finds transitive dependencies that need approval (`require_approval` or a [soft block](decisions.md#hard-vs-soft-blocks)), an interactive run offers an **arrow-key picker**: move with ↑/↓, toggle with space (`a` = all), confirm with enter. Selected packages are recorded to `.targate/approvals.json` as `no-scripts` on the spot — no need to run `targate approve` once per package. Hard blocks are listed but cannot be selected. The picker never appears with `--yes`, `--json`, `--dry-run`, or in CI. The same picker appears when `targate install` refuses a tree: approve the flagged packages and the install continues immediately if nothing unresolved remains.
+
 `--deep` also works with `targate approve`: a hard block anywhere in the tree makes the whole package un-approvable.
 
 ## Full-tree install — `targate install`
