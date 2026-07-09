@@ -57,3 +57,9 @@ targate add react-native-mmkv --no-ai
 ```
 
 The AI's assessment is cached between runs to save tokens — see [AI response cache](ai-cache.md).
+
+## Batched assessment on large trees
+
+On a `--deep` / `targate install` run, packages are assessed **several per request** instead of one completion each — far fewer round-trips and one shared (cached) system prompt, so a cold run over a big tree is much faster and cheaper. Each package sits in its own fenced, id-tagged block and the model is instructed to judge each independently.
+
+**Security note.** Separate API calls are a *hard* isolation boundary; one prompt is a *soft* one — all packages in a batch share one model context, so a prompt-injection embedded in one package's data could, in principle, try to influence a sibling's verdict. This is bounded two ways: the deterministic [clamp](decisions.md) re-runs the rules engine per package and forces BLOCK on any known-malicious / remote-exec / env+network package **regardless of what the model said**, so batching can never wave through a hard block; and the batch size is kept small. Only the *soft/advisory* verdict of a sibling is at any residual risk. Pass **`--no-ai-batch`** to force one isolated request per package if you want the hard isolation boundary back.

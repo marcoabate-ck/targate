@@ -43,6 +43,11 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
                         (see ai-providers.md#reasoning-support---reasoning)
 --deep                  (add, approve) Also analyze the full transitive dependency
                         tree; the strictest verdict in the tree gates it
+--concurrency <n>       (add --deep, install) Packages analyzed in parallel
+                        (default: 16). Lower it if a cloud AI provider rate-limits you.
+--no-ai-batch           (add --deep, install) Assess each package in its own AI
+                        request instead of batching several per request (stricter
+                        per-package isolation; slower/costlier)
 --allow-scripts         (approve) Record the approval as scripts-allowed (default:
                         no-scripts) — (install) run lifecycle scripts
 --frozen-lockfile       (install) Immutable install (npm ci / --frozen-lockfile)

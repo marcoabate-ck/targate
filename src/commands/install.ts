@@ -26,6 +26,10 @@ export interface InstallOptions {
   frozenLockfile?: boolean;
   /** Run lifecycle scripts during the install (default: scripts disabled). */
   allowScripts?: boolean;
+  /** Tree-analysis pool width (default: 16). */
+  concurrency?: number;
+  /** Force isolated per-package AI calls instead of batching. */
+  noAiBatch?: boolean;
   assess: AssessOptions;
 }
 
@@ -79,6 +83,8 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
       approvals,
       policy,
       failOnOsvError: opts.failOnOsvError,
+      concurrency: opts.concurrency,
+      noAiBatch: opts.noAiBatch,
       onResult: (r, i, total) => {
         if (r.assessment.decision === "allow") return; // keep the log to what matters
         note(paintResult(r)(`  ${ICON[r.assessment.decision] ?? "?"} [${i + 1}/${total}] ${r.name}@${r.version} → ${r.assessment.decision}${r.approved ? " [approved]" : ""}`));

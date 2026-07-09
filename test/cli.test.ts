@@ -96,4 +96,17 @@ describe("cli routing and validation", () => {
     expect(code).toBe(1);
     expect(stderr).toContain("Usage: targate approve <package>");
   });
+
+  it("documents the --concurrency and --no-ai-batch flags", async () => {
+    const { code, stdout } = await runCli("--help");
+    expect(code).toBe(0);
+    expect(stdout).toContain("--concurrency");
+    expect(stdout).toContain("--no-ai-batch");
+  });
+
+  it("accepts --concurrency without error on a rules-only dry run", async () => {
+    // Rules-only + dry-run: no install; just confirm the flag parses/threads.
+    const { code } = await runCli("add", "left-pad@1.3.0", "--no-ai", "--dry-run", "--concurrency", "8");
+    expect(code).toBe(0);
+  });
 }, 60_000);

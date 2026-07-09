@@ -48,6 +48,41 @@ export function validateAssessment(raw: unknown): Omit<RiskAssessment, "source">
   };
 }
 
+/** One entry of a batched response: which package it is for + its verdict. */
+export interface BatchAssessment {
+  package: string;
+  assessment: RiskAssessment;
+}
+
+/**
+ * Validate a parsed batch response `{ results: [...] }`. Each item is checked
+ * with validateAssessment plus a non-empty `package` id (used to map the
+ * verdict back to its input). Items that fail validation are dropped, not
+ * fatal — the caller falls back to an isolated call for any package left
+ * without a verdict, so one bad item never poisons the batch.
+ */
+export function validateBatchAssessment(raw: unknown): BatchAssessment[] {
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error("batch response is not a JSON object");
+  }
+  const results = (raw as { results?: unknown }).results;
+  if (!Array.isArray(results)) {
+    throw new Error('batch response missing "results" array');
+  }
+  const out: BatchAssessment[] = [];
+  for (const item of results) {
+    if (typeof item !== "object" || item === null) continue;
+    const pkg = (item as { package?: unknown }).package;
+    if (typeof pkg !== "string" || pkg.length === 0) continue;
+    try {
+      out.push({ package: pkg, assessment: { ...validateAssessment(item), source: "ai" } });
+    } catch {
+      /* skip malformed item — caller falls back for its package */
+    }
+  }
+  return out;
+}
+
 /** Strip ```json ... ``` fences some local models wrap output in despite instructions. */
 export function stripJsonFences(text: string): string {
   const trimmed = text.trim();

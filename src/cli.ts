@@ -54,6 +54,12 @@ Options (add & ci):
   --deep                  (add, approve) Also analyze the FULL transitive
                           dependency tree; the strictest verdict in the tree
                           gates it (slower; the AI cache softens repeat costs)
+  --concurrency <n>       (add --deep, install) Packages analyzed in parallel
+                          (default: 16). Lower it if a cloud AI provider
+                          rate-limits you.
+  --no-ai-batch           (add --deep, install) Assess each package in its own
+                          AI request instead of batching several per request
+                          (stricter per-package isolation; slower/costlier)
   --frozen-lockfile       (install) Immutable install (npm ci / --frozen-lockfile)
   --allow-scripts         (install) Run lifecycle scripts (default: disabled)
                           (approve) Record the approval as scripts-allowed
@@ -97,6 +103,8 @@ async function main(): Promise<number> {
       "base-ref": { type: "string" },
       "fail-on-osv-error": { type: "boolean", default: false },
       deep: { type: "boolean", default: false },
+      concurrency: { type: "string" },
+      "no-ai-batch": { type: "boolean", default: false },
       "frozen-lockfile": { type: "boolean", default: false },
       "allow-scripts": { type: "boolean", default: false },
       image: { type: "string" },
@@ -128,6 +136,13 @@ async function main(): Promise<number> {
     reasoning: values.reasoning,
   };
 
+  // Positive integer or undefined — an invalid/≤0 value falls back to the default.
+  const parsedConcurrency = Number(values.concurrency);
+  const concurrency =
+    values.concurrency !== undefined && Number.isInteger(parsedConcurrency) && parsedConcurrency > 0
+      ? parsedConcurrency
+      : undefined;
+
   const [command, ...rest] = positionals;
 
   switch (command) {
@@ -144,6 +159,8 @@ async function main(): Promise<number> {
         assumeYes: values.yes,
         failOnOsvError: values["fail-on-osv-error"],
         deep: values.deep,
+        concurrency,
+        noAiBatch: values["no-ai-batch"],
         assess,
       });
     }
@@ -173,6 +190,8 @@ async function main(): Promise<number> {
         failOnOsvError: values["fail-on-osv-error"],
         frozenLockfile: values["frozen-lockfile"],
         allowScripts: values["allow-scripts"],
+        concurrency,
+        noAiBatch: values["no-ai-batch"],
         assess,
       });
     }
@@ -258,6 +277,8 @@ async function main(): Promise<number> {
         assumeYes: values.yes,
         failOnOsvError: values["fail-on-osv-error"],
         deep: values.deep,
+        concurrency,
+        noAiBatch: values["no-ai-batch"],
         assess,
       });
   }

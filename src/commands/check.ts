@@ -27,6 +27,10 @@ export interface CheckOptions {
   failOnOsvError?: boolean;
   /** Analyze the full transitive dependency tree, not just the named package. */
   deep?: boolean;
+  /** Tree-analysis pool width (default: 16). */
+  concurrency?: number;
+  /** Force isolated per-package AI calls instead of batching. */
+  noAiBatch?: boolean;
   assess: AssessOptions;
 }
 
@@ -122,6 +126,8 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
         assess,
         failOnOsvError: opts.failOnOsvError,
         policy,
+        concurrency: opts.concurrency,
+        noAiBatch: opts.noAiBatch,
         onResult: (r) => {
           const icon = STAGE_ICON[r.assessment.decision] ?? "?";
           const paint = r.assessment.decision === "allow" ? dim : r.assessment.decision === "block" ? red : yellow;

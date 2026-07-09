@@ -1,8 +1,19 @@
 import OpenAI from "openai";
 import type { RiskAssessment, Signals } from "../types.js";
-import { SYSTEM_PROMPT, buildUserPrompt, jsonModeInstruction } from "./prompt.js";
-import type { AiProvider } from "./types.js";
-import { stripJsonFences, stripThinkBlocks, validateAssessment } from "./validate.js";
+import {
+  SYSTEM_PROMPT,
+  batchJsonModeInstruction,
+  buildBatchUserPrompt,
+  buildUserPrompt,
+  jsonModeInstruction,
+} from "./prompt.js";
+import type { AiProvider, BatchAssessment } from "./types.js";
+import {
+  stripJsonFences,
+  stripThinkBlocks,
+  validateAssessment,
+  validateBatchAssessment,
+} from "./validate.js";
 
 export interface OpenAiCompatibleOptions {
   baseURL: string;
@@ -53,11 +64,27 @@ export class OpenAiCompatibleProvider implements AiProvider {
   }
 
   async assess(signals: Signals): Promise<RiskAssessment> {
+    const parsed = await this.complete(
+      `${SYSTEM_PROMPT}${jsonModeInstruction()}`,
+      buildUserPrompt(signals),
+    );
+    return { ...validateAssessment(parsed), source: "ai" };
+  }
+
+  async assessBatch(signalsList: Signals[]): Promise<BatchAssessment[]> {
+    const parsed = await this.complete(
+      `${SYSTEM_PROMPT}${batchJsonModeInstruction()}`,
+      buildBatchUserPrompt(signalsList),
+    );
+    return validateBatchAssessment(parsed);
+  }
+
+  private async complete(systemContent: string, userContent: string): Promise<unknown> {
     const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
       model: this.opts.model,
       messages: [
-        { role: "system", content: `${SYSTEM_PROMPT}${jsonModeInstruction()}` },
-        { role: "user", content: buildUserPrompt(signals) },
+        { role: "system", content: systemContent },
+        { role: "user", content: userContent },
       ],
     };
     if (!this.opts.disableJsonMode) {
@@ -72,15 +99,12 @@ export class OpenAiCompatibleProvider implements AiProvider {
     const text = completion.choices[0]?.message?.content;
     if (!text) throw new Error(`${this.name} returned an empty response`);
 
-    let parsed: unknown;
     try {
-      parsed = JSON.parse(stripJsonFences(stripThinkBlocks(text)));
+      return JSON.parse(stripJsonFences(stripThinkBlocks(text)));
     } catch {
       throw new Error(
         `${this.name} did not return valid JSON: ${text.slice(0, 200)}${text.length > 200 ? "…" : ""}`,
       );
     }
-
-    return { ...validateAssessment(parsed), source: "ai" };
   }
 }
