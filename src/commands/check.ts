@@ -31,6 +31,8 @@ export interface CheckOptions {
   concurrency?: number;
   /** Force isolated per-package AI calls instead of batching. */
   noAiBatch?: boolean;
+  /** Ignore cached AI assessments for this run (recompute; still refresh the cache). */
+  noCache?: boolean;
   assess: AssessOptions;
 }
 
@@ -67,7 +69,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   // CI never does — runCiCheck simply never passes cache settings.
   const assess: AssessOptions = {
     ...opts.assess,
-    cache: resolveCacheSettings(policy?.policy.aiCache),
+    cache: resolveCacheSettings(policy?.policy.aiCache, { refresh: opts.noCache }),
     cwd: process.cwd(),
   };
 

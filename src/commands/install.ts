@@ -30,6 +30,8 @@ export interface InstallOptions {
   concurrency?: number;
   /** Force isolated per-package AI calls instead of batching. */
   noAiBatch?: boolean;
+  /** Ignore cached AI assessments for this run (recompute; still refresh the cache). */
+  noCache?: boolean;
   assess: AssessOptions;
 }
 
@@ -70,7 +72,7 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
   const approvals = await loadApprovals();
   const assess: AssessOptions = {
     ...opts.assess,
-    cache: resolveCacheSettings(policy?.policy.aiCache),
+    cache: resolveCacheSettings(policy?.policy.aiCache, { refresh: opts.noCache }),
     cwd: process.cwd(),
   };
 

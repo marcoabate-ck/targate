@@ -27,6 +27,8 @@ export interface ApproveOptions {
   failOnOsvError?: boolean;
   /** Also analyze the full transitive tree before approving. */
   deep?: boolean;
+  /** Ignore cached AI assessments for this run (recompute; still refresh the cache). */
+  noCache?: boolean;
   assess: AssessOptions;
 }
 
@@ -84,7 +86,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
   const policy = await loadPolicy();
   const assess: AssessOptions = {
     ...opts.assess,
-    cache: resolveCacheSettings(policy?.policy.aiCache),
+    cache: resolveCacheSettings(policy?.policy.aiCache, { refresh: opts.noCache }),
     cwd: process.cwd(),
   };
 

@@ -109,4 +109,31 @@ describe("cli routing and validation", () => {
     const { code } = await runCli("add", "left-pad@1.3.0", "--no-ai", "--dry-run", "--concurrency", "8");
     expect(code).toBe(0);
   });
+
+  it("documents the cache command and --no-cache flag", async () => {
+    const { code, stdout } = await runCli("--help");
+    expect(code).toBe(0);
+    expect(stdout).toContain("targate cache");
+    expect(stdout).toContain("--no-cache");
+  });
+
+  it("rejects an unknown cache action", async () => {
+    const { code, stderr } = await runCli("cache", "bogus");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Usage: targate cache");
+  });
+
+  it("rejects an invalid cache --scope", async () => {
+    const { code, stderr } = await runCli("cache", "info", "--scope", "nope");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Unknown --scope");
+  });
+
+  it("runs `cache info` (no network) and prints the cache location", async () => {
+    const { code, stdout } = await runCli("cache", "info", "--json");
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.action).toBe("info");
+    expect(parsed).toHaveProperty("path");
+  });
 }, 60_000);

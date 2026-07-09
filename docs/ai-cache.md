@@ -23,3 +23,28 @@ aiCache:
 ```
 
 With `scope: project` the cache lives in the repo's `.targate/` directory — add `.targate/ai-cache.json` to `.gitignore` unless you deliberately want to share it.
+
+## Invalidating the cache
+
+Most invalidation is automatic:
+
+- **TTL** — entries older than `ttlHours` (default 24) are ignored and pruned on the next write.
+- **Evidence change** — because the key includes `sha256(signals)` and `provider/model/reasoning`, a new OSV record, different tarball contents, or a different model is a **cache miss by construction**. A genuinely-changed package re-invalidates itself.
+
+To force it explicitly:
+
+- **`--no-cache`** on `targate add` / `approve` / `install` — ignore any cached assessment for this run and recompute. Fresh results still refresh the cache, so the next run is fast again.
+
+  ```bash
+  targate add react-native-mmkv --no-cache        # re-review, ignoring the cache
+  ```
+
+- **`targate cache clear`** — delete the cache file. Use `--scope user|project` (defaults to the policy's scope); add `--json` for machine-readable output.
+
+  ```bash
+  targate cache info                 # where the cache lives + how many entries
+  targate cache clear                # delete it (active scope)
+  targate cache clear --scope project
+  ```
+
+- **Disable entirely** via the policy: `aiCache.enabled: false`, or exclude specific packages with `aiCache.exclude: [<name>]`. CI never reads the cache regardless.
