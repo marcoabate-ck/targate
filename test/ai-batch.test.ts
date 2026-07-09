@@ -63,6 +63,20 @@ describe("assessManyWithCache", () => {
     expect(out).toHaveLength(2);
   });
 
+  it("reports per-package progress across cache hits, batch items and fallbacks", async () => {
+    const list = [makeSignals({ package: "a" }), makeSignals({ package: "b" }), makeSignals({ package: "c" })];
+    // Batch returns only a and b; c falls back to an isolated call.
+    const { p } = provider((s) =>
+      s
+        .filter((sig) => sig.package !== "c")
+        .map((sig) => ({ package: `${sig.package}@${sig.version}`, assessment: verdict() })),
+    );
+    const seen: Array<[number, number]> = [];
+    await assessManyWithCache(p, list, opts, 8, 16, (done, total) => seen.push([done, total]));
+    expect(seen).toHaveLength(3); // one event per package, whatever its path
+    expect(seen.at(-1)).toEqual([3, 3]);
+  });
+
   it("clamps each result on its OWN signals — a batched allow can't clear a hard block", async () => {
     const list = [
       makeSignals({ package: "clean" }),

@@ -190,6 +190,20 @@ describe("analyzeTransitiveDeps — batched AI path", () => {
     expect(evil.hardBlock).toBe(true);
   });
 
+  it("emits scan then assess progress on the batched path", async () => {
+    const fake = fakeProvider({});
+    const phases: string[] = [];
+    await analyzeTransitiveDeps(packages, {
+      ...batchOpts(fake),
+      onProgress: (phase: string) => phases.push(phase),
+    } as never);
+    // Every package scans, then every built package is assessed.
+    expect(phases.filter((p) => p === "scan")).toHaveLength(3);
+    expect(phases.filter((p) => p === "assess")).toHaveLength(3);
+    // All scans complete before assessment starts (two-phase walk).
+    expect(phases.lastIndexOf("scan")).toBeLessThan(phases.indexOf("assess"));
+  });
+
   it("--no-ai-batch never calls assessBatch (isolated per-package path)", async () => {
     const fake = fakeProvider({});
     const analyze = vi.fn(async (name: string, version: string | undefined) => ({

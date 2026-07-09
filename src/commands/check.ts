@@ -1,14 +1,16 @@
 import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
-import { getApproval, loadApprovals, recordApproval } from "../approvals.js";
+import { getApproval, isCiEnvironment, loadApprovals, recordApproval } from "../approvals.js";
 import { detectPackageManager, gateInstall } from "../installer.js";
 import { diffLockfiles, snapshotLockfile } from "../lockfile.js";
 import { analyzePackage, type AnalysisStage } from "../pipeline.js";
 import { loadPolicy } from "../policy.js";
+import { createTreeProgress } from "../progress.js";
 import { isHardBlock } from "../rules.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
 import { PackageNotFoundError, parsePackageSpec } from "../registry.js";
 import { bold, cyan, dim, green, red, renderReport, yellow } from "../report.js";
+import { multiSelect } from "../select.js";
 import {
   aggregateWithTransitive,
   analyzeTransitiveDeps,
@@ -114,36 +116,12 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   const { metadata, signals } = analysis;
   let assessment = analysis.assessment;
 
-  // Phase 7 — transitive dependency analysis (--deep): resolve the exact
-  // tree npm would install, run the same pipeline on every unique
-  // name@version, and let the strictest verdict in the tree gate the install.
-  let deepResults: TransitiveResult[] | null = null;
-  if (opts.deep) {
-    const tree = await resolveTransitiveTree(metadata.name, metadata.version);
-    if (tree.length === 0) {
-      note(dim(`  ✓ no transitive dependencies to analyze`));
-    } else {
-      note(dim(`  … analyzing ${tree.length} transitive dependencies (--deep)`));
-      deepResults = await analyzeTransitiveDeps(tree, {
-        assess,
-        failOnOsvError: opts.failOnOsvError,
-        policy,
-        concurrency: opts.concurrency,
-        noAiBatch: opts.noAiBatch,
-        onResult: (r) => {
-          const icon = STAGE_ICON[r.assessment.decision] ?? "?";
-          const paint = r.assessment.decision === "allow" ? dim : r.assessment.decision === "block" ? red : yellow;
-          note(paint(`    ${icon} ${r.name}@${r.version} → ${r.assessment.decision}`));
-        },
-      });
-    }
-    assessment = aggregateWithTransitive(assessment, deepResults ?? []);
-  }
-
   // Phase 2 — committed approval cache: a version already reviewed by the
   // team doesn't need a second human approval. A prior approval clears
   // require_approval AND a SOFT block (heuristic, e.g. esbuild's env+network
   // install script) — but never a HARD block (known-malicious / remote exec).
+  // Root clearing happens BEFORE --deep aggregation, so a root approval can
+  // never accidentally clear an escalation caused by unapproved transitives.
   const approvals = await loadApprovals();
   const priorApproval = getApproval(approvals, metadata.name, metadata.version);
   const softBlock = assessment.decision === "block" && !isHardBlock(signals);
@@ -162,6 +140,100 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
         `[team] ${metadata.name}@${metadata.version} already approved${priorApproval.approvedBy ? ` by ${priorApproval.approvedBy}` : ""} on ${priorApproval.approvedAt.slice(0, 10)} (${priorApproval.mode}).`,
       ],
     };
+  }
+
+  // Phase 7 — transitive dependency analysis (--deep): resolve the exact
+  // tree npm would install, run the same pipeline on every unique
+  // name@version, and let the strictest verdict in the tree gate the install.
+  let deepResults: TransitiveResult[] | null = null;
+  if (opts.deep) {
+    const tree = await resolveTransitiveTree(metadata.name, metadata.version);
+    if (tree.length === 0) {
+      note(dim(`  ✓ no transitive dependencies to analyze`));
+    } else {
+      note(dim(`  … analyzing ${tree.length} transitive dependencies (--deep)`));
+      const progress = createTreeProgress({ json: opts.json });
+      const started = Date.now();
+      try {
+        deepResults = await analyzeTransitiveDeps(tree, {
+          assess,
+          failOnOsvError: opts.failOnOsvError,
+          policy,
+          concurrency: opts.concurrency,
+          noAiBatch: opts.noAiBatch,
+          onProgress: (phase, done, total) => progress.update(phase, done, total),
+          onResult: (r) => {
+            const icon = STAGE_ICON[r.assessment.decision] ?? "?";
+            const paint = r.assessment.decision === "allow" ? dim : r.assessment.decision === "block" ? red : yellow;
+            progress.log(paint(`    ${icon} ${r.name}@${r.version} → ${r.assessment.decision}`));
+          },
+        });
+      } catch (err) {
+        progress.done();
+        throw err;
+      }
+      progress.done(
+        dim(`  ✓ ${tree.length} transitive dependencies reviewed in ${Math.round((Date.now() - started) / 1000)}s`),
+      );
+
+      // A flagged transitive dependency clears exactly like the root: a
+      // committed approval for that exact version counts, and hard blocks
+      // never clear.
+      const transitiveNeedsApproval = (r: TransitiveResult): boolean =>
+        !r.hardBlock &&
+        (r.assessment.decision === "require_approval" || r.assessment.decision === "block");
+      const clearTransitive = (r: TransitiveResult, reason: string): void => {
+        r.assessment = {
+          ...r.assessment,
+          decision: "allow_with_warnings",
+          risk: r.assessment.risk === "high" ? "medium" : r.assessment.risk,
+          reasons: [...r.assessment.reasons, reason],
+        };
+      };
+      for (const r of deepResults) {
+        if (!transitiveNeedsApproval(r)) continue;
+        const prior = getApproval(approvals, r.name, r.version);
+        if (prior) {
+          clearTransitive(
+            r,
+            `[team] ${r.name}@${r.version} already approved${prior.approvedBy ? ` by ${prior.approvedBy}` : ""} on ${prior.approvedAt.slice(0, 10)} (${prior.mode}).`,
+          );
+        }
+      }
+
+      // Interactive terminals get an arrow-key picker to approve the rest in
+      // one step instead of running `targate approve` once per package.
+      const pending = deepResults.filter(transitiveNeedsApproval);
+      const interactivePick =
+        !opts.json && !opts.assumeYes && !opts.dryRun && !isCiEnvironment();
+      if (interactivePick && pending.length > 0) {
+        const hard = deepResults.filter((r) => r.hardBlock);
+        const picked = await multiSelect(
+          `${pending.length} transitive dependencies need approval — select the ones you vouch for:`,
+          [
+            ...pending.map((r) => ({
+              label: `${r.name}@${r.version}`,
+              hint: r.assessment.decision === "block" ? "soft block" : r.assessment.decision,
+            })),
+            ...hard.map((r) => ({
+              label: `${r.name}@${r.version}`,
+              hint: "HARD block — can never be approved",
+              disabled: true,
+            })),
+          ],
+          "Recorded as no-scripts in .targate/approvals.json (commit it to share; `targate approve <pkg> --allow-scripts` to allow scripts).",
+        );
+        if (picked && picked.length > 0) {
+          for (const i of picked) {
+            const r = pending[i];
+            await recordApproval(r.name, r.version, "no-scripts");
+            clearTransitive(r, `[team] approved now (no-scripts) — recorded in .targate/approvals.json.`);
+          }
+          note(green(`  ✓ approved ${picked.length} transitive package(s) (no-scripts)`));
+        }
+      }
+    }
+    assessment = aggregateWithTransitive(assessment, deepResults ?? []);
   }
 
   if (opts.json) {

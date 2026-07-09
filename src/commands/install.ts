@@ -1,6 +1,6 @@
 import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
-import { loadApprovals } from "../approvals.js";
+import { isCiEnvironment, loadApprovals, recordApproval } from "../approvals.js";
 import {
   vetInstall,
   type InstallReport,
@@ -13,7 +13,9 @@ import {
   runCommand,
 } from "../installer.js";
 import { loadPolicy } from "../policy.js";
+import { createTreeProgress } from "../progress.js";
 import { bold, cyan, dim, green, red, yellow } from "../report.js";
+import { multiSelect } from "../select.js";
 import type { PackageManager } from "../types.js";
 
 export interface InstallOptions {
@@ -76,6 +78,11 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
     cwd: process.cwd(),
   };
 
+  // Live feedback during the walk: spinner + done/total + ETA on a TTY,
+  // milestone lines otherwise, nothing in --json.
+  const progress = createTreeProgress({ json: opts.json });
+  const started = Date.now();
+
   let report: InstallReport;
   try {
     report = await vetInstall({
@@ -87,15 +94,22 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
       failOnOsvError: opts.failOnOsvError,
       concurrency: opts.concurrency,
       noAiBatch: opts.noAiBatch,
+      onProgress: (phase, done, total) => progress.update(phase, done, total),
       onResult: (r, i, total) => {
         if (r.assessment.decision === "allow") return; // keep the log to what matters
-        note(paintResult(r)(`  ${ICON[r.assessment.decision] ?? "?"} [${i + 1}/${total}] ${r.name}@${r.version} → ${r.assessment.decision}${r.approved ? " [approved]" : ""}`));
+        progress.log(paintResult(r)(`  ${ICON[r.assessment.decision] ?? "?"} [${i + 1}/${total}] ${r.name}@${r.version} → ${r.assessment.decision}${r.approved ? " [approved]" : ""}`));
       },
     });
   } catch (err) {
+    progress.done();
     console.error(red(`\ntargate install: ${err instanceof Error ? err.message : String(err)}`));
     return 1;
   }
+  progress.done(
+    opts.json
+      ? undefined
+      : dim(`  ✓ ${report.total} packages reviewed in ${Math.round((Date.now() - started) / 1000)}s`),
+  );
 
   const flagged = report.results.filter((r) => r.assessment.decision !== "allow");
   const unresolved = report.results.filter(
@@ -121,17 +135,57 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
     note("");
   }
 
-  // Gate: refuse the install if anything is blocked or unapproved.
+  // Gate: refuse the install if anything is blocked or unapproved. In an
+  // interactive terminal, first offer to approve the approvable ones right
+  // here (arrow keys + space) instead of pointing at `targate approve` N times.
   if (report.exitCode === 2) {
-    note(
-      red(
-        bold(
-          `\nInstall refused: ${unresolved.length} package(s) are blocked or need an approval not in .targate/approvals.json.`,
+    const approvable = unresolved.filter((r) => !r.hardBlock);
+    const hard = unresolved.filter((r) => r.hardBlock);
+    let remaining = unresolved;
+
+    const interactive =
+      !opts.json && !opts.assumeYes && !opts.dryRun && !isCiEnvironment();
+    if (interactive && approvable.length > 0) {
+      const picked = await multiSelect(
+        `${approvable.length} package(s) need approval — select the ones you vouch for:`,
+        [
+          ...approvable.map((r) => ({
+            label: `${r.name}@${r.version}`,
+            hint: r.assessment.decision === "block" ? "soft block" : r.assessment.decision,
+          })),
+          ...hard.map((r) => ({
+            label: `${r.name}@${r.version}`,
+            hint: "HARD block — can never be approved",
+            disabled: true,
+          })),
+        ],
+        "Recorded as no-scripts in .targate/approvals.json (commit it to share; `targate approve <pkg> --allow-scripts` to allow scripts).",
+      );
+      if (picked && picked.length > 0) {
+        const chosen = picked.map((i) => approvable[i]);
+        for (const r of chosen) await recordApproval(r.name, r.version, "no-scripts");
+        note(
+          green(
+            `  ✓ approved ${chosen.length} package(s) (no-scripts) — recorded in .targate/approvals.json`,
+          ),
+        );
+        const chosenKeys = new Set(chosen.map((r) => `${r.name}@${r.version}`));
+        remaining = unresolved.filter((r) => !chosenKeys.has(`${r.name}@${r.version}`));
+      }
+    }
+
+    if (remaining.length > 0) {
+      note(
+        red(
+          bold(
+            `\nInstall refused: ${remaining.length} package(s) are blocked or need an approval not in .targate/approvals.json.`,
+          ),
         ),
-      ),
-    );
-    note(dim("Approve individual packages with `targate add <pkg>@<version>` (records a committable approval), or add them to the team allow list."));
-    return 2;
+      );
+      note(dim("Approve individual packages with `targate approve <pkg>@<version>` (records a committable approval), or add them to the team allow list."));
+      return 2;
+    }
+    note(green("\nAll flagged packages approved — continuing with the install."));
   }
 
   const ignoreScripts = !opts.allowScripts;

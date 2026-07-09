@@ -1,10 +1,11 @@
 import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
-import { recordApproval, type ApprovalRecord } from "../approvals.js";
+import { isCiEnvironment, recordApproval, type ApprovalRecord } from "../approvals.js";
 import { confirm, detectPackageManager } from "../installer.js";
 import { analyzePackage, type AnalysisStage } from "../pipeline.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
 import { loadPolicy } from "../policy.js";
+import { createTreeProgress } from "../progress.js";
 import { isHardBlock } from "../rules.js";
 import { PackageNotFoundError, parsePackageSpec } from "../registry.js";
 import { bold, dim, green, red, renderReport } from "../report.js";
@@ -57,11 +58,6 @@ export function approveOutcome(decision: Decision, hardBlock: boolean): ApproveO
  * (locally or in CI); the exact version is then trusted by everyone who has
  * the committed `.targate/approvals.json`.
  */
-/** True in CI environments (the standard CI env var, "false" respected). */
-function isCiEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env.CI) && env.CI !== "false";
-}
-
 export async function approveCommand(opts: ApproveOptions): Promise<number> {
   // An approval is a HUMAN vouching for a version. CI is unattended by
   // definition, so recording one there is always a mistake (or an attack):
@@ -120,11 +116,17 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     const tree = await resolveTransitiveTree(metadata.name, metadata.version);
     if (tree.length > 0) {
       note(dim(`  … analyzing ${tree.length} transitive dependencies (--deep)`));
-      deepResults = await analyzeTransitiveDeps(tree, {
-        assess,
-        failOnOsvError: opts.failOnOsvError,
-        policy,
-      });
+      const progress = createTreeProgress({ json: opts.json });
+      try {
+        deepResults = await analyzeTransitiveDeps(tree, {
+          assess,
+          failOnOsvError: opts.failOnOsvError,
+          policy,
+          onProgress: (phase, done, total) => progress.update(phase, done, total),
+        });
+      } finally {
+        progress.done();
+      }
     }
     assessment = aggregateWithTransitive(assessment, deepResults ?? []);
   }

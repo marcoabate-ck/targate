@@ -118,6 +118,12 @@ export interface AnalyzeTransitiveOptions extends AnalyzePackageOptions {
   /** Force isolated per-package AI calls instead of batching (--no-ai-batch). */
   noAiBatch?: boolean;
   onResult?: (result: TransitiveResult, index: number, total: number) => void;
+  /**
+   * Live progress: the batched path reports "scan" (download+signals) then
+   * "assess" (AI); the per-package path reports "analyze". Drives the
+   * spinner/ETA line in the CLI.
+   */
+  onProgress?: (phase: "scan" | "assess" | "analyze", done: number, total: number) => void;
   /** Injection point for tests — the per-package pipeline (non-batch path). */
   analyze?: typeof analyzePackage;
   /** Injection points for tests of the batched path. */
@@ -199,6 +205,7 @@ export async function analyzeTransitiveDeps(
       result = errorResult(pkg, err instanceof Error ? err.message : String(err));
     }
     opts.onResult?.(result, done++, packages.length);
+    opts.onProgress?.("analyze", done, packages.length);
     return result;
   });
 }
@@ -222,16 +229,20 @@ async function analyzeTreeBatched(
   type Built =
     | { pkg: TreePackage; signals: Signals; ok: true }
     | { pkg: TreePackage; error: string; ok: false };
+  let scanned = 0;
   const built = await mapLimit(packages, concurrency, async (pkg): Promise<Built> => {
+    let result: Built;
     try {
       const { signals } = await buildSignals(pkg.name, pkg.version, {
         failOnOsvError: opts.failOnOsvError,
         osv: osvFor(pkg),
       });
-      return { pkg, signals, ok: true };
+      result = { pkg, signals, ok: true };
     } catch (err) {
-      return { pkg, error: err instanceof Error ? err.message : String(err), ok: false };
+      result = { pkg, error: err instanceof Error ? err.message : String(err), ok: false };
     }
+    opts.onProgress?.("scan", ++scanned, packages.length);
+    return result;
   });
 
   // Phase B — batched AI assessment over the successfully-built packages.
@@ -243,6 +254,7 @@ async function analyzeTreeBatched(
         opts.assess,
         DEFAULT_BATCH_SIZE,
         concurrency,
+        (done, total) => opts.onProgress?.("assess", done, total),
       )
     : [];
 

@@ -19,6 +19,8 @@ Recording requires **explicit human intent**, by design:
 
 The recorded mode is **binding at install time**: a `no-scripts` approval makes the later `targate add` install run with `--ignore-scripts`, and on pnpm projects `approve` also writes the decision to `pnpm-workspace.yaml` (`ignoredBuiltDependencies` / `onlyBuiltDependencies`) so even a raw `pnpm install` honors it.
 
+**Approving several packages at once.** When a `--deep` run or `targate install` flags multiple packages, an interactive terminal offers an **arrow-key picker** (↑/↓ move, space select, `a` all, enter confirm) that records the selected approvals in one step — see [Transitive dependencies & full-tree install](transitive-and-install.md). Approvals from the picker are always `no-scripts`; use `targate approve <pkg> --allow-scripts` when a package genuinely needs its lifecycle scripts.
+
 `--dry-run` is *not* how you approve: it is a pure preview (analyze + report, no prompt, no install, nothing recorded).
 
 ## Approval cache — `.targate/approvals.*`

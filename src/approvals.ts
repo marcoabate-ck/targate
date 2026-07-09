@@ -22,6 +22,15 @@ export const APPROVALS_FILENAMES = [
   `${APPROVALS_BASENAME}.json`,
 ] as const;
 
+/**
+ * True in CI environments (the standard CI env var, "false" respected).
+ * Approvals are a HUMAN vouching for a version — they must never be created
+ * in unattended CI, only read from the reviewed, committed approvals file.
+ */
+export function isCiEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.CI) && env.CI !== "false";
+}
+
 export interface ApprovalRecord {
   /** "normal" (scripts allowed) or "no-scripts". */
   mode: Extract<InstallMode, "normal" | "no-scripts">;
