@@ -1,5 +1,7 @@
 # Security model, scope & limitations
 
+For the audience-level summary of what targate helps catch and what it does not guarantee, start with the [Threat model](threat-model.md). This page is the mechanical detail behind those statements.
+
 ## OSV lookup failures
 
 OSV/OpenSSF is targate's source of known-malicious-package intelligence — its **single strongest deterministic guarantee**. When the lookup cannot be completed (offline, network error, OSV outage), targate marks the malicious-package status as **unknown**, not clean:

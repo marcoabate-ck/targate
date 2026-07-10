@@ -14,7 +14,7 @@ Existing files are never overwritten. Commit the results so every agent working 
 - **Read the exit code**: `0` proceed, `2` stop (blocked or needs approval — surface the reasons), `1` error.
 - **Never bypass a BLOCK** by calling the package manager directly. This is the load-bearing guardrail; without it an agent will "just try npm" the moment targate refuses.
 - **`targate approve` is a human affordance**, not an agent one — agents must not run it to get past a gate. When targate exits `2`, surface the reasons and let a person decide.
-- targate stays **provider-agnostic**: the skill never sets `--provider`, so targate auto-detects a model from the environment or falls back to its deterministic rules engine (works offline).
+- targate stays **provider-agnostic**: the skill never sets `--provider`, so targate auto-detects a model from the environment or falls back to its deterministic rules engine (no AI provider needed).
 
 One canonical contract is rendered per ecosystem:
 

@@ -51,7 +51,7 @@ After every real install, `targate` prints which packages the install actually a
 
 ## Team policy — `targate.policy.*`
 
-`targate policy init [--format yaml|json|js|ts]` scaffolds the policy file from the proposal (§9 phase 6). Supported formats, first match wins: `targate.policy.{ts,js,mjs,cjs,yaml,yml,json}`.
+`targate policy init [--format yaml|json|js|ts]` scaffolds the policy file. Supported formats, first match wins: `targate.policy.{ts,js,mjs,cjs,yaml,yml,json}`. For the complete field-by-field schema, defaults, precedence, and validation rules, see the [Policy reference](policy-reference.md); this section is the workflow-level summary.
 
 ```yaml
 # targate.policy.yaml
