@@ -1,5 +1,5 @@
 import { highestSemver } from "./semver.js";
-import type { PackageMetadata } from "./types.js";
+import type { PackageMetadata, RegistryReputation } from "./types.js";
 
 const REGISTRY = "https://registry.npmjs.org";
 
@@ -69,6 +69,8 @@ export async function fetchPackageMetadata(
   const repositoryUrl =
     typeof repository === "string" ? repository : repository?.url;
 
+  const registryReputation = extractRegistryReputation(doc, manifest, version, publishDate);
+
   return {
     name,
     version,
@@ -86,5 +88,70 @@ export async function fetchPackageMetadata(
     scripts: manifest.scripts ?? {},
     dependencyCount: Object.keys(manifest.dependencies ?? {}).length,
     directDependencies: Object.keys(manifest.dependencies ?? {}).sort(),
+    registryReputation,
+  };
+}
+
+/** Normalize a maintainers array (objects or strings) to plain names. */
+function maintainerNames(list: unknown): string[] | undefined {
+  if (!Array.isArray(list)) return undefined;
+  return list.map((m: { name?: string } | string) =>
+    typeof m === "string" ? m : (m.name ?? "unknown"),
+  );
+}
+
+/**
+ * Pull the reputation-relevant fields out of the full packument (which is
+ * already fetched — this adds zero network cost). The previous version is the
+ * one published immediately before this one by TIME, not by semver, so a
+ * backport release still measures the real publishing cadence.
+ */
+function extractRegistryReputation(
+  doc: {
+    "dist-tags"?: Record<string, string>;
+    versions?: Record<string, any>;
+    time?: Record<string, string>;
+  },
+  manifest: any,
+  version: string,
+  publishDate: string | undefined,
+): RegistryReputation {
+  let previousVersion: string | undefined;
+  let previousVersionPublishDate: string | undefined;
+  if (publishDate && doc.time) {
+    const publishTime = new Date(publishDate).getTime();
+    let best = -Infinity;
+    for (const [v, iso] of Object.entries(doc.time)) {
+      if (v === "created" || v === "modified" || v === version) continue;
+      const t = new Date(iso).getTime();
+      if (Number.isFinite(t) && t < publishTime && t > best) {
+        best = t;
+        previousVersion = v;
+        previousVersionPublishDate = iso;
+      }
+    }
+  }
+
+  const latestTag = doc["dist-tags"]?.latest;
+  const latestManifest = latestTag ? doc.versions?.[latestTag] : undefined;
+  const latestRepository = latestManifest?.repository;
+  const latestRepositoryUrl =
+    typeof latestRepository === "string" ? latestRepository : latestRepository?.url;
+
+  return {
+    previousVersion,
+    previousVersionPublishDate,
+    deprecated:
+      typeof manifest.deprecated === "string" || manifest.deprecated === true
+        ? manifest.deprecated
+        : undefined,
+    hasProvenance:
+      typeof manifest.dist?.attestations === "object" && manifest.dist.attestations !== null,
+    versionMaintainers: maintainerNames(manifest.maintainers),
+    previousVersionMaintainers: previousVersion
+      ? maintainerNames(doc.versions?.[previousVersion]?.maintainers)
+      : undefined,
+    publisher: typeof manifest._npmUser?.name === "string" ? manifest._npmUser.name : undefined,
+    latestRepositoryUrl,
   };
 }

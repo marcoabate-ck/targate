@@ -8,11 +8,11 @@ Want the reasoning behind the ordering (impact, adoption, technical dependencies
 
 Make targate reliably usable by developers, CI, and AI agents.
 
-- [ ] **Readable + stable JSON output** — a stable human format and a stable machine-readable `--json` schema for CI, bots, agents, and future tooling. *(A `--json` mode already exists — see [CLI reference](cli-reference.md); this item is about locking the schema as a contract.)*
-- [ ] **`targate doctor`** — one command that checks the environment: Node version, package manager, registry reachability, AI provider/model, OSV access, filesystem permissions, policy validity, CI mode.
-- [ ] **Security Score** — a 0–100 risk-aggregation score with a per-category breakdown. Documented as a *risk-signal aggregation score, not a proof of safety*.
-- [ ] **Reputation scoring** — aggregate reputational and temporal signals (package/version age, recent maintainer change, repository mismatch, download spike/drop, provenance, archived repo, deprecation, release after long inactivity).
-- [ ] **Explain mode** — `targate explain <pkg>` / `targate explain --last`: why a package was approved or blocked, main reasons, and residual risks.
+- [x] **Readable + stable JSON output** — a stable human format and a stable machine-readable `--json` schema for CI, bots, agents, and future tooling. *(A `--json` mode already exists — see [CLI reference](cli-reference.md); this item is about locking the schema as a contract.)*
+- [x] **`targate doctor`** — one command that checks the environment: Node version, package manager, registry reachability, AI provider/model, OSV access, filesystem permissions, policy validity, CI mode.
+- [x] **Security Score** — a 0–100 risk-aggregation score with a per-category breakdown. Documented as a *risk-signal aggregation score, not a proof of safety*.
+- [x] **Reputation scoring** — aggregate reputational and temporal signals (package/version age, recent maintainer change, repository mismatch, download spike/drop, provenance, archived repo, deprecation, release after long inactivity).
+- [x] **Explain mode** — `targate explain <pkg>` / `targate explain --last`: why a package was approved or blocked, main reasons, and residual risks.
 
 ## Phase 2 — Make targate intelligent
 

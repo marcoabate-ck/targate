@@ -34,7 +34,9 @@ flowchart TD
 | **Quarantine extractor** | Extracts into an isolated temp dir with strict path checking. Contents are only ever *read* — lifecycle scripts are never executed. |
 | **Static analyzer** | Detects lifecycle scripts and inspects their command strings; scans contents for `process.env` / `child_process` / network / `eval` / obfuscation; maps the React Native native surface; checks for typosquatting. |
 | **OSV / OpenSSF lookup** | Queries for known-malicious records (`MAL-*`, GHSA malware) and vulnerability advisories. |
+| **Reputation lookups** | Registry-derived signals (version age, maintainer change, provenance, deprecation, repo mismatch) plus optional npm-downloads and GitHub-archived lookups. Fail-open: an unreachable or rate-limited lookup yields an explicit **UNKNOWN**, never "clean". `--no-reputation` skips the external calls. |
 | **Signals** | The structured, machine-readable set of facts every downstream stage consumes (also the shape emitted by `--json`). |
+| **Security Score** | A 0–100 aggregation of the signals with a per-category breakdown — **informational only**, computed before the verdict and never consulted by the rules engine, the AI clamp, or policy. |
 | **Rules engine** | Maps signals to a deterministic verdict and marks any **hard block**. This is the security floor. |
 | **AI reviewer** | Optional. Reasons over the same signals for a contextual verdict — strictly advisory and clamped (below). |
 | **Team policy** | Applied on top of the assessment; escalation-only, with the one documented exception that an allow-list entry can clear a *soft* block. See [Policy reference](policy-reference.md). |

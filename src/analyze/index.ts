@@ -1,5 +1,6 @@
 import type { PackageMetadata, Signals } from "../types.js";
 import type { OsvResult } from "../osv.js";
+import { deriveReputation, reputationSkipped, type ReputationLookup } from "../reputation.js";
 import { analyzeContent } from "./content.js";
 import { analyzeNativeSurface, hasNativeCode } from "./native.js";
 import { analyzeRnHardening } from "./rn-hardening.js";
@@ -13,6 +14,8 @@ export async function buildSignals(
   metadata: PackageMetadata,
   packageDir: string,
   osv: OsvResult,
+  // Network lookups are injected (like osv) so this stays offline and pure.
+  reputation: ReputationLookup = reputationSkipped(),
 ): Promise<Signals> {
   const lifecycleScripts = extractLifecycleScripts(metadata.scripts);
   const nativeSurface = await analyzeNativeSurface(packageDir);
@@ -53,5 +56,6 @@ export async function buildSignals(
     nameSimilarity: checkNameSimilarity(metadata.name),
     dependencyCount: metadata.dependencyCount,
     directDependencies: metadata.directDependencies,
+    reputation: deriveReputation(metadata, reputation),
   };
 }

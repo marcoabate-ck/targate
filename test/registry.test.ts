@@ -66,4 +66,59 @@ describe("fetchPackageMetadata (stubbed registry)", () => {
     expect(metadata.version).toBe("1.10.0");
     expect(metadata.tarballUrl).toBe("https://reg/pkg-1.10.0.tgz");
   });
+
+  it("extracts registry reputation from the full packument", async () => {
+    stubRegistry({
+      "dist-tags": { latest: "2.0.0" },
+      versions: {
+        "1.0.0": {
+          name: "pkg",
+          dist: { tarball: "https://reg/pkg-1.0.0.tgz" },
+          maintainers: [{ name: "alice" }],
+        },
+        "2.0.0": {
+          name: "pkg",
+          dist: {
+            tarball: "https://reg/pkg-2.0.0.tgz",
+            attestations: { url: "https://registry.npmjs.org/-/npm/v1/attestations/pkg@2.0.0" },
+          },
+          deprecated: "use pkg-next instead",
+          maintainers: [{ name: "alice" }, { name: "bob" }],
+          _npmUser: { name: "bob" },
+          repository: { url: "git+https://github.com/o/pkg.git" },
+        },
+      },
+      time: {
+        created: "2020-01-01T00:00:00Z",
+        modified: "2024-06-02T00:00:00Z",
+        "1.0.0": "2020-01-01T00:00:00Z",
+        "2.0.0": "2024-06-01T00:00:00Z",
+      },
+    });
+    const metadata = await fetchPackageMetadata("pkg", "2.0.0");
+    expect(metadata.registryReputation).toEqual({
+      previousVersion: "1.0.0",
+      previousVersionPublishDate: "2020-01-01T00:00:00Z",
+      deprecated: "use pkg-next instead",
+      hasProvenance: true,
+      versionMaintainers: ["alice", "bob"],
+      previousVersionMaintainers: ["alice"],
+      publisher: "bob",
+      latestRepositoryUrl: "git+https://github.com/o/pkg.git",
+    });
+  });
+
+  it("handles a first release (no previous version) and absent optional fields", async () => {
+    stubRegistry({
+      "dist-tags": { latest: "1.0.0" },
+      versions: { "1.0.0": { name: "pkg", dist: { tarball: "https://reg/pkg-1.0.0.tgz" } } },
+      time: { created: "2026-01-01T00:00:00Z", "1.0.0": "2026-01-01T00:00:00Z" },
+    });
+    const metadata = await fetchPackageMetadata("pkg");
+    expect(metadata.registryReputation.previousVersion).toBeUndefined();
+    expect(metadata.registryReputation.previousVersionPublishDate).toBeUndefined();
+    expect(metadata.registryReputation.deprecated).toBeUndefined();
+    expect(metadata.registryReputation.hasProvenance).toBe(false);
+    expect(metadata.registryReputation.publisher).toBeUndefined();
+  });
 });

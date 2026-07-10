@@ -1,5 +1,6 @@
 import type { AssessOptions } from "../ai.js";
 import { initCiWorkflow, runCiCheck } from "../ci.js";
+import { printJson } from "../json-output.js";
 import { bold, dim, green, red, yellow } from "../report.js";
 
 export interface CiCommandOptions {
@@ -7,6 +8,8 @@ export interface CiCommandOptions {
   baseRef?: string;
   json: boolean;
   failOnOsvError?: boolean;
+  /** Skip the external reputation lookups (npm downloads, GitHub). */
+  noReputation?: boolean;
   assess: AssessOptions;
 }
 
@@ -34,11 +37,12 @@ export async function ciCommand(opts: CiCommandOptions): Promise<number> {
     baseRef: opts.baseRef,
     assess: opts.assess,
     failOnOsvError: opts.failOnOsvError,
+    noReputation: opts.noReputation,
     log: (line) => console.log(dim(`  ${line}`)),
   });
 
   if (opts.json) {
-    console.log(JSON.stringify(report, null, 2));
+    printJson("ci", report);
     return report.exitCode;
   }
 

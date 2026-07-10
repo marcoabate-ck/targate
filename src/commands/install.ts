@@ -12,6 +12,7 @@ import {
   detectPackageManager,
   runCommand,
 } from "../installer.js";
+import { printJson } from "../json-output.js";
 import { loadPolicy } from "../policy.js";
 import { createTreeProgress } from "../progress.js";
 import { bold, cyan, dim, green, red, yellow } from "../report.js";
@@ -32,6 +33,8 @@ export interface InstallOptions {
   concurrency?: number;
   /** Force isolated per-package AI calls instead of batching. */
   noAiBatch?: boolean;
+  /** Skip the external reputation lookups (npm downloads, GitHub). */
+  noReputation?: boolean;
   /** Ignore cached AI assessments for this run (recompute; still refresh the cache). */
   noCache?: boolean;
   assess: AssessOptions;
@@ -94,6 +97,7 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
       failOnOsvError: opts.failOnOsvError,
       concurrency: opts.concurrency,
       noAiBatch: opts.noAiBatch,
+      noReputation: opts.noReputation,
       onProgress: (phase, done, total) => progress.update(phase, done, total),
       onResult: (r, i, total) => {
         if (r.assessment.decision === "allow") return; // keep the log to what matters
@@ -117,7 +121,7 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
   );
 
   if (opts.json) {
-    console.log(JSON.stringify(report, null, 2));
+    printJson("install", report);
   } else {
     note("");
     note(

@@ -64,6 +64,8 @@ targate resolves the package from npm, extracts the tarball into quarantine (scr
 | `targate install` | Vet the **entire** dependency tree, then gate a full install |
 | `targate sandbox <pkg>` | Trial-install in a disposable Docker container |
 | `targate ci` | Analyze the dependencies a PR adds/updates; fail the build on a bad one |
+| `targate explain <pkg>` | Explain why a package would be allowed or blocked (`--last` re-explains the previous run) |
+| `targate doctor` | Check the environment: Node, registry, OSV, AI provider, GitHub, policy, cache dirs |
 | `targate policy init` | Scaffold the team policy file |
 | `targate agents init` | Scaffold instruction files so AI coding agents gate installs through targate |
 

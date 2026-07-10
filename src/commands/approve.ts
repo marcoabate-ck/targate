@@ -2,13 +2,15 @@ import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
 import { isCiEnvironment, recordApproval, type ApprovalRecord } from "../approvals.js";
 import { confirm, detectPackageManager } from "../installer.js";
+import { printJson } from "../json-output.js";
+import { writeLastRun } from "../last-run.js";
 import { analyzePackage, type AnalysisStage } from "../pipeline.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
 import { loadPolicy } from "../policy.js";
 import { createTreeProgress } from "../progress.js";
 import { isHardBlock } from "../rules.js";
 import { PackageNotFoundError, parsePackageSpec } from "../registry.js";
-import { bold, dim, green, red, renderReport } from "../report.js";
+import { bold, dim, green, red, renderReport, yellow } from "../report.js";
 import {
   aggregateWithTransitive,
   analyzeTransitiveDeps,
@@ -28,6 +30,8 @@ export interface ApproveOptions {
   failOnOsvError?: boolean;
   /** Also analyze the full transitive tree before approving. */
   deep?: boolean;
+  /** Skip the external reputation lookups (npm downloads, GitHub). */
+  noReputation?: boolean;
   /** Ignore cached AI assessments for this run (recompute; still refresh the cache). */
   noCache?: boolean;
   assess: AssessOptions;
@@ -89,6 +93,8 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
   const onStage = (stage: AnalysisStage, detail?: string): void => {
     if (stage === "assessment") note(dim(`  ✓ risk assessment complete (${detail})`));
     if (stage === "policy") note(dim(`  ✓ team policy applied (${detail})`));
+    if (stage === "reputation-degraded")
+      note(yellow(`  ⚠ reputation lookups degraded — ${detail} (signals UNKNOWN)`));
   };
 
   let analysis;
@@ -97,6 +103,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
       assess,
       failOnOsvError: opts.failOnOsvError,
       policy,
+      noReputation: opts.noReputation,
       onStage,
     });
   } catch (err) {
@@ -106,7 +113,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     }
     throw err;
   }
-  const { metadata, signals } = analysis;
+  const { metadata, signals, score } = analysis;
   let assessment = analysis.assessment;
 
   // --deep: the tree gates approval too. A hard block ANYWHERE in the tree
@@ -122,6 +129,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
           assess,
           failOnOsvError: opts.failOnOsvError,
           policy,
+          noReputation: opts.noReputation,
           onProgress: (phase, done, total) => progress.update(phase, done, total),
         });
       } finally {
@@ -133,6 +141,9 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
 
   const hardBlock = isHardBlock(signals) || (deepResults ?? []).some((r) => r.hardBlock);
   const outcome = approveOutcome(assessment.decision, hardBlock);
+
+  // Record the run for `targate explain --last`. Best-effort, never gates.
+  await writeLastRun("approve", [{ metadata, signals, assessment, score }]);
 
   // Recording requires EXPLICIT human intent: either an interactive
   // confirmation or the --yes flag. --json alone never records — a machine
@@ -148,7 +159,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     const mode: ApprovalRecord["mode"] = opts.allowScripts ? "normal" : "no-scripts";
     let confirmed = opts.assumeYes;
     if (interactive) {
-      if (!opts.json) console.log(renderReport(metadata, signals, assessment));
+      if (!opts.json) console.log(renderReport(metadata, signals, assessment, score));
       confirmed = await confirm(
         `Record approval for ${metadata.name}@${metadata.version} (${mode}) in .targate/approvals.json? It is not installed now.`,
         true,
@@ -180,13 +191,11 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     }
   } else if (!opts.json) {
     // Nothing to prompt for; still show the report for context.
-    console.log(renderReport(metadata, signals, assessment));
+    console.log(renderReport(metadata, signals, assessment, score));
   }
 
   if (opts.json) {
-    console.log(
-      JSON.stringify({ metadata, signals, assessment, deep: deepResults, outcome, approval }, null, 2),
-    );
+    printJson("approve", { metadata, signals, assessment, score, deep: deepResults, outcome, approval });
   }
 
   switch (outcome) {

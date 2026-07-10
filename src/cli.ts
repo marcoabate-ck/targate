@@ -5,6 +5,8 @@ import { approveCommand } from "./commands/approve.js";
 import { cacheCommand } from "./commands/cache.js";
 import { checkCommand } from "./commands/check.js";
 import { ciCommand } from "./commands/ci.js";
+import { doctorCommand } from "./commands/doctor.js";
+import { explainCommand } from "./commands/explain.js";
 import { installCommand } from "./commands/install.js";
 import { sandboxCommand } from "./commands/sandbox.js";
 import { initPolicy, type PolicyFormat } from "./policy.js";
@@ -29,6 +31,13 @@ Usage:
   targate ci init                         Scaffold .github/workflows/targate.yml
   targate policy init [--format <fmt>]    Scaffold the team policy file
                                       (yaml default; also json, js, ts — typed)
+  targate explain <package>[@version]     Explain why a package would be allowed or
+                                      blocked (analyzes fresh, installs nothing)
+  targate explain --last                  Explain the most recent add/approve run
+                                      (reads .targate/last-run.json, no network)
+  targate doctor [--ping]                 Check the environment (Node, package manager,
+                                      registry, OSV, AI provider, GitHub, policy,
+                                      cache dirs, CI mode); exit 1 on failure
   targate cache info                      Show the AI response cache location + size
   targate cache clear [--scope <s>]       Delete the AI response cache
                                       (--scope user | project; default: policy's)
@@ -66,10 +75,17 @@ Options (add & ci):
   --no-ai-batch           (add --deep, install) Assess each package in its own
                           AI request instead of batching several per request
                           (stricter per-package isolation; slower/costlier)
+  --no-reputation         Skip the external reputation lookups (npm downloads,
+                          GitHub repo status). Registry-derived reputation
+                          signals are still computed.
   --frozen-lockfile       (install) Immutable install (npm ci / --frozen-lockfile)
   --allow-scripts         (install) Run lifecycle scripts (default: disabled)
                           (approve) Record the approval as scripts-allowed
   --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
+
+Options (doctor):
+  --ping                  Send one real (paid) test completion to the resolved
+                          AI provider to verify it end to end
 
 Options (sandbox):
   --image <image>         Docker image (default: node:20-alpine)
@@ -112,6 +128,7 @@ async function main(): Promise<number> {
       deep: { type: "boolean", default: false },
       concurrency: { type: "string" },
       "no-ai-batch": { type: "boolean", default: false },
+      "no-reputation": { type: "boolean", default: false },
       "frozen-lockfile": { type: "boolean", default: false },
       "allow-scripts": { type: "boolean", default: false },
       image: { type: "string" },
@@ -119,6 +136,8 @@ async function main(): Promise<number> {
       network: { type: "string" },
       format: { type: "string" },
       scope: { type: "string" },
+      ping: { type: "boolean", default: false },
+      last: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -169,6 +188,7 @@ async function main(): Promise<number> {
         deep: values.deep,
         concurrency,
         noAiBatch: values["no-ai-batch"],
+        noReputation: values["no-reputation"],
         noCache: values["no-cache"],
         assess,
       });
@@ -186,6 +206,7 @@ async function main(): Promise<number> {
         allowScripts: values["allow-scripts"],
         failOnOsvError: values["fail-on-osv-error"],
         deep: values.deep,
+        noReputation: values["no-reputation"],
         noCache: values["no-cache"],
         assess,
       });
@@ -202,6 +223,7 @@ async function main(): Promise<number> {
         allowScripts: values["allow-scripts"],
         concurrency,
         noAiBatch: values["no-ai-batch"],
+        noReputation: values["no-reputation"],
         noCache: values["no-cache"],
         assess,
       });
@@ -231,6 +253,7 @@ async function main(): Promise<number> {
         baseRef: values["base-ref"],
         json: values.json,
         failOnOsvError: values["fail-on-osv-error"],
+        noReputation: values["no-reputation"],
         assess,
       });
     }
@@ -253,6 +276,27 @@ async function main(): Promise<number> {
         console.log(yellow(`A targate.policy.* file already exists — nothing written.`));
       }
       return 0;
+    }
+
+    case "doctor": {
+      return doctorCommand({ json: values.json, ping: values.ping, assess });
+    }
+
+    case "explain": {
+      // Exactly one of <spec> / --last.
+      if (values.last === Boolean(rest[0])) {
+        console.error(red("Usage: targate explain <package>[@version] | targate explain --last"));
+        return 1;
+      }
+      return explainCommand({
+        spec: rest[0],
+        last: values.last,
+        json: values.json,
+        failOnOsvError: values["fail-on-osv-error"],
+        noReputation: values["no-reputation"],
+        noCache: values["no-cache"],
+        assess,
+      });
     }
 
     case "cache": {
@@ -298,6 +342,7 @@ async function main(): Promise<number> {
         deep: values.deep,
         concurrency,
         noAiBatch: values["no-ai-batch"],
+        noReputation: values["no-reputation"],
         noCache: values["no-cache"],
         assess,
       });

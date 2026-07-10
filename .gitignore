@@ -2,3 +2,7 @@ node_modules/
 dist/
 
 .env*
+
+# Local targate state — approvals.json is committed by design, these are not.
+.targate/ai-cache.json
+.targate/last-run.json

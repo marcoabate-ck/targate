@@ -1,4 +1,5 @@
 import { cacheStats, clearCache, resolveCacheSettings, type AiCacheSettings } from "../ai-cache.js";
+import { printJson } from "../json-output.js";
 import { loadPolicy } from "../policy.js";
 import { bold, dim, green, red } from "../report.js";
 
@@ -35,7 +36,7 @@ export async function cacheCommand(opts: CacheCommandOptions): Promise<number> {
   if (opts.action === "clear") {
     const { path: file, existed } = await clearCache(settings);
     if (opts.json) {
-      console.log(JSON.stringify({ action: "clear", scope: settings.scope, path: file, cleared: existed }, null, 2));
+      printJson("cache", { action: "clear", scope: settings.scope, path: file, cleared: existed });
     } else if (existed) {
       console.log(green(`Cleared the AI response cache (${settings.scope}): ${file}`));
     } else {
@@ -47,20 +48,14 @@ export async function cacheCommand(opts: CacheCommandOptions): Promise<number> {
   // info
   const stats = await cacheStats(settings);
   if (opts.json) {
-    console.log(
-      JSON.stringify(
-        {
-          action: "info",
-          scope: settings.scope,
-          enabled: settings.enabled,
-          ttlHours: settings.ttlHours,
-          exclude: settings.exclude,
-          ...stats,
-        },
-        null,
-        2,
-      ),
-    );
+    printJson("cache", {
+      action: "info",
+      scope: settings.scope,
+      enabled: settings.enabled,
+      ttlHours: settings.ttlHours,
+      exclude: settings.exclude,
+      ...stats,
+    });
     return 0;
   }
   console.log(bold("AI response cache"));
