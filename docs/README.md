@@ -2,11 +2,18 @@
 
 Detailed specifications for [`targate`](../README.md). Start with the root README for an overview and quick start; these pages go deep on each topic.
 
+## Start here
+
+- [Why targate](why.md) — the problem it solves: lifecycle-script risk, typosquatting, compromised packages, unreviewed AI-agent installs.
+- [Full review example](examples/full-review.md) — an allow, a require-approval, and a block, with real output.
+
 ## Concepts
 
+- [Architecture](architecture.md) — the pipeline as a map, and the line between deterministic and probabilistic.
 - [How it works](how-it-works.md) — the pre-install analysis pipeline, step by step.
 - [Decision policy](decisions.md) — how a verdict is chosen, and the hard-vs-soft-block distinction.
-- [Security model, scope & limitations](security.md) — what targate does and does not guarantee, OSV failure handling, compatibility notes.
+- [Threat model](threat-model.md) — what targate helps catch and what it does not guarantee.
+- [Security model, scope & limitations](security.md) — the mechanical detail behind those limits: OSV failure handling, scan bounds, compatibility.
 
 ## Commands & usage
 
@@ -20,8 +27,13 @@ Detailed specifications for [`targate`](../README.md). Start with the root READM
 - [AI providers](ai-providers.md) — anthropic, deepseek, openai, ollama, custom; reasoning support.
 - [AI response cache](ai-cache.md) — how re-reviews are cached, and how to configure it.
 - [Team workflow](team-workflow.md) — approving packages, the approvals cache, pnpm `approve-builds`, and the team policy file.
+- [Policy reference](policy-reference.md) — the full policy schema: every field, default, precedence, and validation rule.
 - [Using targate with AI coding agents](agents.md) — `targate agents init` and the agent contract.
 
 ## Ecosystem-specific
 
 - [React Native hardening](react-native.md) — Podspec / Gradle / permissions / native-surface review.
+
+## Roadmap
+
+- [What's next](whats-next.md) — the phased feature roadmap we tick off as it ships.

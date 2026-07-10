@@ -4,7 +4,7 @@
 developer intent → package inspection → AI risk reasoning → safe install decision
 ```
 
-`targate` analyzes an npm package **before** it touches your machine, then produces an allow / warn / approve / block decision and only runs the real install if the package passes.
+`targate` analyzes an npm package **before** it touches your machine, then produces an allow / warn / approve / block decision and only runs the real install if the package passes. For the component-level map and the deterministic-vs-probabilistic split, see [Architecture](architecture.md).
 
 1. **Resolves metadata** from the npm registry (version, repository, maintainers, publish dates, scripts, dependencies).
 2. **Downloads the tarball into quarantine** (isolated temp dir, checksum-verified against the registry manifest's `dist.integrity`/`shasum` before anything reads it, extracted with strict path checking, lifecycle scripts are never executed).
