@@ -243,10 +243,18 @@ export function clampDecision(
   ai: RiskAssessment,
   signals: Signals,
 ): RiskAssessment {
-  if (ai.decision === "block") return ai;
-
+  // Always compute the rules engine's own verdict and carry it on the result:
+  // the output can then show "deterministic verdict" vs "AI interpretation",
+  // and prove the AI never went below the floor.
   const floor = evaluateRules(signals);
-  if (floor.decision !== "block") return ai;
+  const deterministic = {
+    decision: floor.decision,
+    risk: floor.risk,
+    reasons: floor.reasons,
+  };
+
+  if (ai.decision === "block") return { ...ai, deterministic };
+  if (floor.decision !== "block") return { ...ai, deterministic };
 
   const reason = signals.knownMalicious
     ? "Overridden by policy: package has a known malicious-package record."
@@ -261,5 +269,6 @@ export function clampDecision(
     reasons: [reason, ...floor.reasons, ...ai.reasons],
     suggestedAlternatives: ai.suggestedAlternatives ?? floor.suggestedAlternatives,
     source: ai.source,
+    deterministic,
   };
 }

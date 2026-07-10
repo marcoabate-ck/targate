@@ -71,6 +71,7 @@ export async function explainCommand(opts: ExplainOptions): Promise<number> {
         failOnOsvError: opts.failOnOsvError,
         policy,
         noReputation: opts.noReputation,
+        maintainerIntel: true,
         onStage,
       });
       packages = [{ metadata, signals, assessment, score }];

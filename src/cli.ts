@@ -5,9 +5,11 @@ import { approveCommand } from "./commands/approve.js";
 import { cacheCommand } from "./commands/cache.js";
 import { checkCommand } from "./commands/check.js";
 import { ciCommand } from "./commands/ci.js";
+import { diffCommand } from "./commands/diff.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { explainCommand } from "./commands/explain.js";
 import { installCommand } from "./commands/install.js";
+import { monitorCommand } from "./commands/monitor.js";
 import { sandboxCommand } from "./commands/sandbox.js";
 import { initPolicy, type PolicyFormat } from "./policy.js";
 import type { SandboxNetwork } from "./sandbox.js";
@@ -31,6 +33,9 @@ Usage:
   targate ci init                         Scaffold .github/workflows/targate.yml
   targate policy init [--format <fmt>]    Scaffold the team policy file
                                       (yaml default; also json, js, ts — typed)
+  targate diff <pkg>@<v1> [<pkg>[@<v2>]]  What changed between two versions (second
+                                      spec/version omitted → latest; bare <pkg> →
+                                      lockfile-installed version vs latest)
   targate explain <package>[@version]     Explain why a package would be allowed or
                                       blocked (analyzes fresh, installs nothing)
   targate explain --last                  Explain the most recent add/approve run
@@ -38,6 +43,9 @@ Usage:
   targate doctor [--ping]                 Check the environment (Node, package manager,
                                       registry, OSV, AI provider, GitHub, policy,
                                       cache dirs, CI mode); exit 1 on failure
+  targate monitor [--all]                 Re-check monitored packages (approvals +
+                                      direct deps, or --all for the whole tree)
+                                      against .targate/monitor-baseline.json
   targate cache info                      Show the AI response cache location + size
   targate cache clear [--scope <s>]       Delete the AI response cache
                                       (--scope user | project; default: policy's)
@@ -82,6 +90,11 @@ Options (add & ci):
   --allow-scripts         (install) Run lifecycle scripts (default: disabled)
                           (approve) Record the approval as scripts-allowed
   --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
+  --fail-on <level>       (diff) Exit 2 at this diff-risk level or above
+                          (low | medium | high; default: high)
+  --all                   (monitor) Monitor the entire lockfile tree, not just
+                          approvals + direct dependencies
+  --no-update             (monitor) Report events without advancing the baseline
 
 Options (doctor):
   --ping                  Send one real (paid) test completion to the resolved
@@ -91,6 +104,9 @@ Options (sandbox):
   --image <image>         Docker image (default: node:20-alpine)
   --timeout <seconds>     Kill the sandbox after N seconds (default: 300)
   --network <mode>        open (default, full egress) | none (offline trial)
+  --no-capture            Do not observe network activity (DNS + HTTP(S) proxy).
+                          Capture is on by default; inert with --network none.
+  --json                  Machine-readable result (incl. observed network activity)
 
 Provider auto-detection (first match wins):
   ANTHROPIC_API_KEY set        -> anthropic  (claude-opus-4-8)
@@ -138,6 +154,10 @@ async function main(): Promise<number> {
       scope: { type: "string" },
       ping: { type: "boolean", default: false },
       last: { type: "boolean", default: false },
+      "fail-on": { type: "string" },
+      "no-capture": { type: "boolean", default: false },
+      all: { type: "boolean", default: false },
+      "no-update": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -244,6 +264,8 @@ async function main(): Promise<number> {
         image: values.image,
         timeoutMs: values.timeout ? Number(values.timeout) * 1000 : undefined,
         network,
+        capture: !values["no-capture"],
+        json: values.json,
       });
     }
 
@@ -280,6 +302,41 @@ async function main(): Promise<number> {
 
     case "doctor": {
       return doctorCommand({ json: values.json, ping: values.ping, assess });
+    }
+
+    case "diff": {
+      if (!rest[0]) {
+        console.error(red("Usage: targate diff <pkg>@<v1> [<pkg>[@<v2>]]"));
+        return 1;
+      }
+      const failOn = (values["fail-on"] ?? "high") as "low" | "medium" | "high";
+      if (!["low", "medium", "high"].includes(failOn)) {
+        console.error(red(`Unknown --fail-on level: ${failOn}. Valid options: low, medium, high`));
+        return 1;
+      }
+      return diffCommand({
+        specA: rest[0],
+        specB: rest[1],
+        packageManager: values["package-manager"],
+        json: values.json,
+        failOnOsvError: values["fail-on-osv-error"],
+        noReputation: values["no-reputation"],
+        failOn,
+        assess,
+      });
+    }
+
+    case "monitor": {
+      return monitorCommand({
+        packageManager: values["package-manager"],
+        json: values.json,
+        all: values.all,
+        noUpdate: values["no-update"],
+        failOnOsvError: values["fail-on-osv-error"],
+        noReputation: values["no-reputation"],
+        concurrency,
+        assess,
+      });
     }
 
     case "explain": {

@@ -1,5 +1,6 @@
+import type { VersionDiff } from "./diff.js";
 import type { SecurityScore } from "./score.js";
-import type { Decision, PackageMetadata, RiskAssessment, Signals } from "./types.js";
+import type { Decision, PackageMetadata, RiskAssessment, RiskLevel, Signals } from "./types.js";
 
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
 const c = (code: number, text: string) =>
@@ -79,6 +80,11 @@ export function renderReport(
       color(bold(DECISION_LABEL[assessment.decision])) +
       dim(`   (risk: ${assessment.risk}, source: ${assessment.source})`),
   );
+  const det = assessment.deterministic;
+  if (det && assessment.source === "ai") {
+    const line = `Deterministic verdict: ${DECISION_LABEL[det.decision]} (rules) — the AI may only make this stricter`;
+    lines.push(det.decision === "block" ? red(line) : dim(line));
+  }
   lines.push("");
   lines.push(assessment.summary);
   lines.push("");
@@ -189,7 +195,7 @@ export function renderSignalLines(signals: Signals): string[] {
         ),
     );
   }
-  lines.push(...renderReputationLines(signals.reputation));
+  lines.push(...renderReputationLines(signals.reputation, signals.package));
   if (signals.content.suspiciousFiles.length > 0) {
     lines.push("  " + dim("static findings:"));
     for (const f of signals.content.suspiciousFiles.slice(0, 8)) {
@@ -200,7 +206,7 @@ export function renderSignalLines(signals: Signals): string[] {
 }
 
 /** Reputation lines: unknown states always SAY unknown — never imply clean. */
-function renderReputationLines(rep: Signals["reputation"]): string[] {
+function renderReputationLines(rep: Signals["reputation"], packageName: string): string[] {
   const lines: string[] = [];
   const push = (line: string) => lines.push("  " + line);
 
@@ -253,6 +259,33 @@ function renderReputationLines(rep: Signals["reputation"]): string[] {
 
   if (rep.maintainerChange?.changed) {
     push(yellow(`⚠ maintainer change since previous release: ${rep.maintainerChange.detail ?? ""}`));
+  }
+  const intel = rep.maintainerIntel;
+  if (intel && intel.status !== "skipped") {
+    if (intel.newMaintainerNoTrackRecord.length > 0) {
+      push(
+        red(
+          `! new maintainer(s) with no other published packages: ${intel.newMaintainerNoTrackRecord.join(", ")}`,
+        ),
+      );
+    }
+    if (intel.status === "unavailable") {
+      push(yellow("⚠ maintainer portfolio lookup unavailable — track record UNKNOWN"));
+    } else {
+      for (const m of intel.maintainers) {
+        if (m.status !== "ok") continue;
+        const notable = (m.topPackages ?? [])
+          .map((p) => p.name)
+          .filter((n) => n !== packageName)
+          .slice(0, 2)
+          .join(", ");
+        push(
+          dim(
+            `✓ maintainer ${m.name}: ${m.packageCount ?? "?"} package(s)${notable ? ` (notable: ${notable})` : ""}`,
+          ),
+        );
+      }
+    }
   }
   if (rep.releaseGapAnomaly) {
     push(yellow(`⚠ fresh release after ${rep.releaseAfterInactivityDays} days of inactivity`));
@@ -337,6 +370,19 @@ export function renderExplanation(
   lines.push(assessment.summary);
   lines.push("");
 
+  // For AI verdicts, show the rules engine's own conclusion FIRST — the split
+  // between deterministic findings and the model's interpretation is the point.
+  if (assessment.source === "ai" && assessment.deterministic) {
+    const det = assessment.deterministic;
+    lines.push(bold("Deterministic verdict (rules engine)"));
+    lines.push(
+      `  ${decisionColor(det.decision)(DECISION_LABEL[det.decision])}` + dim(` (risk: ${det.risk})`),
+    );
+    for (const reason of det.reasons) lines.push(dim(`  • ${reason}`));
+    lines.push(dim("  The AI interprets these signals but can only make the verdict stricter."));
+    lines.push("");
+  }
+
   const reasonsTitle = assessment.source === "ai" ? "AI reasoning" : "Main reasons";
   lines.push(bold(reasonsTitle));
   if (engineReasons.length === 0) {
@@ -402,4 +448,97 @@ export function renderScoreLines(score: SecurityScore): string[] {
   }
   lines.push("  " + dim("(informational — does not affect the decision)"));
   return lines;
+}
+
+const RISK_COLOR: Record<RiskLevel, (t: string) => string> = { low: green, medium: yellow, high: red };
+
+/** Human-readable version-to-version diff — only sections that changed. */
+export function renderVersionDiff(diff: VersionDiff): string {
+  const lines: string[] = [];
+  const push = (s = "") => lines.push(s);
+
+  push("");
+  push(bold(`Version diff — ${diff.package} ${diff.from.version} → ${diff.to.version}`) + dim(` (${diff.direction})`));
+  const dates = [
+    diff.from.publishDate ? `from: ${diff.from.publishDate.slice(0, 10)}` : null,
+    diff.to.publishDate ? `to: ${diff.to.publishDate.slice(0, 10)}` : null,
+  ].filter(Boolean);
+  if (dates.length) push(dim(dates.join("  ·  ")));
+  push(dim("─".repeat(60)));
+
+  const ls = diff.lifecycleScripts;
+  if (ls.added.length || ls.removed.length || ls.changed.length) {
+    push(bold("Lifecycle scripts"));
+    for (const s of ls.added) push(red(`  + ${s.hook}: ${s.after}`));
+    for (const s of ls.changed) push(yellow(`  ~ ${s.hook}: ${s.before}  →  ${s.after}`));
+    for (const s of ls.removed) push(dim(`  - ${s.hook}: ${s.before}`));
+    push();
+  }
+  if (diff.newScriptFindings.length) {
+    push(bold("New suspicious script commands"));
+    for (const f of diff.newScriptFindings) push(red(`  ! ${f}`));
+    push();
+  }
+  const dep = diff.dependencies;
+  if (dep.added.length || dep.removed.length || dep.changed.length) {
+    push(bold("Dependencies"));
+    for (const d of dep.added) push((d.nonRegistrySpec ? red : green)(`  + ${d.name}${d.afterRange ? `@${d.afterRange}` : ""}`));
+    for (const d of dep.changed) push((d.nonRegistrySpec ? red : yellow)(`  ~ ${d.name}: ${d.beforeRange}  →  ${d.afterRange}`));
+    for (const d of dep.removed) push(dim(`  - ${d.name}${d.beforeRange ? `@${d.beforeRange}` : ""}`));
+    push();
+  }
+  if (diff.maintainers.added.length || diff.maintainers.removed.length) {
+    push(bold("Maintainers"));
+    for (const m of diff.maintainers.added) push(yellow(`  + ${m}`));
+    for (const m of diff.maintainers.removed) push(dim(`  - ${m}`));
+    push();
+  }
+  if (diff.repositoryChanged) {
+    push(bold("Repository"));
+    push(yellow(`  ${diff.repositoryChanged.before ?? "(none)"}  →  ${diff.repositoryChanged.after ?? "(none)"}`));
+    push();
+  }
+  const ns = diff.nativeSurface;
+  if (ns.added.length || ns.newBinaries.length || ns.newAndroidPermissions.length) {
+    push(bold("Native surface"));
+    for (const l of ns.added) push(yellow(`  + ${l}`));
+    for (const b of ns.newBinaries) push(red(`  + binary: ${b}`));
+    for (const p of ns.newAndroidPermissions) push(red(`  + permission: ${p}`));
+    push();
+  }
+  if (diff.advisories.added.length || diff.advisories.resolved.length) {
+    push(bold("Advisories"));
+    for (const a of diff.advisories.added) push(yellow(`  + ${a.id}${a.summary ? ` — ${a.summary}` : ""}`));
+    for (const a of diff.advisories.resolved) push(green(`  - resolved: ${a.id}`));
+    push();
+  }
+  if (diff.provenanceLost || diff.deprecatedAdded) {
+    push(bold("Reputation"));
+    if (diff.provenanceLost) push(yellow("  ! npm provenance attestation lost"));
+    if (diff.deprecatedAdded) push(yellow(`  ! now deprecated: ${diff.deprecatedAdded}`));
+    push();
+  }
+  if (diff.size && (diff.size.unpackedSizeDelta ?? 0) !== 0) {
+    const kb = Math.round((diff.size.unpackedSizeDelta ?? 0) / 1024);
+    push(bold("Size") + dim(`  unpacked ${kb >= 0 ? "+" : ""}${kb.toLocaleString("en-US")} kB` + (diff.size.fileCountDelta !== undefined ? `, ${diff.size.fileCountDelta >= 0 ? "+" : ""}${diff.size.fileCountDelta} files` : "")));
+    push();
+  }
+  if (diff.score.delta !== 0) {
+    const c = diff.score.delta < 0 ? red : green;
+    push(bold("Security score") + dim(`  ${diff.score.before} → `) + c(`${diff.score.after}`) + dim(` (${diff.score.delta >= 0 ? "+" : ""}${diff.score.delta})`));
+    push();
+  }
+
+  const anyChange =
+    ls.added.length || ls.removed.length || ls.changed.length || diff.newScriptFindings.length ||
+    dep.added.length || dep.removed.length || dep.changed.length || diff.maintainers.added.length ||
+    diff.maintainers.removed.length || diff.repositoryChanged || ns.added.length || ns.newBinaries.length ||
+    ns.newAndroidPermissions.length || diff.advisories.added.length || diff.advisories.resolved.length ||
+    diff.provenanceLost || diff.deprecatedAdded || diff.score.delta !== 0;
+  if (!anyChange) push(dim("No noteworthy changes between these versions."));
+
+  push(bold("Diff risk: ") + RISK_COLOR[diff.diffRisk](bold(diff.diffRisk.toUpperCase())));
+  for (const r of diff.riskReasons) push(`  • ${r.replace(/^\[(high|medium)\] /, "")}`);
+  push();
+  return lines.join("\n");
 }

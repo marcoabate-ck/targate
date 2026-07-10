@@ -88,6 +88,13 @@ export async function fetchPackageMetadata(
     scripts: manifest.scripts ?? {},
     dependencyCount: Object.keys(manifest.dependencies ?? {}).length,
     directDependencies: Object.keys(manifest.dependencies ?? {}).sort(),
+    dependencyRanges:
+      typeof manifest.dependencies === "object" && manifest.dependencies !== null
+        ? { ...manifest.dependencies }
+        : undefined,
+    unpackedSize:
+      typeof manifest.dist?.unpackedSize === "number" ? manifest.dist.unpackedSize : undefined,
+    fileCount: typeof manifest.dist?.fileCount === "number" ? manifest.dist.fileCount : undefined,
     registryReputation,
   };
 }
@@ -137,6 +144,11 @@ function extractRegistryReputation(
   const latestRepository = latestManifest?.repository;
   const latestRepositoryUrl =
     typeof latestRepository === "string" ? latestRepository : latestRepository?.url;
+  const latestVersionPublishDate = latestTag ? doc.time?.[latestTag] : undefined;
+  const latestHasProvenance = latestManifest
+    ? typeof latestManifest.dist?.attestations === "object" &&
+      latestManifest.dist.attestations !== null
+    : undefined;
 
   return {
     previousVersion,
@@ -153,5 +165,8 @@ function extractRegistryReputation(
       : undefined,
     publisher: typeof manifest._npmUser?.name === "string" ? manifest._npmUser.name : undefined,
     latestRepositoryUrl,
+    latestVersion: latestTag,
+    latestVersionPublishDate,
+    latestHasProvenance,
   };
 }

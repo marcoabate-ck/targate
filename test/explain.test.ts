@@ -237,6 +237,27 @@ describe("renderExplanation", () => {
     expect(out).not.toContain("Main reasons");
   });
 
+  it("shows the deterministic verdict block before the AI reasoning", () => {
+    const out = renderExplanation(
+      pkg.metadata,
+      pkg.signals,
+      {
+        ...pkg.assessment,
+        source: "ai",
+        deterministic: {
+          decision: "require_approval",
+          risk: "medium",
+          reasons: ["Package has lifecycle scripts."],
+        },
+      },
+      pkg.score,
+    );
+    expect(out).toContain("Deterministic verdict (rules engine)");
+    expect(out).toContain("REQUIRE MANUAL APPROVAL");
+    expect(out).toContain("Package has lifecycle scripts.");
+    expect(out.indexOf("Deterministic verdict")).toBeLessThan(out.indexOf("AI reasoning"));
+  });
+
   it("includes the deterministic findings, score, and last-run banner", () => {
     const out = renderExplanation(pkg.metadata, pkg.signals, pkg.assessment, pkg.score, {
       fromLastRun: { command: "add", timestamp: "2026-07-10T09:00:00Z" },

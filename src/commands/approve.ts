@@ -104,6 +104,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
       failOnOsvError: opts.failOnOsvError,
       policy,
       noReputation: opts.noReputation,
+      maintainerIntel: true,
       onStage,
     });
   } catch (err) {

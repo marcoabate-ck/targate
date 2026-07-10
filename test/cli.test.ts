@@ -113,6 +113,27 @@ describe("cli routing and validation", () => {
     expect(stdout).toContain("--ping");
   });
 
+  it("lists the diff and monitor subcommands and their flags in help", async () => {
+    const { code, stdout } = await runCli("--help");
+    expect(code).toBe(0);
+    expect(stdout).toContain("targate diff");
+    expect(stdout).toContain("targate monitor");
+    expect(stdout).toContain("--fail-on");
+    expect(stdout).toContain("--no-capture");
+  });
+
+  it("rejects diff without a package spec", async () => {
+    const { code, stderr } = await runCli("diff");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Usage: targate diff");
+  });
+
+  it("rejects diff with an unknown --fail-on level", async () => {
+    const { code, stderr } = await runCli("diff", "lodash@1", "lodash@2", "--fail-on", "extreme");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Unknown --fail-on level");
+  });
+
   it("rejects explain with neither a spec nor --last", async () => {
     const { code, stderr } = await runCli("explain");
     expect(code).toBe(1);

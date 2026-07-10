@@ -18,11 +18,11 @@ Make targate reliably usable by developers, CI, and AI agents.
 
 The features that set targate apart from a plain vulnerability scanner.
 
-- [ ] **Explain AI reasoning** — separate *deterministic findings* from *AI interpretation* in the output, making visible that the AI interprets signals but never overrides a deterministic hard block.
-- [ ] **Diff mode** — `targate diff pkg@a pkg@b`: what changed between two versions (new lifecycle scripts, files, dependencies, maintainers, repo, native surface, vulnerabilities, size). Built for CI, Renovate, and Dependabot review.
-- [ ] **Maintainer intelligence** — maintainer-level risk: count, recent changes, freshly-created accounts, other/popular packages managed, suspicious cross-package patterns, add/remove just before a release.
-- [ ] **Network capture in the sandbox** — observe (not yet block) network activity during lifecycle scripts: domains, IPs, DNS lookups, upload attempts, payload downloads, unjustified connections.
-- [ ] **Risk evolution** — `targate watch` / `targate monitor package-lock.json`: detect when an already-approved package becomes riskier over time (new vulnerability, suspicious version, maintainer change, deprecation, archived repo, removed provenance).
+- [x] **Explain AI reasoning** — separate *deterministic findings* from *AI interpretation* in the output, making visible that the AI interprets signals but never overrides a deterministic hard block.
+- [x] **Diff mode** — `targate diff pkg@a pkg@b`: what changed between two versions (new lifecycle scripts, files, dependencies, maintainers, repo, native surface, vulnerabilities, size). Built for CI, Renovate, and Dependabot review.
+- [x] **Maintainer intelligence** — maintainer-level risk: count, portfolio popularity, and new-maintainer-with-no-track-record detection. *(Account creation-date and cross-package attack-pattern signals are out of scope — npm exposes no public account API.)*
+- [x] **Network capture in the sandbox** — observe (not block) network activity during the install: DNS query names, destination hosts/ports, and per-direction byte counts, via an in-container DNS forwarder + logging HTTP(S) proxy. *(Observation only — traffic to hardcoded IPs or ignoring the proxy is not captured; documented in [sandbox](sandbox.md).)*
+- [x] **Risk evolution** — shipped as one-shot **`targate monitor`** (no watch daemon): re-checks approvals + direct deps (or `--all`) against `.targate/monitor-baseline.json` and flags new vulnerabilities, maintainer changes, deprecation, archived repos, removed provenance, suspicious new versions, and download drops.
 
 ## Phase 3 — Make targate adoptable by teams
 

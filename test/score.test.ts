@@ -110,6 +110,37 @@ describe("computeSecurityScore — deductions", () => {
     expect(c.notes).toContain("archived status unknown");
   });
 
+  it("deducts for a newly-added maintainer with no track record", () => {
+    const c = categoryScore(
+      makeSignals({
+        reputation: makeReputation({
+          maintainerChange: { changed: false }, // isolate the intel deduction
+          maintainerIntel: {
+            status: "ok",
+            maintainers: [{ name: "mallory", status: "ok", packageCount: 1, hasEstablishedPackage: false }],
+            truncated: false,
+            newMaintainerNoTrackRecord: ["mallory"],
+          },
+        }),
+      }),
+      "maintainer_trust",
+    );
+    expect(c.score).toBe(c.max - 4);
+    expect(c.notes?.join(" ")).toContain("mallory");
+  });
+
+  it("deducts a little when the maintainer portfolio is unknown", () => {
+    const c = categoryScore(
+      makeSignals({
+        reputation: makeReputation({
+          maintainerIntel: { status: "unavailable", maintainers: [], truncated: false, newMaintainerNoTrackRecord: [] },
+        }),
+      }),
+      "maintainer_trust",
+    );
+    expect(c.notes).toContain("maintainer portfolio unknown");
+  });
+
   it("deducts maintainer-change and low-adoption trust signals", () => {
     const c = categoryScore(
       makeSignals({

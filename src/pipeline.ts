@@ -5,7 +5,8 @@ import { osvUnavailable, queryOsv, type OsvResult } from "./osv.js";
 import { applyPolicy, type LoadedPolicy } from "./policy.js";
 import { quarantineTarball } from "./quarantine.js";
 import { fetchPackageMetadata } from "./registry.js";
-import { fetchReputation, reputationSkipped } from "./reputation.js";
+import { fetchMaintainerIntel } from "./maintainer-intel.js";
+import { fetchReputation, reputationSkipped, type ReputationLookup } from "./reputation.js";
 import { computeSecurityScore, type SecurityScore } from "./score.js";
 import { applyOsvFailurePolicy } from "./rules.js";
 import type { PackageMetadata, RiskAssessment, Signals } from "./types.js";
@@ -44,6 +45,10 @@ export interface AnalyzePackageOptions {
   osv?: OsvResult;
   /** Skip the external reputation lookups (npm downloads, GitHub repo status). */
   noReputation?: boolean;
+  /** Gather maintainer portfolio intelligence (root-package analysis only —
+   *  too expensive to fan out across a transitive tree). Ignored when
+   *  noReputation is set. */
+  maintainerIntel?: boolean;
   onStage?: (stage: AnalysisStage, detail?: string) => void;
 }
 
@@ -70,17 +75,27 @@ export interface PackageSignals {
 export async function buildPackageSignals(
   name: string,
   version: string | undefined,
-  opts: Pick<AnalyzePackageOptions, "failOnOsvError" | "osv" | "noReputation" | "onStage">,
+  opts: Pick<
+    AnalyzePackageOptions,
+    "failOnOsvError" | "osv" | "noReputation" | "maintainerIntel" | "onStage"
+  >,
 ): Promise<PackageSignals> {
   const metadata = await fetchPackageMetadata(name, version);
   opts.onStage?.("metadata", `${metadata.name}@${metadata.version}`);
 
-  // Reputation lookups (npm downloads, GitHub repo status) start now so they
-  // overlap the tarball download and OSV. fetchReputation never rejects — a
-  // failed lookup degrades to an "unknown" status surfaced in the report.
+  // Reputation lookups (npm downloads, GitHub repo status, and — root-only —
+  // maintainer intelligence) start now so they overlap the tarball download
+  // and OSV. fetchReputation never rejects — a failed lookup degrades to an
+  // "unknown" status surfaced in the report.
   const reputationPromise = opts.noReputation
     ? Promise.resolve(reputationSkipped())
-    : fetchReputation(metadata.name, metadata.repositoryUrl);
+    : (async (): Promise<ReputationLookup> => {
+        const [base, maintainerIntel] = await Promise.all([
+          fetchReputation(metadata.name, metadata.repositoryUrl),
+          opts.maintainerIntel ? fetchMaintainerIntel(metadata) : Promise.resolve(undefined),
+        ]);
+        return { ...base, maintainerIntel };
+      })();
 
   const quarantine = await quarantineTarball(metadata.tarballUrl, {
     integrity: metadata.integrity,

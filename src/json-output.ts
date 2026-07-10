@@ -14,7 +14,17 @@
 
 export const JSON_SCHEMA_VERSION = 1;
 
-export type JsonCommand = "add" | "approve" | "install" | "ci" | "cache" | "doctor" | "explain";
+export type JsonCommand =
+  | "add"
+  | "approve"
+  | "install"
+  | "ci"
+  | "cache"
+  | "doctor"
+  | "explain"
+  | "diff"
+  | "monitor"
+  | "sandbox";
 
 /** Payload keys may not collide with envelope keys — enforced at the type level. */
 type EnvelopeSafe = object & { schemaVersion?: never; command?: never };

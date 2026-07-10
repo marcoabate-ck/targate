@@ -10,4 +10,18 @@ Runs `npm install` in a **disposable Docker container** (`node:20-alpine`): no h
 
 By default the container has **full outbound network access** (docker's bridge network): npm needs it to download the package and its dependencies, and a malicious install script can use that same access to exfiltrate or phone home. The sandbox keeps that activity *off your host and out of your real environment*, and surfaces it in the log — it is an **observation sandbox, not a network jail**. It does not restrict *which* hosts the install can reach, and there is no per-host allowlist. `--network none` runs a fully offline trial (useful to confirm a script does **not** need the network — a phone-home attempt then fails loudly), but a normal cold install cannot fetch its dependencies with the network off.
 
-Only the `sandbox` command needs Docker; every other command runs without it.
+## Network capture
+
+With capture on (the default when the network is open; disable with `--no-capture`), targate observes the install's network activity from *inside* the container and prints a **Network activity** section: DNS query names, the destination host/port of each connection, and per-direction byte counts (uploads are the exfiltration signal). Destinations that a cold install legitimately needs — the npm registry, GitHub/GitLab/Bitbucket, `nodejs.org` for node-gyp headers — are marked expected; anything else is flagged and escalates the exit code to `2`.
+
+How it works: a tiny dependency-free Node shim runs a DNS forwarder on `127.0.0.1:53` and a logging HTTP CONNECT + plain-HTTP proxy on `127.0.0.1:8888`; the container's `resolv.conf` and the npm/proxy environment are pointed at them. It needs no extra Linux capability (`--cap-drop=ALL` stays intact — the shim binds its port via a namespaced `--sysctl`).
+
+**This is observation, not enforcement, and it has real gaps:**
+
+- Traffic to **hardcoded IP addresses**, or by tools that **ignore the proxy environment**, or over **raw sockets**, bypasses the HTTP proxy and is not logged. (DNS lookups made through the system resolver are still captured, because `resolv.conf` points at the shim — both musl/alpine and glibc honor it.)
+- A **hostile install script can kill the capture process** — it runs in the same container.
+- **Capture failure never blocks the install** and is reported (`network capture failed to start`); the install proceeds uncaptured rather than failing.
+
+Treat the network log as evidence to review, not a guarantee that nothing else happened.
+
+Only the `sandbox` command needs Docker; every other command runs without it. `targate sandbox --json` emits the result (including the structured `network` activity) as one JSON document — see [CLI reference](cli-reference.md#json-output-schema).

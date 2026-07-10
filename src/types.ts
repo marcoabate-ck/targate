@@ -1,3 +1,5 @@
+import type { MaintainerIntel } from "./maintainer-intel.js";
+
 export type RiskLevel = "low" | "medium" | "high";
 
 export type Decision =
@@ -35,6 +37,12 @@ export interface PackageMetadata {
   scripts: Record<string, string>;
   dependencyCount: number;
   directDependencies: string[];
+  /** Direct dependency name -> declared range (manifest.dependencies). */
+  dependencyRanges?: Record<string, string>;
+  /** dist.unpackedSize from the version manifest, when the registry provides it. */
+  unpackedSize?: number;
+  /** dist.fileCount from the version manifest. */
+  fileCount?: number;
   /** Reputation-relevant fields extracted from the full packument (already
    *  fetched), so reputation can be derived without extra registry calls. */
   registryReputation: RegistryReputation;
@@ -58,6 +66,11 @@ export interface RegistryReputation {
   publisher?: string;
   /** repository URL of the dist-tags.latest manifest, for mismatch detection. */
   latestRepositoryUrl?: string;
+  /** dist-tags.latest at fetch time (may differ from the analyzed version). */
+  latestVersion?: string;
+  latestVersionPublishDate?: string;
+  /** Whether dist-tags.latest carries a provenance attestation. */
+  latestHasProvenance?: boolean;
 }
 
 /** Result state of an optional external lookup. Mirrors the osvUnavailable
@@ -113,6 +126,9 @@ export interface ReputationSignals {
   deprecated: string | false;
   downloads: DownloadsSignal;
   repo: RepoStatusSignal;
+  /** Maintainer portfolio intelligence (root-package analysis only). Absent
+   *  when not gathered (transitive packages, or --no-reputation). */
+  maintainerIntel?: MaintainerIntel;
 }
 
 export interface NameSimilarity {
@@ -188,6 +204,14 @@ export interface Signals {
   reputation: ReputationSignals;
 }
 
+/** The rules engine's own verdict, captured alongside an AI assessment so the
+ *  output can show "deterministic findings" vs "AI interpretation". */
+export interface DeterministicVerdict {
+  decision: Decision;
+  risk: RiskLevel;
+  reasons: string[];
+}
+
 export interface RiskAssessment {
   risk: RiskLevel;
   decision: Decision;
@@ -196,6 +220,9 @@ export interface RiskAssessment {
   recommendedAction: string;
   suggestedAlternatives?: string[];
   source: "ai" | "rules";
+  /** Present on AI-sourced assessments: what the rules engine concluded on the
+   *  same signals. The AI can only ever be stricter than this verdict. */
+  deterministic?: DeterministicVerdict;
 }
 
 export type PackageManager = "pnpm" | "npm" | "yarn";

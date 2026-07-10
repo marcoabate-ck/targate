@@ -113,6 +113,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       failOnOsvError: opts.failOnOsvError,
       policy,
       noReputation: opts.noReputation,
+      maintainerIntel: true,
       onStage,
     });
   } catch (err) {

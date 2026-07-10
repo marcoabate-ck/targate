@@ -21,6 +21,7 @@ Detailed specifications for [`targate`](../README.md). Start with the root READM
 - [Transitive dependencies & full-tree install](transitive-and-install.md) — `--deep` and `targate install`.
 - [Sandboxed trial install](sandbox.md) — `targate sandbox` in a disposable Docker container.
 - [CI integration](ci.md) — `targate ci` for pull requests.
+- [Monitoring risk over time](team-workflow.md#monitoring-risk-over-time--targate-monitor) — `targate monitor` and the risk baseline.
 
 ## Configuration & workflow
 

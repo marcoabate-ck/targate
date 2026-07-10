@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { CAPTURE_SCRIPT } from "./sandbox-capture.js";
 
 const DEFAULT_IMAGE = "node:20-alpine";
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -19,6 +20,42 @@ export interface SandboxOptions {
   image?: string;
   timeoutMs?: number;
   network?: SandboxNetwork;
+  /** Observe DNS + HTTP(S) proxy traffic during the install (default: true).
+   *  Forced off when network is "none". */
+  capture?: boolean;
+  /** Where to echo the live container log (default: "stdout"; "stderr" keeps
+   *  --json stdout clean). */
+  echo?: "stdout" | "stderr" | "none";
+}
+
+export interface DnsQuery {
+  name: string;
+  type: string;
+  count: number;
+}
+export interface NetConnection {
+  host: string;
+  port: number;
+  count: number;
+  sentBytes: number;
+  recvBytes: number;
+  /** Host is on the expected-during-install allowlist (registry, git hosts…). */
+  expected: boolean;
+}
+export interface HttpRequest {
+  method: string;
+  url: string;
+  host: string;
+  expected: boolean;
+}
+export interface NetworkActivity {
+  /** The shim reported "ready" — capture was actually running. */
+  captureActive: boolean;
+  dnsQueries: DnsQuery[];
+  connections: NetConnection[];
+  httpRequests: HttpRequest[];
+  /** Non-fatal shim errors surfaced from "[targate-net] error …". */
+  errors: string[];
 }
 
 export interface SandboxResult {
@@ -28,7 +65,29 @@ export interface SandboxResult {
   log: string;
   /** Lines from the log that deserve attention. */
   suspiciousLines: string[];
+  /** Observed network activity, or null when capture was off. */
+  network: NetworkActivity | null;
   command: string[];
+}
+
+/** Hosts a cold `npm install` legitimately contacts (dot-boundary suffix match). */
+export const EXPECTED_NETWORK_HOSTS = [
+  "registry.npmjs.org",
+  "npmjs.org",
+  "npmjs.com",
+  "github.com",
+  "githubusercontent.com",
+  "gitlab.com",
+  "bitbucket.org",
+  "nodejs.org",
+  "localhost",
+  "127.0.0.1",
+  "::1",
+];
+
+function isExpectedHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return EXPECTED_NETWORK_HOSTS.some((e) => h === e || h.endsWith("." + e));
 }
 
 /**
@@ -39,17 +98,61 @@ export interface SandboxResult {
  * lifecycle script's output lands in the log, then we snapshot what the
  * install left on the filesystem outside its own project directory.
  */
-const CONTAINER_SCRIPT = [
-  "set -e",
-  "mkdir -p /sandbox/project && cd /sandbox/project",
-  "npm init -y > /dev/null 2>&1",
-  "find / -path /proc -prune -o -newer /sandbox -type f -print 2>/dev/null > /tmp/before.txt || true",
-  'echo "--- targate sandbox: installing $TARGATE_SPEC ---"',
-  'npm install "$TARGATE_SPEC" --foreground-scripts --loglevel info; STATUS=$?',
-  "echo '--- targate sandbox: filesystem writes outside the project ---'",
-  "find /root /home /etc /usr/local -type f -newer /tmp/before.txt 2>/dev/null | grep -v -E '^/root/.npm|^/sandbox' || echo '(none)'",
-  "exit $STATUS",
-].join("\n");
+/**
+ * The shell script run INSIDE the container. With capture off it is the
+ * original script (plus a robustness fix: the install no longer aborts the
+ * whole script under `set -e`, so the filesystem-writes report always runs).
+ * With capture on it additionally boots the network-observation shim (delivered
+ * via the TARGATE_CAPTURE_SRC env var, never a heredoc), points resolv.conf and
+ * the proxy env at it, and flushes it after the install. Capture failure is
+ * loud but never fatal — the install proceeds either way.
+ */
+export function buildContainerScript(capture: boolean): string {
+  const lines = ["set -e", "mkdir -p /sandbox/project && cd /sandbox/project", "npm init -y > /dev/null 2>&1"];
+
+  if (capture) {
+    lines.push(
+      // Deliver the shim via env (printf), not a heredoc — BusyBox-safe.
+      "printf '%s' \"$TARGATE_CAPTURE_SRC\" > /tmp/targate-capture.mjs",
+      "unset TARGATE_CAPTURE_SRC",
+      "node /tmp/targate-capture.mjs & CAPTURE_PID=$!",
+      'i=0; while [ ! -f /tmp/targate-capture.ready ] && [ "$i" -lt 20 ]; do sleep 0.1; i=$((i+1)); done',
+      "if [ -f /tmp/targate-capture.ready ]; then",
+      "  cp /etc/resolv.conf /tmp/resolv.orig 2>/dev/null || true",
+      '  { echo "nameserver 127.0.0.1"; cat /tmp/resolv.orig 2>/dev/null; } > /etc/resolv.conf || echo "[targate-net] error resolv-conf-write"',
+      "  export HTTP_PROXY=http://127.0.0.1:8888 HTTPS_PROXY=http://127.0.0.1:8888",
+      "  export http_proxy=http://127.0.0.1:8888 https_proxy=http://127.0.0.1:8888",
+      "  export npm_config_proxy=http://127.0.0.1:8888 npm_config_https_proxy=http://127.0.0.1:8888",
+      "else",
+      '  echo "[targate-net] error capture-not-ready (proceeding WITHOUT network capture)"',
+      "fi",
+    );
+  }
+
+  lines.push(
+    "find / -path /proc -prune -o -newer /sandbox -type f -print 2>/dev/null > /tmp/before.txt || true",
+    'echo "--- targate sandbox: installing $TARGATE_SPEC ---"',
+    // NOT `; STATUS=$?` — under set -e that aborts the script on a failed
+    // install, skipping the reports below. `|| STATUS=$?` keeps them running.
+    "STATUS=0",
+    'npm install "$TARGATE_SPEC" --foreground-scripts --loglevel info || STATUS=$?',
+  );
+
+  if (capture) {
+    lines.push(
+      "echo '--- targate sandbox: network activity ---'",
+      'kill -TERM "$CAPTURE_PID" 2>/dev/null || true',
+      'wait "$CAPTURE_PID" 2>/dev/null || true',
+    );
+  }
+
+  lines.push(
+    "echo '--- targate sandbox: filesystem writes outside the project ---'",
+    "find /root /home /etc /usr/local -type f -newer /tmp/before.txt 2>/dev/null | grep -v -E '^/root/.npm|^/sandbox' || echo '(none)'",
+    "exit $STATUS",
+  );
+  return lines.join("\n");
+}
 
 /**
  * Build the docker invocation for a quarantined trial install (phase 4).
@@ -70,6 +173,9 @@ const CONTAINER_SCRIPT = [
  */
 export function buildSandboxCommand(spec: string, opts: SandboxOptions = {}): string[] {
   const network = opts.network ?? "open";
+  // Capture needs the network; it is meaningless (and its port-53 bind would
+  // fail) under --network=none.
+  const capture = (opts.capture ?? true) && network !== "none";
   return [
     "docker",
     "run",
@@ -79,6 +185,10 @@ export function buildSandboxCommand(spec: string, opts: SandboxOptions = {}): st
     "--cap-drop=ALL",
     "--memory=1g",
     "--cpus=1",
+    // Let the shim bind 127.0.0.1:53 without any capability — this keeps
+    // --cap-drop=ALL fully intact (a strictly better story than --cap-add).
+    // The sysctl is namespaced, affecting only this container.
+    ...(capture ? ["--sysctl", "net.ipv4.ip_unprivileged_port_start=0"] : []),
     ...(network === "none" ? ["--network=none"] : []),
     "--env",
     "npm_config_fund=false",
@@ -87,10 +197,13 @@ export function buildSandboxCommand(spec: string, opts: SandboxOptions = {}): st
     // Spec passed as data via env, not interpolated into the shell script.
     "--env",
     `TARGATE_SPEC=${spec}`,
+    // Capture shim source travels as data too — a static constant, never
+    // interpolated, so it can't affect the injection-safety of the spec.
+    ...(capture ? ["--env", `TARGATE_CAPTURE_SRC=${CAPTURE_SCRIPT}`] : []),
     opts.image ?? DEFAULT_IMAGE,
     "sh",
     "-c",
-    CONTAINER_SCRIPT,
+    buildContainerScript(capture),
   ];
 }
 
@@ -106,6 +219,8 @@ const SUSPICIOUS_LOG_PATTERNS: Array<[RegExp, string]> = [
 export function findSuspiciousLogLines(log: string): string[] {
   const findings: string[] = [];
   for (const line of log.split("\n")) {
+    // Our own capture-shim output is not install activity — never match it.
+    if (line.includes("[targate-net] ")) continue;
     for (const [pattern, label] of SUSPICIOUS_LOG_PATTERNS) {
       if (pattern.test(line)) {
         findings.push(`${label}: ${line.trim().slice(0, 160)}`);
@@ -114,6 +229,90 @@ export function findSuspiciousLogLines(log: string): string[] {
     }
   }
   return findings.slice(0, 30);
+}
+
+/**
+ * Parse the capture shim's `[targate-net] …` lines into structured activity.
+ * null when capture was off (no shim lines at all); captureActive is false
+ * when lines exist but the shim never reported "ready".
+ */
+export function extractNetworkActivity(log: string): NetworkActivity | null {
+  const lines = log.split("\n").filter((l) => l.includes("[targate-net] "));
+  if (lines.length === 0) return null;
+
+  let captureActive = false;
+  const errors: string[] = [];
+  const dns = new Map<string, DnsQuery>();
+  const conns = new Map<string, NetConnection>();
+  const https = new Map<string, HttpRequest>();
+
+  for (const raw of lines) {
+    const rest = raw.slice(raw.indexOf("[targate-net] ") + "[targate-net] ".length).trim();
+    const parts = rest.split(/\s+/);
+    const kind = parts[0];
+    if (kind === "ready") captureActive = true;
+    else if (kind === "error") errors.push(rest.slice("error".length).trim());
+    else if (kind === "dns" && parts[1]) {
+      const key = `${parts[1]} ${parts[2] ?? ""}`;
+      const e = dns.get(key) ?? { name: parts[1], type: parts[2] ?? "?", count: 0 };
+      e.count++;
+      dns.set(key, e);
+    } else if (kind === "connect" && parts[1]) {
+      const host = parts[1];
+      const port = Number(parts[2]) || 0;
+      const key = `${host}:${port}`;
+      const e = conns.get(key) ?? { host, port, count: 0, sentBytes: 0, recvBytes: 0, expected: isExpectedHost(host) };
+      e.count++;
+      conns.set(key, e);
+    } else if (kind === "http" && parts[2]) {
+      const method = parts[1];
+      const url = parts[2];
+      let host = "";
+      try {
+        host = new URL(url).hostname;
+      } catch {
+        /* leave blank */
+      }
+      https.set(`${method} ${url}`, { method, url, host, expected: isExpectedHost(host) });
+    } else if (kind === "close" && parts[1]) {
+      const host = parts[1];
+      const port = Number(parts[2]) || 0;
+      const key = `${host}:${port}`;
+      const sent = Number(/sent=(\d+)/.exec(rest)?.[1] ?? 0);
+      const recv = Number(/recv=(\d+)/.exec(rest)?.[1] ?? 0);
+      const e = conns.get(key) ?? { host, port, count: 0, sentBytes: 0, recvBytes: 0, expected: isExpectedHost(host) };
+      e.sentBytes += sent;
+      e.recvBytes += recv;
+      conns.set(key, e);
+    }
+  }
+
+  return {
+    captureActive,
+    dnsQueries: [...dns.values()],
+    connections: [...conns.values()],
+    httpRequests: [...https.values()],
+    errors,
+  };
+}
+
+/** Unexpected destinations, as human suspicious-line strings (deduped, capped). */
+function networkSuspicions(network: NetworkActivity | null): string[] {
+  if (!network) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (host: string, extra = "") => {
+    if (!host || isExpectedHost(host) || seen.has(host)) return;
+    seen.add(host);
+    out.push(`unexpected network destination during install: ${host}${extra}`);
+  };
+  for (const c of network.connections) {
+    if (c.expected) continue;
+    add(c.host, `:${c.port}${c.sentBytes > 0 ? ` sent=${c.sentBytes}B` : ""}`);
+  }
+  for (const r of network.httpRequests) if (!r.expected) add(r.host);
+  for (const q of network.dnsQueries) add(q.name);
+  return out.slice(0, 10);
 }
 
 export async function isDockerAvailable(): Promise<boolean> {
@@ -131,6 +330,8 @@ export function runSandbox(spec: string, opts: SandboxOptions = {}): Promise<San
   const command = buildSandboxCommand(spec, opts);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  const echo = opts.echo ?? "stdout";
+
   return new Promise((resolve, reject) => {
     const [bin, ...args] = command;
     const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -142,13 +343,14 @@ export function runSandbox(spec: string, opts: SandboxOptions = {}): Promise<San
       child.kill("SIGKILL");
     }, timeoutMs);
 
+    const sink = echo === "stderr" ? process.stderr : process.stdout;
     child.stdout.on("data", (chunk) => {
       log += chunk;
-      process.stdout.write(chunk);
+      if (echo !== "none") sink.write(chunk);
     });
     child.stderr.on("data", (chunk) => {
       log += chunk;
-      process.stderr.write(chunk);
+      if (echo !== "none") sink.write(chunk);
     });
     child.on("error", (err) => {
       clearTimeout(timer);
@@ -156,11 +358,14 @@ export function runSandbox(spec: string, opts: SandboxOptions = {}): Promise<San
     });
     child.on("exit", (code) => {
       clearTimeout(timer);
+      const network = extractNetworkActivity(log);
+      const suspiciousLines = [...findSuspiciousLogLines(log), ...networkSuspicions(network)].slice(0, 30);
       resolve({
         exitCode: code ?? 1,
         timedOut,
         log,
-        suspiciousLines: findSuspiciousLogLines(log),
+        suspiciousLines,
+        network,
         command,
       });
     });
