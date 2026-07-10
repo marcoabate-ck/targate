@@ -79,6 +79,8 @@ export interface CiOptions {
   assess?: AssessOptions;
   /** Escalate to require_approval when OSV can't be reached. */
   failOnOsvError?: boolean;
+  /** Skip the external reputation lookups (npm downloads, GitHub). */
+  noReputation?: boolean;
   log?: (line: string) => void;
 }
 
@@ -134,7 +136,7 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
       const { metadata, signals, assessment } = await analyzePackage(
         change.name,
         resolved.version || undefined,
-        { assess, failOnOsvError: opts.failOnOsvError, policy },
+        { assess, failOnOsvError: opts.failOnOsvError, policy, noReputation: opts.noReputation },
       );
 
       // A hard block always fails CI. A soft block or require_approval fails

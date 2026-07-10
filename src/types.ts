@@ -35,6 +35,84 @@ export interface PackageMetadata {
   scripts: Record<string, string>;
   dependencyCount: number;
   directDependencies: string[];
+  /** Reputation-relevant fields extracted from the full packument (already
+   *  fetched), so reputation can be derived without extra registry calls. */
+  registryReputation: RegistryReputation;
+}
+
+/** Fields the full packument carries that only reputation scoring consumes. */
+export interface RegistryReputation {
+  /** The version published immediately before this one (by publish TIME, not
+   *  semver — a backport still measures real publishing cadence). */
+  previousVersion?: string;
+  previousVersionPublishDate?: string;
+  /** manifest.deprecated: npm's deprecation message (or `true`). */
+  deprecated?: string | true;
+  /** dist.attestations present on this version (npm provenance). */
+  hasProvenance: boolean;
+  /** manifest.maintainers of THIS version (absent in some old packuments). */
+  versionMaintainers?: string[];
+  /** manifest.maintainers of the previous (by publish time) version. */
+  previousVersionMaintainers?: string[];
+  /** manifest._npmUser?.name — the account that published this version. */
+  publisher?: string;
+  /** repository URL of the dist-tags.latest manifest, for mismatch detection. */
+  latestRepositoryUrl?: string;
+}
+
+/** Result state of an optional external lookup. Mirrors the osvUnavailable
+ *  philosophy: "unavailable" means UNKNOWN, never "clean". */
+export type LookupStatus = "ok" | "unavailable" | "skipped";
+
+export interface DownloadsSignal {
+  status: LookupStatus;
+  /** Sum of the last 7 daily buckets from the npm downloads range endpoint. */
+  weeklyDownloads?: number;
+  /** avg(last 7 days) vs avg(prior 21 days). Undefined when <28d of data. */
+  trend?: "stable" | "spike" | "drop";
+  /** Human detail for spike/drop, with both averages and the ratio. */
+  trendDetail?: string;
+}
+
+export interface RepoStatusSignal {
+  status:
+    | "ok" //           GitHub answered; `archived` is authoritative
+    | "not-github" //   repo host is not github.com — signal not applicable
+    | "not-found" //    404: deleted, renamed, or private — itself a warning
+    | "rate-limited" // quota exhausted — UNKNOWN (set GITHUB_TOKEN to raise it)
+    | "unavailable" //  network error / timeout — UNKNOWN
+    | "skipped"; //     --no-reputation, or no repository URL
+  /** Only present when status === "ok" — never inferred on a failure path. */
+  archived?: boolean;
+}
+
+export interface MaintainerChangeSignal {
+  changed: boolean;
+  /** e.g. 'publisher "mallory" was not a maintainer of the previous version'. */
+  detail?: string;
+}
+
+export interface ReputationSignals {
+  /** Days since THIS version was published (package age is Signals.ageInDays). */
+  versionAgeDays?: number;
+  /** Days between this version's publish and the previous version's. */
+  releaseAfterInactivityDays?: number;
+  /** True when the release gap is ≥365 days AND this version is ≤30 days old —
+   *  a fresh release after long dormancy, a classic takeover pattern. */
+  releaseGapAnomaly: boolean;
+  maintainerCount: number;
+  /** null when the packument lacks per-version maintainer data (not derivable
+   *  — rendered as unknown, never as "no change"). */
+  maintainerChange: MaintainerChangeSignal | null;
+  /** Repo URL present but suspicious (differs from latest's, or no host). */
+  repositoryMismatch: boolean;
+  repositoryMismatchDetail?: string;
+  /** npm provenance attestation present on this version. */
+  hasProvenance: boolean;
+  /** Deprecation message, or false when not deprecated. */
+  deprecated: string | false;
+  downloads: DownloadsSignal;
+  repo: RepoStatusSignal;
 }
 
 export interface NameSimilarity {
@@ -104,6 +182,10 @@ export interface Signals {
   dependencyCount: number;
   /** Direct dependency names (transitive deps are NOT analyzed — see README). */
   directDependencies: string[];
+  /** Reputational & temporal signals (registry-derived + optional external
+   *  lookups). Informational: consumed by the score and the AI, never by
+   *  evaluateRules. */
+  reputation: ReputationSignals;
 }
 
 export interface RiskAssessment {

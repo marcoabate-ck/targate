@@ -104,6 +104,27 @@ describe("cli routing and validation", () => {
     expect(stdout).toContain("--no-ai-batch");
   });
 
+  it("lists the doctor and explain subcommands and the new flags in help", async () => {
+    const { code, stdout } = await runCli("--help");
+    expect(code).toBe(0);
+    expect(stdout).toContain("targate doctor");
+    expect(stdout).toContain("targate explain <package>");
+    expect(stdout).toContain("--no-reputation");
+    expect(stdout).toContain("--ping");
+  });
+
+  it("rejects explain with neither a spec nor --last", async () => {
+    const { code, stderr } = await runCli("explain");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Usage: targate explain");
+  });
+
+  it("rejects explain with both a spec and --last", async () => {
+    const { code, stderr } = await runCli("explain", "left-pad", "--last");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Usage: targate explain");
+  });
+
   it("accepts --concurrency without error on a rules-only dry run", async () => {
     // Rules-only + dry-run: no install; just confirm the flag parses/threads.
     const { code } = await runCli("add", "left-pad@1.3.0", "--no-ai", "--dry-run", "--concurrency", "8");

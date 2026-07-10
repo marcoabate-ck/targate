@@ -194,6 +194,7 @@ export async function analyzeTransitiveDeps(
         failOnOsvError: opts.failOnOsvError,
         policy: opts.policy,
         osv: osvFor(pkg),
+        noReputation: opts.noReputation,
       });
       result = {
         name: pkg.name,
@@ -236,6 +237,7 @@ async function analyzeTreeBatched(
       const { signals } = await buildSignals(pkg.name, pkg.version, {
         failOnOsvError: opts.failOnOsvError,
         osv: osvFor(pkg),
+        noReputation: opts.noReputation,
       });
       result = { pkg, signals, ok: true };
     } catch (err) {

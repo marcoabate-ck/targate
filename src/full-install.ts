@@ -147,6 +147,8 @@ export interface VetInstallOptions {
   concurrency?: number;
   /** Force isolated per-package AI calls instead of batching (--no-ai-batch). */
   noAiBatch?: boolean;
+  /** Skip the external reputation lookups (npm downloads, GitHub). */
+  noReputation?: boolean;
   onResult?: (result: InstallVetResult, index: number, total: number) => void;
   /** Live progress (spinner/ETA) — see AnalyzeTransitiveOptions.onProgress. */
   onProgress?: (phase: "scan" | "assess" | "analyze", done: number, total: number) => void;
@@ -165,6 +167,7 @@ export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport
     policy: opts.policy ?? undefined,
     concurrency: opts.concurrency,
     noAiBatch: opts.noAiBatch,
+    noReputation: opts.noReputation,
     onProgress: opts.onProgress,
     onResult: (r, i, total) => {
       const approved = getApproval(opts.approvals, r.name, r.version) !== null;

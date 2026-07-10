@@ -39,6 +39,17 @@ function stubNetwork(): void {
       if (url.includes("api.osv.dev")) {
         return { ok: true, status: 200, json: async () => ({ vulns: [] }) };
       }
+      if (url.includes("api.npmjs.org/downloads")) {
+        return { ok: true, status: 200, json: async () => ({ downloads: [] }) };
+      }
+      if (url.includes("api.github.com")) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          json: async () => ({ archived: false }),
+        };
+      }
       if (url.endsWith(".tgz")) {
         return { ok: true, status: 200, arrayBuffer: async () => new Uint8Array(tarballBytes).buffer };
       }
@@ -98,11 +109,29 @@ describe("targate add --json emits only JSON on stdout (agent contract)", () => 
 
     expect(code).toBe(0);
     // Exactly one console.log call, and it is valid JSON with the right shape.
+    // This is the pinned agent contract — changing these keys is a deliberate
+    // schema decision (see docs/cli-reference.md, "JSON output schema").
     expect(lines).toHaveLength(1);
     const parsed = JSON.parse(lines[0]);
-    expect(Object.keys(parsed).sort()).toEqual(["assessment", "deep", "metadata", "signals"]);
+    expect(Object.keys(parsed).sort()).toEqual([
+      "assessment",
+      "command",
+      "deep",
+      "metadata",
+      "schemaVersion",
+      "score",
+      "signals",
+    ]);
+    expect(parsed.schemaVersion).toBe(1);
+    expect(parsed.command).toBe("add");
     expect(parsed.assessment.decision).toBe("allow");
+    expect(parsed.score.total).toBeGreaterThan(0);
     expect(parsed.deep).toBeNull();
+
+    // The run is recorded for `targate explain --last` (best-effort side effect).
+    const lastRun = JSON.parse(await readFile(path.join(dir, ".targate", "last-run.json"), "utf8"));
+    expect(lastRun.command).toBe("add");
+    expect(lastRun.packages[0].metadata.name).toBe("left-pad");
   });
 
   it("does not write an interactive install prompt to stdout without --yes", async () => {

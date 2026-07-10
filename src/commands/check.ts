@@ -3,6 +3,8 @@ import type { AssessOptions } from "../ai.js";
 import { getApproval, isCiEnvironment, loadApprovals, recordApproval } from "../approvals.js";
 import { detectPackageManager, gateInstall } from "../installer.js";
 import { diffLockfiles, snapshotLockfile } from "../lockfile.js";
+import { printJson } from "../json-output.js";
+import { writeLastRun } from "../last-run.js";
 import { analyzePackage, type AnalysisStage } from "../pipeline.js";
 import { loadPolicy } from "../policy.js";
 import { createTreeProgress } from "../progress.js";
@@ -33,6 +35,8 @@ export interface CheckOptions {
   concurrency?: number;
   /** Force isolated per-package AI calls instead of batching. */
   noAiBatch?: boolean;
+  /** Skip the external reputation lookups (npm downloads, GitHub). */
+  noReputation?: boolean;
   /** Ignore cached AI assessments for this run (recompute; still refresh the cache). */
   noCache?: boolean;
   assess: AssessOptions;
@@ -89,6 +93,10 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
             `  ⚠ OSV lookup failed — malicious-package status is UNKNOWN`,
           ),
         );
+      case "reputation":
+        return note(dim(`  ✓ reputation lookups done (npm downloads, GitHub)`));
+      case "reputation-degraded":
+        return note(yellow(`  ⚠ reputation lookups degraded — ${detail} (signals UNKNOWN)`));
       case "signals":
         return note(dim(`  ✓ package contents inspected (scripts, native surface, RN hardening)`));
       case "assessment":
@@ -104,6 +112,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       assess,
       failOnOsvError: opts.failOnOsvError,
       policy,
+      noReputation: opts.noReputation,
       onStage,
     });
   } catch (err) {
@@ -113,7 +122,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     }
     throw err;
   }
-  const { metadata, signals } = analysis;
+  const { metadata, signals, score } = analysis;
   let assessment = analysis.assessment;
 
   // Phase 2 — committed approval cache: a version already reviewed by the
@@ -161,6 +170,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
           policy,
           concurrency: opts.concurrency,
           noAiBatch: opts.noAiBatch,
+          noReputation: opts.noReputation,
           onProgress: (phase, done, total) => progress.update(phase, done, total),
           onResult: (r) => {
             const icon = STAGE_ICON[r.assessment.decision] ?? "?";
@@ -236,10 +246,14 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     assessment = aggregateWithTransitive(assessment, deepResults ?? []);
   }
 
+  // Record the run (final assessment, exactly what the user saw) so
+  // `targate explain --last` can explain it without re-analyzing. Best-effort.
+  await writeLastRun("add", [{ metadata, signals, assessment, score }]);
+
   if (opts.json) {
-    console.log(JSON.stringify({ metadata, signals, assessment, deep: deepResults }, null, 2));
+    printJson("add", { metadata, signals, assessment, score, deep: deepResults });
   } else {
-    console.log(renderReport(metadata, signals, assessment));
+    console.log(renderReport(metadata, signals, assessment, score));
     if (deepResults) {
       const flagged = deepResults.filter((r) => r.assessment.decision !== "allow");
       console.log(

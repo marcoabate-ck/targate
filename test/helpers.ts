@@ -1,4 +1,21 @@
-import type { Signals } from "../src/types.js";
+import type { ReputationSignals, Signals } from "../src/types.js";
+
+/** A healthy, lookup-skipped reputation block — override per test. */
+export function makeReputation(overrides: Partial<ReputationSignals> = {}): ReputationSignals {
+  return {
+    versionAgeDays: 200,
+    releaseAfterInactivityDays: 30,
+    releaseGapAnomaly: false,
+    maintainerCount: 2,
+    maintainerChange: null,
+    repositoryMismatch: false,
+    hasProvenance: false,
+    deprecated: false,
+    downloads: { status: "skipped" },
+    repo: { status: "skipped" },
+    ...overrides,
+  };
+}
 
 export function makeSignals(overrides: Partial<Signals> = {}): Signals {
   return {
@@ -45,6 +62,7 @@ export function makeSignals(overrides: Partial<Signals> = {}): Signals {
     nameSimilarity: null,
     dependencyCount: 2,
     directDependencies: [],
+    reputation: makeReputation(),
     ...overrides,
   };
 }

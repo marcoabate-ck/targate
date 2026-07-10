@@ -10,6 +10,13 @@ targate install                         Vet the whole dependency tree, then gate
 targate sandbox <package>[@version]     Trial install in a disposable Docker container
 targate ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
 targate ci init                         Scaffold .github/workflows/targate.yml
+targate explain <package>[@version]     Explain why a package would be allowed or blocked
+                                    (analyzes fresh; installs nothing, records nothing)
+targate explain --last                  Explain the most recent add/approve run
+                                    (reads .targate/last-run.json — no network)
+targate doctor [--ping]                 Check the environment: Node, package manager,
+                                    registry, OSV, AI provider, GitHub, policy,
+                                    cache dirs, CI mode. Exits 1 on any failure.
 targate policy init [--format <fmt>]    Scaffold the team policy (yaml | json | js | ts)
 targate cache info                      Show the AI response cache location + size
 targate cache clear [--scope <s>]       Delete the AI response cache (user | project)
@@ -24,6 +31,8 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 | `install` | a full-project install (the whole tree at once) | [Transitive & install](transitive-and-install.md#full-tree-install--targate-install) |
 | `sandbox` | a disposable Docker trial install | [Sandbox](sandbox.md) |
 | `ci` | dependencies a change adds/updates, in a PR | [CI integration](ci.md) |
+| `explain` | nothing — explains a verdict (fresh or last run) | — |
+| `doctor` | nothing — diagnoses the environment | — |
 | `policy init` | scaffolds the team policy file | [Team workflow](team-workflow.md#team-policy--targatepolicy) |
 | `cache` | inspect / clear the AI response cache | [AI response cache](ai-cache.md#invalidating-the-cache) |
 | `agents init` | scaffolds agent-instruction files | [AI coding agents](agents.md) |
@@ -53,10 +62,25 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 --no-ai-batch           (add --deep, install) Assess each package in its own AI
                         request instead of batching several per request (stricter
                         per-package isolation; slower/costlier)
+--no-reputation         Skip the external reputation lookups (npm downloads API,
+                        GitHub repo status). Registry-derived reputation signals
+                        (version age, maintainer change, deprecation, provenance)
+                        are still computed. Set GITHUB_TOKEN (or GH_TOKEN) to raise
+                        the GitHub rate limit from 60 req/h; without it, large
+                        --deep runs report the archived status as UNKNOWN once the
+                        quota is exhausted — never as "fine".
 --allow-scripts         (approve) Record the approval as scripts-allowed (default:
                         no-scripts) — (install) run lifecycle scripts
 --frozen-lockfile       (install) Immutable install (npm ci / --frozen-lockfile)
 --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
+```
+
+## Options (doctor)
+
+```
+--ping                  Also send one real (paid) test completion to the resolved
+                        AI provider to verify it end to end (default: config-only
+                        check, no model call)
 ```
 
 ## Options (sandbox)
@@ -71,4 +95,35 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 
 `0` ok, `1` error, `2` blocked (or suspicious sandbox / failed CI check).
 
+- `doctor`: `0` when every check passes or only warns, `1` when at least one check fails.
+- `explain`: `0` on success **regardless of the decision** (it is informational — the gate lives in `add`/`install`/`ci`), `1` on operational errors. Never `2`.
+
 `--dry-run` is a pure preview: analyze and report only — it never prompts, never installs, and records nothing. To approve a package without installing it, use [`targate approve`](team-workflow.md#approving-a-package--targate-approve).
+
+## JSON output schema
+
+Every command that supports `--json` prints **exactly one JSON document on stdout** — no progress lines, no prompts. Each document is wrapped in a flat envelope:
+
+```json
+{ "schemaVersion": 1, "command": "add", "…": "…payload keys follow at the same level" }
+```
+
+**Stability rules.** Within a `schemaVersion`, changes are **additive only** — new keys may appear at any level and consumers must ignore keys they don't recognize. Any removal, rename, or type change of an existing key bumps `schemaVersion`. Compare it with `===`, not `>=`.
+
+Payload keys per command (in addition to `schemaVersion` + `command`):
+
+| `command` | Payload keys |
+|---|---|
+| `add` | `metadata`, `signals`, `assessment`, `score`, `deep` (per-package results of a `--deep` run, else `null`) |
+| `approve` | `metadata`, `signals`, `assessment`, `score`, `deep`, `outcome` (`hard-blocked` \| `already-allowed` \| `approvable`), `approval` (the recorded entry, or `null`) |
+| `install` | `packageManager`, `source`, `total`, `results[]`, `decision`, `exitCode` |
+| `ci` | `baseRef`, `changes[]`, `results[]`, `exitCode` |
+| `explain` | `source` (`fresh` \| `last-run`), `originCommand`, `analyzedAt`, `packages[]` (each `{metadata, signals, assessment, score}`) |
+| `doctor` | `checks[]` (each `{id, label, status, message, durationMs}`), `summary`, `exitCode` |
+| `cache` | `action`, `scope`, plus action-specific keys (`path`/`cleared` or cache stats) |
+
+Key structures worth knowing:
+
+- **`assessment`** — `{risk, decision, summary, reasons[], recommendedAction, suggestedAlternatives?, source}`; `assessment.decision` is one of `allow`, `allow_with_warnings`, `require_approval`, `block`.
+- **`score`** — `{total (0–100), categories[] (each {name, label, score, max, notes?}), floorReason?}`. Informational: a risk-signal aggregation, never the decision.
+- **`signals.reputation`** — reputational/temporal signals: `versionAgeDays`, `releaseAfterInactivityDays`, `releaseGapAnomaly`, `maintainerCount`, `maintainerChange`, `repositoryMismatch`, `hasProvenance`, `deprecated`, `downloads {status, weeklyDownloads?, trend?}`, `repo {status, archived?}`. Lookup `status` values distinguish `ok` from `unavailable`/`rate-limited`/`skipped` — an unknown is never reported as clean.
