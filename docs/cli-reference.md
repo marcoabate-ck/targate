@@ -10,6 +10,10 @@ targate install                         Vet the whole dependency tree, then gate
 targate sandbox <package>[@version]     Trial install in a disposable Docker container
 targate ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
 targate ci init                         Scaffold .github/workflows/targate.yml
+targate diff <pkg>@<v1> [<pkg>[@<v2>]]  What changed between two versions (second spec/
+                                    version omitted → latest; bare <pkg> → installed vs latest)
+targate monitor [--all]                 Re-check monitored packages against a stored
+                                    baseline and report risk that increased over time
 targate explain <package>[@version]     Explain why a package would be allowed or blocked
                                     (analyzes fresh; installs nothing, records nothing)
 targate explain --last                  Explain the most recent add/approve run
@@ -31,6 +35,8 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 | `install` | a full-project install (the whole tree at once) | [Transitive & install](transitive-and-install.md#full-tree-install--targate-install) |
 | `sandbox` | a disposable Docker trial install | [Sandbox](sandbox.md) |
 | `ci` | dependencies a change adds/updates, in a PR | [CI integration](ci.md) |
+| `diff` | nothing — compares two versions of a package | — |
+| `monitor` | nothing — flags risk that rose since a baseline | — |
 | `explain` | nothing — explains a verdict (fresh or last run) | — |
 | `doctor` | nothing — diagnoses the environment | — |
 | `policy init` | scaffolds the team policy file | [Team workflow](team-workflow.md#team-policy--targatepolicy) |
@@ -83,6 +89,26 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
                         check, no model call)
 ```
 
+## Options (diff)
+
+```
+--fail-on <level>       Exit 2 when the diff risk is at this level or above
+                        (low | medium | high; default: high)
+--no-reputation         Skip external reputation lookups on both versions
+--fail-on-osv-error     Treat an unreachable OSV lookup as a medium-risk unknown
+```
+
+## Options (monitor)
+
+```
+--all                   Monitor the entire lockfile tree, not just approvals +
+                        direct dependencies
+--no-update             Report events without advancing the baseline
+--concurrency <n>       Packages checked in parallel (default: 16)
+--no-reputation         Skip download/GitHub lookups (fewer events, faster)
+--fail-on-osv-error     Treat an unreachable OSV lookup as a warning
+```
+
 ## Options (sandbox)
 
 ```
@@ -97,6 +123,9 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 
 - `doctor`: `0` when every check passes or only warns, `1` when at least one check fails.
 - `explain`: `0` on success **regardless of the decision** (it is informational — the gate lives in `add`/`install`/`ci`), `1` on operational errors. Never `2`.
+- `diff`: `0` when the diff risk is below `--fail-on` (default: `low`/`medium`), `2` at or above it (default: `high`), `1` on operational errors (name mismatch, unknown version, not in the lockfile).
+- `monitor`: `0` when no risk increased (including a plain first run that only creates the baseline), `2` when any `warn`/`critical` event fired, `1` on operational errors.
+- `sandbox`: `0` clean, `2` on a timeout, suspicious log line, or unexpected network destination, `1` when Docker is unavailable or the install failed with no findings.
 
 `--dry-run` is a pure preview: analyze and report only — it never prompts, never installs, and records nothing. To approve a package without installing it, use [`targate approve`](team-workflow.md#approving-a-package--targate-approve).
 
@@ -119,11 +148,15 @@ Payload keys per command (in addition to `schemaVersion` + `command`):
 | `install` | `packageManager`, `source`, `total`, `results[]`, `decision`, `exitCode` |
 | `ci` | `baseRef`, `changes[]`, `results[]`, `exitCode` |
 | `explain` | `source` (`fresh` \| `last-run`), `originCommand`, `analyzedAt`, `packages[]` (each `{metadata, signals, assessment, score}`) |
+| `diff` | `diff` (a `VersionDiff`: `from`/`to`, per-category changes, `score`, `diffRisk`, `riskReasons`), `failOn`, `exitCode` |
+| `monitor` | `packages`, `source` (`{approval, direct, lockfile}` counts), `baseline` (`{created, path, previousUpdatedAt, updated}`), `events[]` (each `{package, kind, severity, detail}`), `errors[]`, `summary`, `exitCode` |
 | `doctor` | `checks[]` (each `{id, label, status, message, durationMs}`), `summary`, `exitCode` |
+| `sandbox` | `spec`, `image`, `networkMode`, `captureRequested`, `timedOut`, `suspicious[]`, `network` (observed `{captureActive, dnsQueries, connections, httpRequests, errors}` or `null`), `log`, `exitCode` |
 | `cache` | `action`, `scope`, plus action-specific keys (`path`/`cleared` or cache stats) |
 
 Key structures worth knowing:
 
 - **`assessment`** — `{risk, decision, summary, reasons[], recommendedAction, suggestedAlternatives?, source}`; `assessment.decision` is one of `allow`, `allow_with_warnings`, `require_approval`, `block`.
 - **`score`** — `{total (0–100), categories[] (each {name, label, score, max, notes?}), floorReason?}`. Informational: a risk-signal aggregation, never the decision.
-- **`signals.reputation`** — reputational/temporal signals: `versionAgeDays`, `releaseAfterInactivityDays`, `releaseGapAnomaly`, `maintainerCount`, `maintainerChange`, `repositoryMismatch`, `hasProvenance`, `deprecated`, `downloads {status, weeklyDownloads?, trend?}`, `repo {status, archived?}`. Lookup `status` values distinguish `ok` from `unavailable`/`rate-limited`/`skipped` — an unknown is never reported as clean.
+- **`signals.reputation`** — reputational/temporal signals: `versionAgeDays`, `releaseAfterInactivityDays`, `releaseGapAnomaly`, `maintainerCount`, `maintainerChange`, `repositoryMismatch`, `hasProvenance`, `deprecated`, `downloads {status, weeklyDownloads?, trend?}`, `repo {status, archived?}`, and (root-package analyses only) `maintainerIntel {status, maintainers[], truncated, newMaintainerNoTrackRecord[]}`. Lookup `status` values distinguish `ok` from `unavailable`/`rate-limited`/`skipped` — an unknown is never reported as clean.
+- **`assessment.deterministic`** — present on AI-sourced assessments: `{decision, risk, reasons}`, the rules engine's own verdict on the same signals (the AI can only make the final decision stricter than this).

@@ -146,6 +146,23 @@ export function computeSecurityScore(signals: Signals): SecurityScore {
   } else if (rep.downloads.status === "unavailable") {
     trust.deduct(1, "download stats unknown");
   }
+  const intel = rep.maintainerIntel;
+  if (intel) {
+    if (intel.newMaintainerNoTrackRecord.length > 0) {
+      trust.deduct(
+        4,
+        `new maintainer(s) with no other published packages: ${intel.newMaintainerNoTrackRecord.join(", ")}`,
+      );
+    } else if (
+      intel.status === "ok" &&
+      intel.maintainers.length > 0 &&
+      intel.maintainers.every((m) => !m.hasEstablishedPackage && (m.packageCount ?? 0) <= 1)
+    ) {
+      trust.deduct(2, "no maintainer has an established package portfolio");
+    } else if (intel.status === "unavailable") {
+      trust.deduct(1, "maintainer portfolio unknown");
+    }
+  }
 
   // 6. Repository integrity — 10
   const repository = new Category("repository", "Repository integrity");

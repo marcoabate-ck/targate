@@ -105,6 +105,30 @@ describe("fetchPackageMetadata (stubbed registry)", () => {
       previousVersionMaintainers: ["alice"],
       publisher: "bob",
       latestRepositoryUrl: "git+https://github.com/o/pkg.git",
+      latestVersion: "2.0.0",
+      latestVersionPublishDate: "2024-06-01T00:00:00Z",
+      latestHasProvenance: true,
+    });
+  });
+
+  it("extracts size, file count and dependency ranges from the manifest", async () => {
+    stubRegistry({
+      "dist-tags": { latest: "1.0.0" },
+      versions: {
+        "1.0.0": {
+          name: "pkg",
+          dist: { tarball: "https://reg/pkg-1.0.0.tgz", unpackedSize: 12345, fileCount: 7 },
+          dependencies: { lodash: "^4.17.21", helper: "git+https://github.com/x/helper.git" },
+        },
+      },
+      time: { created: "2020-01-01T00:00:00Z", "1.0.0": "2020-01-01T00:00:00Z" },
+    });
+    const metadata = await fetchPackageMetadata("pkg");
+    expect(metadata.unpackedSize).toBe(12345);
+    expect(metadata.fileCount).toBe(7);
+    expect(metadata.dependencyRanges).toEqual({
+      lodash: "^4.17.21",
+      helper: "git+https://github.com/x/helper.git",
     });
   });
 

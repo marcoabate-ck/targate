@@ -1,4 +1,19 @@
-import type { ReputationSignals, Signals } from "../src/types.js";
+import type { PackageMetadata, ReputationSignals, Signals } from "../src/types.js";
+
+/** A minimal, valid PackageMetadata — override per test. */
+export function makeMetadata(overrides: Partial<PackageMetadata> = {}): PackageMetadata {
+  return {
+    name: "example-package",
+    version: "1.0.0",
+    maintainers: ["alice"],
+    tarballUrl: "https://registry.npmjs.org/example-package/-/example-package-1.0.0.tgz",
+    scripts: {},
+    dependencyCount: 0,
+    directDependencies: [],
+    registryReputation: { hasProvenance: false },
+    ...overrides,
+  };
+}
 
 /** A healthy, lookup-skipped reputation block — override per test. */
 export function makeReputation(overrides: Partial<ReputationSignals> = {}): ReputationSignals {

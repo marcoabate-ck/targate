@@ -64,6 +64,9 @@ targate resolves the package from npm, extracts the tarball into quarantine (scr
 | `targate install` | Vet the **entire** dependency tree, then gate a full install |
 | `targate sandbox <pkg>` | Trial-install in a disposable Docker container |
 | `targate ci` | Analyze the dependencies a PR adds/updates; fail the build on a bad one |
+| `targate diff <pkg>@a <pkg>@b` | Show what changed between two versions and rate the upgrade risk |
+| `targate monitor` | Re-check approved/installed packages against a baseline; flag risk that rose over time |
+| `targate sandbox <pkg>` | Trial-install in a disposable Docker container, observing its network activity |
 | `targate explain <pkg>` | Explain why a package would be allowed or blocked (`--last` re-explains the previous run) |
 | `targate doctor` | Check the environment: Node, registry, OSV, AI provider, GitHub, policy, cache dirs |
 | `targate policy init` | Scaffold the team policy file |
@@ -110,7 +113,7 @@ Full specifications live in [`docs/`](docs/README.md):
 pnpm install
 pnpm build
 pnpm dev add <pkg>   # run from source (tsx), e.g. pnpm dev add react-native-mmkv --dry-run
-pnpm test            # vitest suite (298 tests, incl. end-to-end CI and full-install checks on fixture repos)
+pnpm test            # vitest suite (445 tests, incl. end-to-end CI and full-install checks on fixture repos)
 pnpm typecheck
 ```
 

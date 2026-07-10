@@ -199,6 +199,31 @@ describe("clampDecision — deterministic BLOCK is a hard floor", () => {
   });
 });
 
+describe("clampDecision — deterministic verdict capture (explain AI reasoning)", () => {
+  it("attaches the rules verdict when the floor does not block", () => {
+    const signals = makeSignals({ hasNativeCode: true });
+    signals.nativeSurface.hasAndroid = true;
+    const clamped = clampDecision(aiAllow(), signals);
+    expect(clamped.deterministic).toBeDefined();
+    expect(clamped.deterministic!.decision).toBe("allow_with_warnings");
+    expect(clamped.deterministic!.reasons.length).toBeGreaterThan(0);
+  });
+
+  it("attaches the rules verdict even when the AI already blocked", () => {
+    const clamped = clampDecision(aiAllow({ decision: "block", risk: "high" }), makeSignals());
+    expect(clamped.decision).toBe("block");
+    expect(clamped.deterministic!.decision).toBe("allow");
+  });
+
+  it("attaches the blocking floor verdict when the clamp fires", () => {
+    const signals = makeSignals({ knownMalicious: true, maliciousRecords: [{ id: "MAL-1" }] });
+    const clamped = clampDecision(aiAllow(), signals);
+    expect(clamped.decision).toBe("block");
+    expect(clamped.deterministic!.decision).toBe("block");
+    expect(clamped.deterministic!.risk).toBe("high");
+  });
+});
+
 describe("evaluateRules — lifecycle command inspection (finding #2)", () => {
   it("blocks a lifecycle command that fetches and pipes into a shell", () => {
     const result = evaluateRules(

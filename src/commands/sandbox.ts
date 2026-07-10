@@ -1,4 +1,10 @@
-import { isDockerAvailable, runSandbox, type SandboxNetwork } from "../sandbox.js";
+import { printJson } from "../json-output.js";
+import {
+  isDockerAvailable,
+  runSandbox,
+  type NetworkActivity,
+  type SandboxNetwork,
+} from "../sandbox.js";
 import { bold, cyan, dim, green, red, yellow } from "../report.js";
 
 export interface SandboxCommandOptions {
@@ -6,6 +12,48 @@ export interface SandboxCommandOptions {
   image?: string;
   timeoutMs?: number;
   network?: SandboxNetwork;
+  /** Observe DNS + proxy traffic during the install (default: true). */
+  capture?: boolean;
+  json: boolean;
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} kB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderNetwork(network: NetworkActivity): void {
+  console.log(bold("\nNetwork activity"));
+  if (!network.captureActive) {
+    console.log(yellow("  ⚠ network capture failed to start — see [targate-net] error lines above (install was unaffected)"));
+    for (const e of network.errors) console.log(dim(`    ${e}`));
+    return;
+  }
+  if (
+    network.dnsQueries.length === 0 &&
+    network.connections.length === 0 &&
+    network.httpRequests.length === 0
+  ) {
+    console.log(dim("  (no DNS or proxied traffic observed during the install)"));
+  }
+  for (const c of network.connections) {
+    const bytes = `sent ${fmtBytes(c.sentBytes)} / recv ${fmtBytes(c.recvBytes)}`;
+    const line = `  ${c.host}:${c.port} ×${c.count}  ${bytes}`;
+    console.log(c.expected ? dim(line) : red(`! ${line.trim()}`));
+  }
+  for (const r of network.httpRequests) {
+    const line = `  ${r.method} ${r.url}`;
+    console.log(r.expected ? dim(line) : red(`! ${line.trim()}`));
+  }
+  for (const q of network.dnsQueries) {
+    console.log(dim(`  dns ${q.name} ${q.type}${q.count > 1 ? ` ×${q.count}` : ""}`));
+  }
+  console.log(
+    dim(
+      "  Observation only: traffic to hardcoded IPs or ignoring the proxy is NOT captured; a hostile script can disable it.",
+    ),
+  );
 }
 
 /** Phase 4 — `targate sandbox <pkg>`: trial install in a disposable container. */
@@ -19,14 +67,22 @@ export async function sandboxCommand(opts: SandboxCommandOptions): Promise<numbe
   }
 
   const network = opts.network ?? "open";
-  console.log(bold(`\nSandboxed trial install of ${opts.spec}`));
-  console.log(
+  const capture = (opts.capture ?? true) && network !== "none";
+  const note = (line: string): void => {
+    if (!opts.json) console.log(line);
+  };
+
+  note(bold(`\nSandboxed trial install of ${opts.spec}`));
+  note(
     dim(
       "Disposable container: no host env vars, no SSH agent, no npm/GitHub tokens,\n" +
         "no host filesystem, capabilities dropped, 1 CPU / 1 GB memory cap.\n" +
         (network === "none"
           ? "Network: DISABLED (--network none) — offline trial.\n"
-          : "Network: FULL egress (npm needs it; a malicious script can use it too).\n"),
+          : capture
+            ? "Network: full egress, OBSERVED — DNS queries and HTTP(S) proxy traffic are logged.\n" +
+              "Traffic to hardcoded IPs or ignoring the proxy is NOT captured.\n"
+            : "Network: FULL egress (npm needs it; a malicious script can use it too).\n"),
     ),
   );
 
@@ -34,7 +90,24 @@ export async function sandboxCommand(opts: SandboxCommandOptions): Promise<numbe
     image: opts.image,
     timeoutMs: opts.timeoutMs,
     network,
+    capture,
+    echo: opts.json ? "stderr" : "stdout",
   });
+
+  if (opts.json) {
+    printJson("sandbox", {
+      spec: opts.spec,
+      image: opts.image ?? null,
+      networkMode: network,
+      captureRequested: capture,
+      exitCode: result.timedOut ? 2 : result.suspiciousLines.length > 0 ? 2 : result.exitCode === 0 ? 0 : 1,
+      timedOut: result.timedOut,
+      suspicious: result.suspiciousLines,
+      network: result.network,
+      log: result.log,
+    });
+    return result.timedOut ? 2 : result.suspiciousLines.length > 0 ? 2 : result.exitCode === 0 ? 0 : 1;
+  }
 
   console.log("");
   if (result.timedOut) {
@@ -48,6 +121,8 @@ export async function sandboxCommand(opts: SandboxCommandOptions): Promise<numbe
   } else {
     console.log(green(bold("Sandbox install completed.")));
   }
+
+  if (result.network) renderNetwork(result.network);
 
   if (result.suspiciousLines.length > 0) {
     console.log(red(bold("\nSuspicious lines in the script execution log:")));

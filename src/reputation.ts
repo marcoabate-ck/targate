@@ -1,3 +1,4 @@
+import type { MaintainerIntel } from "./maintainer-intel.js";
 import type {
   DownloadsSignal,
   MaintainerChangeSignal,
@@ -38,9 +39,11 @@ const RELEASE_GAP_FRESH_DAYS = 30;
 export interface ReputationLookup {
   downloads: DownloadsSignal;
   repo: RepoStatusSignal;
+  /** Maintainer intelligence, when gathered (root-package analysis only). */
+  maintainerIntel?: MaintainerIntel;
 }
 
-/** Both sub-lookups skipped (--no-reputation, or tests). */
+/** All sub-lookups skipped (--no-reputation, or tests). */
 export function reputationSkipped(): ReputationLookup {
   return { downloads: { status: "skipped" }, repo: { status: "skipped" } };
 }
@@ -254,6 +257,7 @@ export function deriveReputation(
           : reg.deprecated,
     downloads: lookup.downloads,
     repo: lookup.repo,
+    maintainerIntel: lookup.maintainerIntel,
   };
 }
 

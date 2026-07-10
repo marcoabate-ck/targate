@@ -85,3 +85,16 @@ export default policy;
 
 - a **hard block** (known-malicious record, or a `curl … | bash`-style download-and-execute) can never be overridden — the package stays blocked, and the report notes the allow list was ignored;
 - a **soft/heuristic block** (e.g. an install script that reads env + hits the network, like esbuild) **is** cleared to `allow` by an allow-list entry — a deliberate, committed decision to trust that package. Prefer a version-pinned `.targate/approvals.json` entry (recorded automatically when you approve interactively) when you want to trust one exact version rather than all future ones.
+
+## Monitoring risk over time — `targate monitor`
+
+Approving a package vouches for it *at a point in time*. `targate monitor` re-checks the packages you already trust and reports what got worse since a stored baseline — a new vulnerability, a maintainer change, a deprecation, an archived repository, lost provenance, a suspicious new release, or a download drop. It is a light, metadata-only pass (no tarball download, no AI), so it is cheap to run on a schedule.
+
+```bash
+targate monitor            # approvals + direct dependencies
+targate monitor --all      # the entire lockfile tree
+```
+
+The first run writes `.targate/monitor-baseline.json` and reports only always-true risks (a known-malicious record, a deprecation). Later runs diff against that baseline, then advance it (`--no-update` to peek without advancing). Exit code `2` means risk increased — wire it into a scheduled CI job to get alerted when a dependency you already approved turns risky.
+
+**Baseline in CI.** `.targate/monitor-baseline.json` is gitignored by default (like the AI cache). For cross-run evolution detection on ephemeral CI runners, either commit the baseline or cache it between runs — it is stable, sorted JSON written for exactly that purpose. Without a persisted baseline, every CI run starts fresh and only the always-on checks fire.
