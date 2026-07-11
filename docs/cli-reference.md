@@ -94,7 +94,8 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
                         quota is exhausted — never as "fine".
 --allow-scripts         (approve) Record the approval as scripts-allowed (default:
                         no-scripts) — (install) run lifecycle scripts
---frozen-lockfile       (install) Immutable install (npm ci / --frozen-lockfile)
+--update-lockfile       (install) Explicitly re-resolve and review a lockfile
+                        update; immutable installation is the default
 --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
 ```
 
@@ -363,9 +364,9 @@ Payload keys per command (in addition to `schemaVersion` + `command`):
 
 | `command` | Payload keys |
 |---|---|
-| `add` | `metadata`, `signals`, `assessment`, `score`, `deep` (per-package results of a `--deep` run, else `null`), `install` (`installed` / `skipped` / `blocked` / `failed`, with command and child exit code when applicable) |
+| `add` | `metadata`, `signals`, `assessment`, `score`, `deep` (per-package results of a `--deep` run, else `null`), `planFingerprint` (with `--deep`), `install` (`installed` / `skipped` / `blocked` / `failed`, with command and child exit code when applicable) |
 | `approve` | `metadata`, `signals`, `assessment`, `score`, `deep`, `outcome` (`hard-blocked` \| `already-allowed` \| `approvable`), `approval` (the recorded entry, or `null`) |
-| `install` | `packageManager`, `source`, `total`, `results[]`, `decision`, `exitCode`, `install` (`installed` / `skipped` / `blocked` / `failed`, with command and child exit code when applicable) |
+| `install` | `packageManager`, `source`, `total`, `results[]`, `decision`, `exitCode`, `planFingerprint`, `install` (`installed` / `skipped` / `blocked` / `failed`, with command and child exit code when applicable) |
 | `ci` | `baseRef`, `changes[]`, `results[]`, `exitCode` |
 | `explain` | `source` (`fresh` \| `last-run`), `originCommand`, `analyzedAt`, `packages[]` (each `{metadata, signals, assessment, score}`) |
 | `diff` | `diff` (a `VersionDiff`: `from`/`to`, per-category changes, `score`, `diffRisk`, `riskReasons`), `failOn`, `exitCode` |

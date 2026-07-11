@@ -1,12 +1,11 @@
-import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { promisify } from "node:util";
 import { getApproval, type ApprovalsMap } from "./approvals.js";
 import type { AssessOptions } from "./ai.js";
-import { extractLockfileEntries, lockfileName, snapshotLockfile } from "./lockfile.js";
+import { snapshotLockfile } from "./lockfile.js";
+import {
+  packagesFromLockfile,
+  resolveInstallPlan,
+  type InstallPlan,
+} from "./install-plan.js";
 import type { LoadedPolicy } from "./policy.js";
 import { analyzeTransitiveDeps, type TreePackage, type TransitiveResult } from "./transitive.js";
 import type { Decision, PackageManager } from "./types.js";
@@ -16,8 +15,6 @@ import {
   type ApprovalMode,
   type ScriptPolicy,
 } from "./trust-decision.js";
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Full-project ("bootstrap") install vetting for `targate install` — analyze the
@@ -33,35 +30,20 @@ const execFileAsync = promisify(execFile);
 
 export interface ProjectTree {
   packages: TreePackage[];
-  /** "lockfile": read from the committed lockfile; "resolved": npm resolved the manifest. */
+  /** "lockfile": read from the committed lockfile; "resolved": the project PM resolved it. */
   source: "lockfile" | "resolved";
 }
 
 /** Parse a lockfile's full set of packages into a sorted, de-duplicated tree. */
 export function treeFromLockfile(pm: PackageManager, content: string): TreePackage[] {
-  const seen = new Set<string>();
-  const packages: TreePackage[] = [];
-  for (const entry of extractLockfileEntries(pm, content)) {
-    if (seen.has(entry)) continue;
-    seen.add(entry);
-    const at = entry.lastIndexOf("@");
-    if (at <= 0) continue;
-    packages.push({ name: entry.slice(0, at), version: entry.slice(at + 1) });
-  }
-  return packages.sort(
-    (a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version),
-  );
+  return packagesFromLockfile(pm, content);
 }
-
-const NPM_BIN = process.platform === "win32" ? "npm.cmd" : "npm";
-const RESOLVE_TIMEOUT_MS = 180_000;
 
 /**
  * Enumerate the full dependency tree of the project in `cwd`. Prefers the
  * committed lockfile (the source of truth for what will land on disk). With
- * no lockfile, npm resolves the manifest in a throwaway directory
- * (`--package-lock-only --ignore-scripts`: only a lockfile is produced,
- * nothing executes) so the tree still reflects real resolved versions.
+ * no lockfile, the project's actual package manager resolves the manifest in
+ * a throwaway directory with scripts disabled.
  */
 export async function resolveProjectTree(
   pm: PackageManager,
@@ -72,33 +54,8 @@ export async function resolveProjectTree(
     return { packages: treeFromLockfile(pm, lockContent), source: "lockfile" };
   }
 
-  const manifestPath = path.join(cwd, "package.json");
-  if (!existsSync(manifestPath)) {
-    throw new Error(`No package.json found in ${cwd}`);
-  }
-  const manifest = await readFile(manifestPath, "utf8");
-
-  const dir = await mkdtemp(path.join(tmpdir(), "targate-install-"));
-  try {
-    await writeFile(path.join(dir, "package.json"), manifest);
-    try {
-      await execFileAsync(
-        NPM_BIN,
-        ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error"],
-        { cwd: dir, timeout: RESOLVE_TIMEOUT_MS },
-      );
-    } catch (err) {
-      throw new Error(
-        `targate install: npm could not resolve the dependency tree (no ${lockfileName(pm)} present): ${
-          err instanceof Error ? err.message.split("\n")[0] : String(err)
-        }`,
-      );
-    }
-    const lock = await readFile(path.join(dir, "package-lock.json"), "utf8");
-    return { packages: treeFromLockfile("npm", lock), source: "resolved" };
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  const plan = await resolveInstallPlan({ packageManager: pm, cwd, updateLockfile: true });
+  return { packages: plan.packages, source: "resolved" };
 }
 
 export interface InstallVetResult extends TransitiveResult {
@@ -144,6 +101,7 @@ export interface InstallReport {
   results: InstallVetResult[];
   decision: Decision;
   exitCode: number;
+  planFingerprint: string;
 }
 
 export interface VetInstallOptions {
@@ -163,11 +121,19 @@ export interface VetInstallOptions {
   onProgress?: (phase: "scan" | "assess" | "analyze", done: number, total: number) => void;
   /** Injection point for tests — defaults to the real transitive walker. */
   analyzeAll?: typeof analyzeTransitiveDeps;
+  /** Pre-resolved immutable plan; avoids resolving a second tree. */
+  plan?: InstallPlan;
 }
 
 /** Enumerate the tree, vet every unique package, and aggregate the verdict. */
 export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport> {
-  const { packages, source } = await resolveProjectTree(opts.packageManager, opts.cwd);
+  const plan = opts.plan ?? await resolveInstallPlan({
+    packageManager: opts.packageManager,
+    cwd: opts.cwd,
+    updateLockfile: false,
+  });
+  const packages = plan.packages;
+  const source = plan.source === "existing" ? "lockfile" : "resolved";
   const analyzeAll = opts.analyzeAll ?? analyzeTransitiveDeps;
 
   const raw = await analyzeAll(packages, {
@@ -211,5 +177,6 @@ export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport
     results,
     decision,
     exitCode,
+    planFingerprint: plan.fingerprint,
   };
 }

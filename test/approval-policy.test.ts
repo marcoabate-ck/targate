@@ -50,6 +50,7 @@ describe("approval script policy", () => {
   it("a transitive no-scripts approval forces the final add command to disable scripts", async () => {
     const dir = await tempDir("targate-deep-no-scripts-");
     process.chdir(dir);
+    await writeFile(path.join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
     await mkdir(path.join(dir, ".targate"));
     await writeFile(
       path.join(dir, ".targate", "approvals.json"),
@@ -83,9 +84,16 @@ describe("approval script policy", () => {
       const actual = await importOriginal<typeof import("../src/transitive.js")>();
       return {
         ...actual,
-        resolveTransitiveTree: vi.fn(async () => [
-          { name: "transitive-build", version: "2.0.0" },
-        ]),
+        resolveTransitiveInstallPlan: vi.fn(async () => ({
+          packageManager: "npm",
+          root: { name: "root-package", version: "1.0.0", spec: "root-package@1.0.0" },
+          manifestContent: JSON.stringify({ name: "fixture", dependencies: { "root-package": "1.0.0" } }),
+          lockfileContent: JSON.stringify({ packages: { "node_modules/transitive-build": { version: "2.0.0" } } }),
+          packages: [{ name: "transitive-build", version: "2.0.0" }],
+          fingerprint: "fixture",
+          source: "resolved",
+          baseManifestFingerprint: "fixture",
+        })),
         analyzeTransitiveDeps: vi.fn(async () => [
           {
             name: "transitive-build",
@@ -112,12 +120,14 @@ describe("approval script policy", () => {
     });
 
     expect(code).toBe(0);
-    expect(output.join("\n")).toContain("npm install root-package@1.0.0 --ignore-scripts");
+    expect(output.join("\n")).toContain("npm ci --ignore-scripts");
   });
 
   it("full install cannot override a no-scripts approval with --allow-scripts", async () => {
     const dir = await tempDir("targate-install-no-scripts-");
     process.chdir(dir);
+    await writeFile(path.join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
+    await writeFile(path.join(dir, "package-lock.json"), JSON.stringify({ packages: {} }));
 
     const report: InstallReport = {
       packageManager: "npm",
@@ -156,12 +166,14 @@ describe("approval script policy", () => {
     });
 
     expect(code).toBe(0);
-    expect(output.join("\n")).toContain("npm install --ignore-scripts");
+    expect(output.join("\n")).toContain("npm ci --ignore-scripts");
   });
 
   it("an approved soft block is not listed as unresolved again", async () => {
     const dir = await tempDir("targate-install-unresolved-");
     process.chdir(dir);
+    await writeFile(path.join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
+    await writeFile(path.join(dir, "package-lock.json"), JSON.stringify({ packages: {} }));
 
     const report: InstallReport = {
       packageManager: "npm",

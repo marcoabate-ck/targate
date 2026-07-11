@@ -81,7 +81,7 @@ describe("cli routing and validation", () => {
     const { code, stdout } = await runCli("--help");
     expect(code).toBe(0);
     expect(stdout).toContain("targate install");
-    expect(stdout).toContain("--frozen-lockfile");
+    expect(stdout).toContain("--update-lockfile");
     expect(stdout).toContain("--allow-scripts");
   });
 

@@ -108,7 +108,8 @@ Options (add & ci):
   --no-reputation         Skip the external reputation lookups (npm downloads,
                           GitHub repo status). Registry-derived reputation
                           signals are still computed.
-  --frozen-lockfile       (install) Immutable install (npm ci / --frozen-lockfile)
+  --update-lockfile       (install) Explicitly re-resolve and review a lockfile
+                          update; installs are frozen by default
   --allow-scripts         (install) Run lifecycle scripts (default: disabled)
                           (approve) Record the approval as scripts-allowed
   --limit <n>             (recommend) Candidates to analyze (default: 5, max: 15;
@@ -184,6 +185,8 @@ async function main(): Promise<number> {
       concurrency: { type: "string" },
       "no-ai-batch": { type: "boolean", default: false },
       "no-reputation": { type: "boolean", default: false },
+      "update-lockfile": { type: "boolean", default: false },
+      // Backward-compatible no-op: immutable mode is now the default.
       "frozen-lockfile": { type: "boolean", default: false },
       "allow-scripts": { type: "boolean", default: false },
       image: { type: "string" },
@@ -287,7 +290,7 @@ async function main(): Promise<number> {
         dryRun: values["dry-run"],
         assumeYes: values.yes,
         failOnOsvError: values["fail-on-osv-error"],
-        frozenLockfile: values["frozen-lockfile"],
+        updateLockfile: values["update-lockfile"],
         allowScripts: values["allow-scripts"],
         concurrency,
         noAiBatch: values["no-ai-batch"],

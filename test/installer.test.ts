@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -122,5 +122,32 @@ describe("gateInstall", () => {
     });
     expect(result.status).toBe("blocked");
     expect(result.installed).toBe(false);
+  });
+
+  it("fails when the installed lockfile differs from the reviewed plan", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "targate-plan-verify-"));
+    const lock = path.join(dir, "package-lock.json");
+    const script = path.join(dir, "mutate-lock.mjs");
+    await writeFile(
+      script,
+      'import { writeFileSync } from "node:fs"; writeFileSync(process.argv[2], "changed");',
+    );
+
+    const result = await gateInstall("allow", "npm", "example@1.0.0", {
+      assumeYes: true,
+      commands: {
+        normal: [process.execPath, script, lock],
+        noScripts: [process.execPath, script, lock],
+      },
+      beforeInstall: async () => writeFile(lock, "reviewed"),
+      verifyInstall: async () => (await readFile(lock, "utf8")) === "reviewed",
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      exitCode: 1,
+      installed: false,
+      reason: "Installed lockfile does not match the reviewed plan.",
+    });
   });
 });

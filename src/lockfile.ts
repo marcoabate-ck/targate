@@ -39,8 +39,10 @@ export function extractLockfileEntries(pm: PackageManager, content: string): Set
   }
 
   if (pm === "pnpm") {
-    // pnpm-lock.yaml packages section keys look like:  /name@1.2.3:  or  name@1.2.3:
-    for (const match of content.matchAll(/^ {2}\/?((?:@[\w.-]+\/)?[\w.-]+@[^\s:(]+)[^:]*:\s*$/gm)) {
+    // pnpm v6-v10 keys may be slash-prefixed, quoted, and carry peer suffixes.
+    for (const match of content.matchAll(
+      /^ {2}['"]?\/?((?:@[\w.-]+\/)?[\w.-]+@[^\s:'"(]+)(?:\([^\r\n'"]*\))?['"]?:\s*$/gm,
+    )) {
       entries.add(match[1]);
     }
     return entries;
@@ -50,7 +52,7 @@ export function extractLockfileEntries(pm: PackageManager, content: string): Set
   const blocks = content.split(/\n\n/);
   for (const block of blocks) {
     const header = block.match(/^"?((?:@[\w.-]+\/)?[\w.-]+)@[^\n]*?:\s*\n/);
-    const version = block.match(/\n\s+version\s+"([^"]+)"/);
+    const version = block.match(/\n\s+version:?\s+["']?([^\s"']+)["']?/);
     if (header && version) entries.add(`${header[1]}@${version[1]}`);
   }
   return entries;

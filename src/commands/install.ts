@@ -26,6 +26,11 @@ import { bold, cyan, dim, green, red, yellow } from "../report.js";
 import { multiSelect } from "../select.js";
 import type { PackageManager } from "../types.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
+import {
+  applyInstallPlan,
+  resolveInstallPlan,
+  verifyInstallPlan,
+} from "../install-plan.js";
 
 export interface InstallOptions {
   packageManager?: string;
@@ -33,8 +38,8 @@ export interface InstallOptions {
   dryRun: boolean;
   assumeYes: boolean;
   failOnOsvError?: boolean;
-  /** Immutable install (pnpm/yarn --frozen-lockfile, npm ci). */
-  frozenLockfile?: boolean;
+  /** Re-resolve and update the lockfile before review. Immutable install remains mandatory. */
+  updateLockfile?: boolean;
   /** Run lifecycle scripts during the install (default: scripts disabled). */
   allowScripts?: boolean;
   /** Tree-analysis pool width (default: 16). */
@@ -98,7 +103,13 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
   const started = Date.now();
 
   let report: InstallReport;
+  let plan;
   try {
+    plan = await resolveInstallPlan({
+      packageManager: pm,
+      cwd: process.cwd(),
+      updateLockfile: opts.updateLockfile,
+    });
     report = await vetInstall({
       packageManager: pm,
       cwd: process.cwd(),
@@ -109,6 +120,7 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
       concurrency: opts.concurrency,
       noAiBatch: opts.noAiBatch,
       noReputation: opts.noReputation,
+      plan,
       onProgress: (phase, done, total) => progress.update(phase, done, total),
       onResult: (r, i, total) => {
         if (r.assessment.decision === "allow") return; // keep the log to what matters
@@ -225,7 +237,7 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
   const ignoreScripts = treeDeniesScripts || !opts.allowScripts;
   const command = buildBootstrapInstallCommand(pm, {
     ignoreScripts,
-    frozenLockfile: opts.frozenLockfile,
+    frozenLockfile: true,
   });
 
   if (opts.dryRun) {
@@ -248,6 +260,23 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
     return 0;
   }
 
+  try {
+    if (plan.source === "resolved") await applyInstallPlan(plan);
+    if (!(await verifyInstallPlan(plan))) {
+      throw new Error("Lockfile changed after review; generate a new install plan.");
+    }
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    if (opts.json) {
+      printJson("install", {
+        ...report,
+        install: { status: "failed" as const, command, exitCode: 1, reason },
+      });
+    }
+    note(red(`\nInstall refused: ${reason}`));
+    return 1;
+  }
+
   let code: number;
   try {
     code = await runCommand(command);
@@ -262,6 +291,17 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
       });
     }
     note(red(`\nInstall command exited with code ${code}.`));
+    return 1;
+  }
+  if (!(await verifyInstallPlan(plan))) {
+    const reason = "Installed lockfile does not match the reviewed plan; review is required again.";
+    if (opts.json) {
+      printJson("install", {
+        ...report,
+        install: { status: "failed" as const, command, exitCode: 1, reason },
+      });
+    }
+    note(red(`\n${reason}`));
     return 1;
   }
   note(

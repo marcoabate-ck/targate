@@ -8,7 +8,11 @@ import {
   loadApprovals,
   recordApproval,
 } from "../approvals.js";
-import { detectPackageManager, gateInstall } from "../installer.js";
+import {
+  buildBootstrapInstallCommand,
+  detectPackageManager,
+  gateInstall,
+} from "../installer.js";
 import { diffLockfiles, snapshotLockfile } from "../lockfile.js";
 import { printJson } from "../json-output.js";
 import { writeLastRun } from "../last-run.js";
@@ -25,11 +29,16 @@ import { multiSelect } from "../select.js";
 import {
   aggregateWithTransitive,
   analyzeTransitiveDeps,
-  resolveTransitiveTree,
+  resolveTransitiveInstallPlan,
   type TransitiveResult,
 } from "../transitive.js";
 import type { PackageManager } from "../types.js";
 import { resolvePackageTrust } from "../trust-decision.js";
+import {
+  applyInstallPlan,
+  verifyInstallPlan,
+  type InstallPlan,
+} from "../install-plan.js";
 
 export interface CheckOptions {
   spec: string;
@@ -172,8 +181,15 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   // tree npm would install, run the same pipeline on every unique
   // name@version, and let the strictest verdict in the tree gate the install.
   let deepResults: TransitiveResult[] | null = null;
+  let installPlan: InstallPlan | null = null;
   if (opts.deep) {
-    const tree = await resolveTransitiveTree(metadata.name, metadata.version);
+    installPlan = await resolveTransitiveInstallPlan(
+      metadata.name,
+      metadata.version,
+      pm,
+      process.cwd(),
+    );
+    const tree = installPlan.packages;
     if (tree.length === 0) {
       note(dim(`  ✓ no transitive dependencies to analyze`));
     } else {
@@ -316,6 +332,23 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     // A "no-scripts" prior approval is enforced, not advisory (security
     // analysis finding 8): the cleared package installs with --ignore-scripts.
     ignoreScripts: enforceNoScripts,
+    commands: installPlan
+      ? {
+          normal: buildBootstrapInstallCommand(pm, { frozenLockfile: true }),
+          noScripts: buildBootstrapInstallCommand(pm, {
+            frozenLockfile: true,
+            ignoreScripts: true,
+          }),
+        }
+      : undefined,
+    beforeInstall: installPlan
+      ? async () => {
+          await applyInstallPlan(installPlan!);
+        }
+      : undefined,
+    verifyInstall: installPlan
+      ? async () => verifyInstallPlan(installPlan!)
+      : undefined,
     // --json is machine output: never write an interactive prompt to stdout.
     // Anything that would need a confirmation is declined (an agent re-runs
     // with --yes to install); --yes still auto-installs allow/warn as usual.
@@ -323,7 +356,15 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   });
 
   if (opts.json) {
-    printJson("add", { metadata, signals, assessment, score, deep: deepResults, install: result });
+    printJson("add", {
+      metadata,
+      signals,
+      assessment,
+      score,
+      deep: deepResults,
+      ...(installPlan ? { planFingerprint: installPlan.fingerprint } : {}),
+      install: result,
+    });
   }
 
   switch (result.status) {
@@ -345,7 +386,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       }
       return 0;
     case "failed":
-      note(red(`\nInstall command failed (${result.command.join(" ")}) with exit code ${result.exitCode}.`));
+      note(red(`\nInstall command failed (${result.command.join(" ")}) with exit code ${result.exitCode}${result.reason ? `: ${result.reason}` : "."}`));
       return 1;
     case "installed": {
       // These modes are only reached on a REAL install (dry-run never prompts

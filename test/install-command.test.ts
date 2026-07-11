@@ -115,7 +115,7 @@ describe("targate install", () => {
     expect(report.exitCode).toBe(0);
     expect(report.results[0].name).toBe("left-pad");
     expect(report.install.status).toBe("skipped");
-    expect(report.install.command).toEqual(["npm", "install", "--ignore-scripts"]);
+    expect(report.install.command).toEqual(["npm", "ci", "--ignore-scripts"]);
   });
 
   it("refuses the install (exit 2) when a package in the tree is blocked", async () => {
