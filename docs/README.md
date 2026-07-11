@@ -18,6 +18,7 @@ Detailed specifications for [`targate`](../README.md). Start with the root READM
 ## Commands & usage
 
 - [CLI reference](cli-reference.md) — every command, option, and exit code.
+- [Dependency graph](dependency-graph.md) — `targate graph`: the tree as an interactive risk graph (filters, workspaces, CI artifacts, `--why`).
 - [Transitive dependencies & full-tree install](transitive-and-install.md) — `--deep` and `targate install`.
 - [Sandboxed trial install](sandbox.md) — `targate sandbox` in a disposable Docker container.
 - [CI integration](ci.md) — `targate ci` for pull requests.

@@ -219,6 +219,18 @@ jobs:
           # AI reasoning on top of the deterministic rules engine.
           # ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
         run: npx targate ci --base-ref "origin/$BASE_REF" --fail-on-osv-error
+      # Optional: dependency risk graph as a build artifact + a mermaid
+      # summary of the risky subgraph on the run page. Uncomment to enable.
+      # - name: Dependency risk graph
+      #   if: always()
+      #   run: |
+      #     npx targate graph --output targate-graph.html
+      #     npx targate graph --format mermaid --only high-risk,scripts >> "$GITHUB_STEP_SUMMARY"
+      # - uses: actions/upload-artifact@v4
+      #   if: always()
+      #   with:
+      #     name: targate-graph
+      #     path: targate-graph.html
 `;
 
 /** Scaffold .github/workflows/targate.yml. Returns the path, or null if it exists. */

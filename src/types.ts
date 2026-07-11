@@ -39,6 +39,10 @@ export interface PackageMetadata {
   directDependencies: string[];
   /** Direct dependency name -> declared range (manifest.dependencies). */
   dependencyRanges?: Record<string, string>;
+  /** Declared optionalDependencies names (e.g. esbuild's platform binaries). */
+  optionalDependencyNames?: string[];
+  /** Declared peerDependencies names. */
+  peerDependencyNames?: string[];
   /** dist.unpackedSize from the version manifest, when the registry provides it. */
   unpackedSize?: number;
   /** dist.fileCount from the version manifest. */

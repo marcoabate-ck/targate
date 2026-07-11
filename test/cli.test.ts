@@ -159,6 +159,17 @@ describe("cli routing and validation", () => {
     expect(stderr).toContain("Invalid --limit");
   });
 
+  it("lists the graph subcommand and its flags in help; rejects a bad --format", async () => {
+    const { code, stdout } = await runCli("--help");
+    expect(code).toBe(0);
+    expect(stdout).toContain("targate graph");
+    expect(stdout).toContain("--only");
+    expect(stdout).toContain("--why");
+    const bad = await runCli("graph", "--format", "png");
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain("Unknown --format");
+  });
+
   it("rejects an unknown policy preset and lists the available packs", async () => {
     const { code, stderr } = await runCli("policy", "init", "--preset", "bogus");
     expect(code).toBe(1);

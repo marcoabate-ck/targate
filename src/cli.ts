@@ -8,6 +8,7 @@ import { ciCommand } from "./commands/ci.js";
 import { diffCommand } from "./commands/diff.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { explainCommand } from "./commands/explain.js";
+import { graphCommand } from "./commands/graph.js";
 import { historyCommand } from "./commands/history.js";
 import { installCommand } from "./commands/install.js";
 import { monitorCommand } from "./commands/monitor.js";
@@ -51,6 +52,12 @@ Usage:
                                       deterministic pipeline and ranked by
                                       security score (adoption breaks ties).
                                       --no-ai → search-only discovery.
+  targate graph [<package>[@version]]     The dependency tree as an interactive RISK
+                                      GRAPH (project lockfile tree, or a package
+                                      you are considering). Self-contained HTML
+                                      by default; also svg, dot, mermaid, json.
+                                      --why <pkg> prints every dependency chain
+                                      that pulls a package in, risk-annotated.
   targate history [<package>[@version]]   Trust history: every recorded approval —
                                       who, when, verdict, policy, AI provider.
                                       --verify checks SSH signatures against
@@ -106,6 +113,16 @@ Options (add & ci):
                           (approve) Record the approval as scripts-allowed
   --limit <n>             (recommend) Candidates to analyze (default: 5, max: 15;
                           each costs a real tarball download + analysis)
+  --format <fmt>          (graph) html (default) | svg | dot | mermaid | json
+  --output <path>         (graph) Output file ("-" = stdout; defaults:
+                          html/svg → targate-graph.<ext>, dot/mermaid → stdout)
+  --only <filters>        (graph) Prune to matching nodes + their paths to root:
+                          high-risk, scripts, native, deprecated, malicious,
+                          no-provenance, risk-increased (comma-separated)
+  --why <pkg>             (graph) Print every dependency chain from the root(s)
+                          to <pkg>, each hop risk-annotated (like pnpm why,
+                          but with verdicts)
+  --open                  (graph) Open the written html/svg in the browser
   --sign                  (approve) Sign the approval entry with your SSH key
                           (TARGATE_SIGNING_KEY, git user.signingkey, or
                           ~/.ssh/id_*) so it verifies against the committed
@@ -184,6 +201,10 @@ async function main(): Promise<number> {
       verify: { type: "boolean", default: false },
       preset: { type: "string" },
       limit: { type: "string" },
+      output: { type: "string" },
+      only: { type: "string" },
+      why: { type: "string" },
+      open: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -376,6 +397,22 @@ async function main(): Promise<number> {
       });
     }
 
+    case "graph": {
+      return graphCommand({
+        spec: rest[0],
+        format: values.format,
+        output: values.output,
+        only: values.only,
+        why: values.why,
+        open: values.open,
+        json: values.json,
+        packageManager: values["package-manager"],
+        noReputation: values["no-reputation"],
+        failOnOsvError: values["fail-on-osv-error"],
+        concurrency,
+      });
+    }
+
     case "recommend": {
       if (!rest[0]) {
         console.error(red('Usage: targate recommend "<need>" [--limit <n>]'));
@@ -472,9 +509,19 @@ async function main(): Promise<number> {
   }
 }
 
+/**
+ * process.exit() truncates stdout that hasn't drained to a pipe yet (the HELP
+ * text alone now exceeds one 8KB pipe buffer). Queue the exit BEHIND every
+ * pending stdout write: an empty write's callback fires only after the
+ * stream has flushed everything queued before it.
+ */
+function exitFlushed(code: number): void {
+  process.stdout.write("", () => process.exit(code));
+}
+
 main()
-  .then((code) => process.exit(code))
+  .then((code) => exitFlushed(code))
   .catch((err) => {
     console.error(red(`\ntargate failed: ${err instanceof Error ? err.message : String(err)}`));
-    process.exit(1);
+    exitFlushed(1);
   });
