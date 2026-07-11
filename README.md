@@ -67,6 +67,7 @@ targate resolves the package from npm, extracts the tarball into quarantine (scr
 | `targate diff <pkg>@a <pkg>@b` | Show what changed between two versions and rate the upgrade risk |
 | `targate monitor` | Re-check approved/installed packages against a baseline; flag risk that rose over time |
 | `targate history [<pkg>]` | Trust history: who approved what, when, under which policy/AI — `--verify` checks signatures |
+| `targate recommend "<need>"` | Suggest packages for a need, safest first — scored, ranked, with reasons |
 | `targate explain <pkg>` | Explain why a package would be allowed or blocked (`--last` re-explains the previous run) |
 | `targate doctor` | Check the environment: Node, registry, OSV, AI provider, GitHub, policy, cache dirs |
 | `targate policy init` | Scaffold the team policy file (`--preset strict`, `react-native`, `ci`, `ai-agent`) |
@@ -115,7 +116,7 @@ Full specifications live in [`docs/`](docs/README.md):
 pnpm install
 pnpm build
 pnpm dev add <pkg>   # run from source (tsx), e.g. pnpm dev add react-native-mmkv --dry-run
-pnpm test            # vitest suite (495 tests, incl. end-to-end CI and full-install checks on fixture repos)
+pnpm test            # vitest suite (508 tests, incl. end-to-end CI and full-install checks on fixture repos)
 pnpm typecheck
 ```
 

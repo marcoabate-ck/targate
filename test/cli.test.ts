@@ -143,6 +143,22 @@ describe("cli routing and validation", () => {
     expect(stdout).toContain("--preset");
   });
 
+  it("lists the recommend subcommand and --limit in help; rejects a bare recommend", async () => {
+    const { code, stdout } = await runCli("--help");
+    expect(code).toBe(0);
+    expect(stdout).toContain("targate recommend");
+    expect(stdout).toContain("--limit");
+    const bare = await runCli("recommend");
+    expect(bare.code).toBe(1);
+    expect(bare.stderr).toContain("Usage: targate recommend");
+  });
+
+  it("rejects an invalid recommend --limit", async () => {
+    const { code, stderr } = await runCli("recommend", "padding", "--limit", "zero");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Invalid --limit");
+  });
+
   it("rejects an unknown policy preset and lists the available packs", async () => {
     const { code, stderr } = await runCli("policy", "init", "--preset", "bogus");
     expect(code).toBe(1);
