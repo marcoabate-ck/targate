@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { assessManyWithCache, resolveBatchProvider, type AssessOptions } from "./ai.js";
 import { DEFAULT_CONCURRENCY, mapLimit } from "./concurrency.js";
 import { extractLockfileEntries } from "./lockfile.js";
+import { isInternalScope } from "./npmrc.js";
 import { queryOsvBatch, type OsvResult } from "./osv.js";
 import {
   analyzePackage,
@@ -167,9 +168,13 @@ export async function analyzeTransitiveDeps(
 
   // One OSV round-trip for the whole tree. On failure, an empty map means each
   // package falls back to its own queryOsv inside the pipeline (today's behavior).
+  // Internal-scope packages are excluded from the batch — their names must not
+  // be sent to OSV; the pipeline marks them skipped.
+  const internalScopes = opts.policy?.policy.dependencyPolicy.internalScopes;
+  const queryable = packages.filter((p) => !isInternalScope(p.name, internalScopes));
   let osvMap = new Map<string, OsvResult>();
   try {
-    osvMap = await (opts.osvBatch ?? queryOsvBatch)(packages);
+    osvMap = await (opts.osvBatch ?? queryOsvBatch)(queryable);
   } catch {
     /* per-package fallback */
   }
@@ -238,6 +243,7 @@ async function analyzeTreeBatched(
         failOnOsvError: opts.failOnOsvError,
         osv: osvFor(pkg),
         noReputation: opts.noReputation,
+        policy: opts.policy,
       });
       result = { pkg, signals, ok: true };
     } catch (err) {

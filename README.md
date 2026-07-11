@@ -62,14 +62,14 @@ targate resolves the package from npm, extracts the tarball into quarantine (scr
 | `targate add <pkg>` | Analyze one package, then gate the install (`--deep` for its whole tree) |
 | `targate approve <pkg>` | Record a committable approval **without** installing |
 | `targate install` | Vet the **entire** dependency tree, then gate a full install |
-| `targate sandbox <pkg>` | Trial-install in a disposable Docker container |
+| `targate sandbox <pkg>` | Trial-install in a disposable Docker container, observing its network activity |
 | `targate ci` | Analyze the dependencies a PR adds/updates; fail the build on a bad one |
 | `targate diff <pkg>@a <pkg>@b` | Show what changed between two versions and rate the upgrade risk |
 | `targate monitor` | Re-check approved/installed packages against a baseline; flag risk that rose over time |
-| `targate sandbox <pkg>` | Trial-install in a disposable Docker container, observing its network activity |
+| `targate history [<pkg>]` | Trust history: who approved what, when, under which policy/AI — `--verify` checks signatures |
 | `targate explain <pkg>` | Explain why a package would be allowed or blocked (`--last` re-explains the previous run) |
 | `targate doctor` | Check the environment: Node, registry, OSV, AI provider, GitHub, policy, cache dirs |
-| `targate policy init` | Scaffold the team policy file |
+| `targate policy init` | Scaffold the team policy file (`--preset strict`, `react-native`, `ci`, `ai-agent`) |
 | `targate agents init` | Scaffold instruction files so AI coding agents gate installs through targate |
 
 Exit codes: `0` ok · `1` error · `2` blocked (or suspicious sandbox / failed CI check). Full flags and options: [docs/cli-reference.md](docs/cli-reference.md).
@@ -78,6 +78,7 @@ Exit codes: `0` ok · `1` error · `2` blocked (or suspicious sandbox / failed C
 
 - **Deterministic security floor.** The rules engine decides first; the AI can only make a verdict *stricter*. A jailbroken or prompt-injected model cannot turn a rules-engine BLOCK into an allow. See [docs/decisions.md](docs/decisions.md).
 - **Hard vs soft blocks.** Known-malicious and remote-code-execution blocks can never be overridden; heuristic ("soft") blocks can be deliberately cleared by a committed approval or allow-list entry.
+- **Auditable, verifiable trust.** Every approval records its circumstances (who, when, verdict, tool version, AI model, policy hash) — `targate history` shows it; `targate approve --sign` adds an SSH signature that `requireSignedApprovals` enforces in CI, so a hand-edited approvals file cannot green a poisoned dependency.
 - **Nothing untrusted executes during analysis.** Tarballs are checksum-verified against the registry manifest, extracted into quarantine with strict path checking, and only ever *read* — lifecycle scripts never run. (One caveat: `.ts`/`.js` **config** files do execute; set `TARGATE_NO_EXEC_CONFIG=1` in repos you don't trust — see [docs/security.md](docs/security.md).)
 - **Local-AI capable — your code never leaves your machine.** targate does reach the network for package metadata, tarballs and vulnerability data, but the AI reasoning can run entirely on a local model; with no AI provider configured it runs on the deterministic rules engine alone and sends nothing to any model. See [AI providers](docs/ai-providers.md).
 - **Fail-closed option.** `--fail-on-osv-error` escalates when the malicious-package lookup can't complete, so a package is never silently trusted while the strongest check was skipped.
@@ -99,6 +100,7 @@ Full specifications live in [`docs/`](docs/README.md):
 | AI response cache | [ai-cache.md](docs/ai-cache.md) |
 | `--deep` & `targate install` | [transitive-and-install.md](docs/transitive-and-install.md) |
 | Approvals · pnpm builds · team policy | [team-workflow.md](docs/team-workflow.md) |
+| Private registries · `.npmrc` · internal scopes | [private-registries.md](docs/private-registries.md) |
 | React Native hardening | [react-native.md](docs/react-native.md) |
 | Sandboxed trial install | [sandbox.md](docs/sandbox.md) |
 | CI integration | [ci.md](docs/ci.md) |
@@ -113,7 +115,7 @@ Full specifications live in [`docs/`](docs/README.md):
 pnpm install
 pnpm build
 pnpm dev add <pkg>   # run from source (tsx), e.g. pnpm dev add react-native-mmkv --dry-run
-pnpm test            # vitest suite (445 tests, incl. end-to-end CI and full-install checks on fixture repos)
+pnpm test            # vitest suite (495 tests, incl. end-to-end CI and full-install checks on fixture repos)
 pnpm typecheck
 ```
 

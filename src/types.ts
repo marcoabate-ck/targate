@@ -43,6 +43,11 @@ export interface PackageMetadata {
   unpackedSize?: number;
   /** dist.fileCount from the version manifest. */
   fileCount?: number;
+  /** Registry the packument was fetched from (npmjs unless .npmrc says otherwise). */
+  registryUrl?: string;
+  /** How the registry was chosen: a per-scope .npmrc rule, a global registry=
+   *  override, or the npmjs default. */
+  registrySource?: "scope" | "global" | "default";
   /** Reputation-relevant fields extracted from the full packument (already
    *  fetched), so reputation can be derived without extra registry calls. */
   registryReputation: RegistryReputation;
@@ -191,6 +196,14 @@ export interface Signals {
    * "clean". See the OSV failure handling in the README.
    */
   osvUnavailable: boolean;
+  /**
+   * The package belongs to a policy-declared internal scope: lookups that
+   * would leak the package name to third parties (OSV, npm downloads,
+   * maintainer search, GitHub) were deliberately SKIPPED, and typosquat
+   * similarity does not apply. Distinct from osvUnavailable — this is a
+   * choice, not a failure — but equally "not externally checked".
+   */
+  internalScope?: boolean;
   repositoryMissing: boolean;
   recentPublish: boolean;
   ageInDays?: number;

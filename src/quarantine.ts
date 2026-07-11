@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as tar from "tar";
+import { authHeaderForUrl, getNpmrc } from "./npmrc.js";
 
 export interface Quarantine {
   /** Root temp dir (contains the tarball and the extracted tree). */
@@ -68,10 +69,19 @@ export async function quarantineTarball(
   const root = await mkdtemp(path.join(tmpdir(), "targate-"));
   const tarballPath = path.join(root, "package.tgz");
 
-  const res = await fetch(tarballUrl);
+  // Private registries: reuse the registry's nerf-darted .npmrc credentials
+  // when the tarball URL matches one (npm does the same). Public tarballs
+  // resolve no header and the request stays anonymous.
+  const auth = authHeaderForUrl(tarballUrl, getNpmrc());
+  const res = await fetch(tarballUrl, auth ? { headers: { authorization: auth } } : undefined);
   if (!res.ok) {
     await rm(root, { recursive: true, force: true });
-    throw new Error(`Failed to download tarball (${res.status}): ${tarballUrl}`);
+    throw new Error(
+      `Failed to download tarball (${res.status}): ${tarballUrl}` +
+        (res.status === 401 || res.status === 403
+          ? " — check the .npmrc credentials for this registry"
+          : ""),
+    );
   }
   const bytes = Buffer.from(await res.arrayBuffer());
 

@@ -5,7 +5,8 @@ import path from "node:path";
 import { loadApprovals } from "./approvals.js";
 import { DEFAULT_CONCURRENCY, mapLimit } from "./concurrency.js";
 import { extractLockfileEntries, snapshotLockfile } from "./lockfile.js";
-import { osvUnavailable, queryOsvBatch, type OsvResult } from "./osv.js";
+import { osvSkipped, osvUnavailable, queryOsvBatch, type OsvResult } from "./osv.js";
+import { isInternalScope } from "./npmrc.js";
 import { fetchPackageMetadata, PackageNotFoundError } from "./registry.js";
 import { fetchReputation } from "./reputation.js";
 import { RELEASE_GAP_ANOMALY_DAYS } from "./reputation.js";
@@ -146,6 +147,8 @@ export interface SnapshotOptions {
   failOnOsvError?: boolean;
   noReputation?: boolean;
   concurrency?: number;
+  /** Policy internalScopes — these package names are never sent to OSV. */
+  internalScopes?: string[];
 }
 
 /** Build a current snapshot for every target (metadata + OSV + reputation). */
@@ -156,8 +159,9 @@ export async function snapshotTargets(
   const capturedAt = new Date().toISOString();
   // One batched OSV lookup for everything.
   let osvMap = new Map<string, OsvResult>();
+  const isInternal = (name: string): boolean => isInternalScope(name, opts.internalScopes);
   try {
-    osvMap = await queryOsvBatch(targets);
+    osvMap = await queryOsvBatch(targets.filter((t) => !isInternal(t.name)));
   } catch {
     /* per-target fallback below */
   }
@@ -169,10 +173,16 @@ export async function snapshotTargets(
     async (t): Promise<MonitorSnapshot | null> => {
       try {
         const metadata = await fetchPackageMetadata(t.name, t.version);
-        const osv = osvMap.get(`${t.name}@${t.version}`) ?? osvUnavailable();
+        const osv =
+          osvMap.get(`${t.name}@${t.version}`) ??
+          (isInternal(t.name) ? osvSkipped() : osvUnavailable());
         const reputation = opts.noReputation
           ? undefined
-          : await fetchReputation(t.name, metadata.repositoryUrl);
+          : await fetchReputation(t.name, metadata.repositoryUrl, {
+              // Packages on a scope-mapped private registry are invisible to
+              // the npmjs downloads API.
+              skipDownloads: metadata.registrySource === "scope",
+            });
         const rep = metadata.registryReputation;
         return {
           name: t.name,

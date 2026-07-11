@@ -19,12 +19,27 @@ export interface OsvResult {
   advisories: MaliciousRecord[];
   /** Set when the lookup failed — the result is "unknown", not "clean". */
   unavailable: boolean;
+  /** Set when the lookup was deliberately NOT made (policy internalScopes —
+   *  querying would leak a private package name). Also "unknown, not clean",
+   *  but by choice, so --fail-on-osv-error does not escalate it. */
+  skipped?: boolean;
 }
 
 /** Result to use when OSV cannot be reached. Fails OPEN by default but is
  * explicitly marked unavailable so callers can choose to fail closed. */
 export function osvUnavailable(): OsvResult {
   return { knownMalicious: false, maliciousRecords: [], advisories: [], unavailable: true };
+}
+
+/** Result for a package whose name must not be sent to OSV (internal scope). */
+export function osvSkipped(): OsvResult {
+  return {
+    knownMalicious: false,
+    maliciousRecords: [],
+    advisories: [],
+    unavailable: false,
+    skipped: true,
+  };
 }
 
 /**

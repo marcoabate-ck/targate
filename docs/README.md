@@ -22,6 +22,7 @@ Detailed specifications for [`targate`](../README.md). Start with the root READM
 - [Sandboxed trial install](sandbox.md) — `targate sandbox` in a disposable Docker container.
 - [CI integration](ci.md) — `targate ci` for pull requests.
 - [Monitoring risk over time](team-workflow.md#monitoring-risk-over-time--targate-monitor) — `targate monitor` and the risk baseline.
+- [Trust history & signed approvals](team-workflow.md#trust-history--targate-history) — `targate history`, SSH-signed approvals, `requireSignedApprovals`.
 
 ## Configuration & workflow
 
@@ -29,6 +30,7 @@ Detailed specifications for [`targate`](../README.md). Start with the root READM
 - [AI response cache](ai-cache.md) — how re-reviews are cached, and how to configure it.
 - [Team workflow](team-workflow.md) — approving packages, the approvals cache, pnpm `approve-builds`, and the team policy file.
 - [Policy reference](policy-reference.md) — the full policy schema: every field, default, precedence, and validation rule.
+- [Private registries](private-registries.md) — `.npmrc` scoped registries, credentials, and `internalScopes` name privacy.
 - [Using targate with AI coding agents](agents.md) — `targate agents init` and the agent contract.
 
 ## Ecosystem-specific

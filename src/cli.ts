@@ -8,10 +8,11 @@ import { ciCommand } from "./commands/ci.js";
 import { diffCommand } from "./commands/diff.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { explainCommand } from "./commands/explain.js";
+import { historyCommand } from "./commands/history.js";
 import { installCommand } from "./commands/install.js";
 import { monitorCommand } from "./commands/monitor.js";
 import { sandboxCommand } from "./commands/sandbox.js";
-import { initPolicy, type PolicyFormat } from "./policy.js";
+import { initPolicy, POLICY_PRESETS, type PolicyFormat } from "./policy.js";
 import type { SandboxNetwork } from "./sandbox.js";
 import type { ProviderName } from "./providers/index.js";
 import { dim, green, red, yellow } from "./report.js";
@@ -33,6 +34,8 @@ Usage:
   targate ci init                         Scaffold .github/workflows/targate.yml
   targate policy init [--format <fmt>]    Scaffold the team policy file
                                       (yaml default; also json, js, ts — typed)
+                                      --preset default | strict | react-native |
+                                      ci | ai-agent picks a ready-made policy pack
   targate diff <pkg>@<v1> [<pkg>[@<v2>]]  What changed between two versions (second
                                       spec/version omitted → latest; bare <pkg> →
                                       lockfile-installed version vs latest)
@@ -40,6 +43,10 @@ Usage:
                                       blocked (analyzes fresh, installs nothing)
   targate explain --last                  Explain the most recent add/approve run
                                       (reads .targate/last-run.json, no network)
+  targate history [<package>[@version]]   Trust history: every recorded approval —
+                                      who, when, verdict, policy, AI provider.
+                                      --verify checks SSH signatures against
+                                      .targate/allowed-signers (exit 2 on invalid)
   targate doctor [--ping]                 Check the environment (Node, package manager,
                                       registry, OSV, AI provider, GitHub, policy,
                                       cache dirs, CI mode); exit 1 on failure
@@ -89,6 +96,11 @@ Options (add & ci):
   --frozen-lockfile       (install) Immutable install (npm ci / --frozen-lockfile)
   --allow-scripts         (install) Run lifecycle scripts (default: disabled)
                           (approve) Record the approval as scripts-allowed
+  --sign                  (approve) Sign the approval entry with your SSH key
+                          (TARGATE_SIGNING_KEY, git user.signingkey, or
+                          ~/.ssh/id_*) so it verifies against the committed
+                          .targate/allowed-signers file
+  --verify                (history) Verify each entry's signature
   --base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
   --fail-on <level>       (diff) Exit 2 at this diff-risk level or above
                           (low | medium | high; default: high)
@@ -158,6 +170,9 @@ async function main(): Promise<number> {
       "no-capture": { type: "boolean", default: false },
       all: { type: "boolean", default: false },
       "no-update": { type: "boolean", default: false },
+      sign: { type: "boolean", default: false },
+      verify: { type: "boolean", default: false },
+      preset: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -224,6 +239,7 @@ async function main(): Promise<number> {
         json: values.json,
         assumeYes: values.yes,
         allowScripts: values["allow-scripts"],
+        sign: values.sign,
         failOnOsvError: values["fail-on-osv-error"],
         deep: values.deep,
         noReputation: values["no-reputation"],
@@ -282,7 +298,7 @@ async function main(): Promise<number> {
 
     case "policy": {
       if (rest[0] !== "init") {
-        console.error(red("Usage: targate policy init [--format yaml|json|js|ts]"));
+        console.error(red("Usage: targate policy init [--format yaml|json|js|ts] [--preset <name>]"));
         return 1;
       }
       const format = (values.format ?? "yaml") as PolicyFormat;
@@ -290,9 +306,19 @@ async function main(): Promise<number> {
         console.error(red(`Unknown policy format: ${format}. Valid options: yaml, json, js, ts`));
         return 1;
       }
-      const file = await initPolicy(process.cwd(), format);
+      const preset = values.preset ?? "default";
+      if (!(preset in POLICY_PRESETS)) {
+        console.error(
+          red(`Unknown policy preset: ${preset}. Available presets:`),
+        );
+        for (const [name, def] of Object.entries(POLICY_PRESETS)) {
+          console.error(`  ${name.padEnd(14)} ${dim(def.description)}`);
+        }
+        return 1;
+      }
+      const file = await initPolicy(process.cwd(), format, preset);
       if (file) {
-        console.log(green(`Created ${file}`));
+        console.log(green(`Created ${file} (preset: ${preset})`));
         console.log(dim("Edit the rules, then commit the file — it applies to every targate run in this repo."));
       } else {
         console.log(yellow(`A targate.policy.* file already exists — nothing written.`));
@@ -336,6 +362,14 @@ async function main(): Promise<number> {
         noReputation: values["no-reputation"],
         concurrency,
         assess,
+      });
+    }
+
+    case "history": {
+      return historyCommand({
+        spec: rest[0],
+        json: values.json,
+        verify: values.verify,
       });
     }
 

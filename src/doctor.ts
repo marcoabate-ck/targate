@@ -10,6 +10,7 @@ import { execConfigDisabled } from "./config-loader.js";
 import { detectPackageManager } from "./installer.js";
 import { loadPolicy, PolicyError } from "./policy.js";
 import { resolveProvider, type ProviderSelection } from "./providers/index.js";
+import { authHeaderForUrl, DEFAULT_REGISTRY, loadNpmrc } from "./npmrc.js";
 import type { Signals } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -189,6 +190,37 @@ export const DOCTOR_CHECKS: DoctorCheck[] = [
           message: `registry.npmjs.org unreachable (timeout ${ctx.networkTimeoutMs}ms) — metadata and tarball fetches will fail`,
         };
       }
+    },
+  },
+  {
+    id: "npmrc",
+    label: "Registry configuration (.npmrc)",
+    async run(ctx) {
+      const config = loadNpmrc(ctx.cwd, ctx.env);
+      const scoped = Object.entries(config.entries)
+        .filter(([k]) => k.startsWith("@") && k.endsWith(":registry"))
+        .map(([k, v]) => {
+          const url = v.replace(/\/+$/, "");
+          const auth = authHeaderForUrl(`${url}/`, config) !== undefined;
+          return `${k.slice(0, -":registry".length)} → ${url}${auth ? " (auth configured)" : " (no auth)"}`;
+        });
+      const globalOverride = config.entries.registry?.replace(/\/+$/, "");
+      const parts: string[] = [];
+      if (globalOverride && globalOverride !== DEFAULT_REGISTRY) {
+        const auth = authHeaderForUrl(`${globalOverride}/`, config) !== undefined;
+        parts.push(`default registry override: ${globalOverride}${auth ? " (auth configured)" : ""}`);
+      }
+      parts.push(...scoped);
+      if (parts.length === 0) {
+        return {
+          status: "pass",
+          message: config.files.length
+            ? "default registry (registry.npmjs.org), no scoped registries"
+            : "no .npmrc found — default registry (registry.npmjs.org)",
+        };
+      }
+      // Informational pass: token VALUES are never printed, only presence.
+      return { status: "pass", message: parts.join("; ") };
     },
   },
   {
