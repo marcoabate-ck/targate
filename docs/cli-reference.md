@@ -18,6 +18,10 @@ targate explain <package>[@version]     Explain why a package would be allowed o
                                     (analyzes fresh; installs nothing, records nothing)
 targate explain --last                  Explain the most recent add/approve run
                                     (reads .targate/last-run.json — no network)
+targate graph [<package>[@version]]     The dependency tree as an interactive risk
+                                    graph — self-contained HTML by default; also
+                                    svg, dot, mermaid, json. --why <pkg> prints
+                                    every chain that pulls a package in.
 targate recommend "<need>"              Suggest packages for a need, safest first
                                     (npm-search + AI-suggested candidates → full
                                     deterministic analysis → ranked by security
@@ -50,6 +54,7 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 | `explain` | nothing — explains a verdict (fresh or last run) | [below](#targate-explain) |
 | `history` | nothing — lists the trust history (and verifies signatures) | [Team workflow](team-workflow.md#trust-history--targate-history) |
 | `recommend` | nothing — suggests packages for a need, safest first | [below](#targate-recommend) |
+| `graph` | nothing — draws the tree as an interactive risk graph | [Dependency graph](dependency-graph.md) |
 | `doctor` | nothing — diagnoses the environment | [below](#targate-doctor) |
 | `policy init` | scaffolds the team policy file (`--preset` for policy packs) | [Team workflow](team-workflow.md#team-policy--targatepolicy) |
 | `cache` | inspect / clear the AI response cache | [AI response cache](ai-cache.md#invalidating-the-cache) |
@@ -269,6 +274,30 @@ Next: targate add pad-right (gates the actual install)
 
 Discovery is search relevance + AI knowledge — targate ranks the safety of what was discovered; it cannot know every package that could serve the need. Exit codes: `0` on success (zero eligible candidates included — it is advisory; the gate lives in `add`), `1` when the npm search itself fails. Never `2`.
 
+### targate graph
+
+The dependency tree as an interactive **risk graph** — full documentation on its own page: [Dependency graph](dependency-graph.md).
+
+```bash
+targate graph                    # project tree → self-contained targate-graph.html
+targate graph <pkg>[@version]    # a package you are considering, and its tree
+targate graph --why <pkg>        # every chain that pulls <pkg> in, risk-annotated
+```
+
+Every package runs through the deterministic pipeline (no AI); the HTML is one offline file with pan/zoom, live filters (high-risk, scripts, native, deprecated, no-provenance, risk-increased), search, workspace views, per-node detail panels, and path-to-root highlighting.
+
+```
+--format <fmt>          html (default) | svg | dot | mermaid | json
+--output <path>         Output file ("-" = stdout; html/svg default to
+                        targate-graph.<ext>, dot/mermaid to stdout)
+--only <filters>        Prune to matching nodes + their paths to the root
+--why <pkg>             Risk-annotated dependency chains instead of a graph
+--open                  Open the written html/svg in the browser
+--no-reputation / --fail-on-osv-error / --concurrency / --package-manager
+```
+
+Exit codes: `0` on success — the graph is a lens, the gate lives in `add`/`install`/`ci` — `1` on operational errors. Never `2`.
+
 ### targate doctor
 
 One command that answers "will targate work here, and at what fidelity?" — checks the runtime, every external service the pipeline depends on, and the local configuration, then says what each failure would degrade.
@@ -314,6 +343,7 @@ Statuses: `✓` pass, `⚠` warn (usable, degraded), `✗` fail (something will 
 - `diff`: `0` when the diff risk is below `--fail-on` (default: `low`/`medium`), `2` at or above it (default: `high`), `1` on operational errors (name mismatch, unknown version, not in the lockfile).
 - `history`: `0` on success (an empty history included); with `--verify`, `2` when any signature is invalid or verification errored, `1` on operational errors.
 - `recommend`: `0` on success (even with zero eligible candidates — it is advisory; the gate lives in `add`), `1` when the npm search itself fails. Never `2`.
+- `graph`: `0` on success whatever the tree contains (a lens, not a gate), `1` on operational errors. Never `2`.
 - `monitor`: `0` when no risk increased (including a plain first run that only creates the baseline), `2` when any `warn`/`critical` event fired, `1` on operational errors.
 - `sandbox`: `0` clean, `2` on a timeout, suspicious log line, or unexpected network destination, `1` when Docker is unavailable or the install failed with no findings.
 
@@ -344,6 +374,7 @@ Payload keys per command (in addition to `schemaVersion` + `command`):
 | `history` | `package` (filter, or absent), `total`, `allowedSigners` (path, `--verify` only), `entries[]` (each the approval record + `key`/`name`/`version`, optional `context` `{targateVersion, decision, risk, score, source, aiProvider, aiModel, policyFile, policyHash, reasons}`, optional `signature`, optional `verification` `{status, signer, detail}`), `exitCode` |
 | `recommend` | `query`, `analyzed`, `recommendations[]` (ranked; each `{name, version, description, weeklyDownloads, source, score, assessment, signals}`), `rejected[]` (each `{name, version, reason, source}`), `aiSuggestions` (`{status: "ok"\|"skipped"\|"unavailable", provider?, model?, names[], detail?}`), `exitCode` |
 | `sandbox` | `spec`, `image`, `networkMode`, `captureRequested`, `timedOut`, `suspicious[]`, `network` (observed `{captureActive, dnsQueries, connections, httpRequests, errors}` or `null`), `log`, `exitCode` |
+| `graph` | `source` (`project` \| `resolved` \| `package`), `packageManager?`, `roots[]`, `workspaces[]`, `baselineCompared`, `only?`, `stats`, `nodes[]` (each `{id, name, version?, kind, score?, risk, decision?, hasLifecycleScripts?, hasNativeCode?, knownMalicious?, advisories?, deprecated?, hasProvenance?, direct?, workspaces?, riskIncreased?, reasons?, error?}`), `edges[]` (`{from, to}`), `exitCode` — with `--why`: `why`, `chains[][]`, `truncated` instead |
 | `cache` | `action`, `scope`, plus action-specific keys (`path`/`cleared` or cache stats) |
 
 Key structures worth knowing:

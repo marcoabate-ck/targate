@@ -108,6 +108,8 @@ export async function fetchPackageMetadata(
     unpackedSize:
       typeof manifest.dist?.unpackedSize === "number" ? manifest.dist.unpackedSize : undefined,
     fileCount: typeof manifest.dist?.fileCount === "number" ? manifest.dist.fileCount : undefined,
+    optionalDependencyNames: Object.keys(manifest.optionalDependencies ?? {}).sort(),
+    peerDependencyNames: Object.keys(manifest.peerDependencies ?? {}).sort(),
     registryUrl: registry.url,
     registrySource: registry.source,
     registryReputation,

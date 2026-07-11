@@ -37,7 +37,7 @@ Turn targate into something teams and companies can standardize on.
 
 Reach, discoverability, and long-term value.
 
-- [ ] **Dependency graph** — visualize risk across the dependency tree (text now; later SVG/HTML, CI artifacts, monorepo/workspace views, high-risk and lifecycle-script filters).
+- [x] **Dependency graph** — `targate graph`: the tree as an interactive risk graph. Self-contained HTML (pan/zoom, live filters, search, per-node detail panels, path-to-root highlighting, dark/light), static SVG, Graphviz DOT, Mermaid (GitHub PRs + `$GITHUB_STEP_SUMMARY`), JSON; monorepo/workspace views; high-risk / lifecycle-script / native / deprecated / no-provenance / risk-increased filters (`--only` + live toggles); monitor-baseline "risk increased" overlay; `--why <pkg>` risk-annotated chains; CI artifact recipe scaffolded by `targate ci init`. Deterministic analysis only (no AI).
 - [x] **Recommend & alternatives** — `targate recommend "<need>"`: candidates from npm search **plus AI-proposed names** (when a provider is configured; hallucinations rejected on registry lookup, `--no-ai` for search-only), each analyzed with the **full deterministic pipeline** (quarantine, scripts/contents, OSV, reputation, maintainer intel, security score, rules verdict + team policy) and ranked safest-first (score, adoption tie-break); malicious / hard-block / deprecated / policy-blocked candidates excluded with reasons. The AI contributes names only — scoring and ranking stay deterministic and reproducible.
 - [ ] **VS Code extension** — in-editor warnings on new `package.json` deps, hover scores, a "Review with targate" command, and repo-policy integration. (Depends on stable JSON output.)
 

@@ -75,6 +75,7 @@ These analyze and report but never install and never record anything — use the
 - \`targate diff <pkg>\` — before **upgrading** an existing dependency: what changed between the installed and latest version (lifecycle scripts, dependencies, maintainers, advisories, size) with an upgrade-risk rating. \`targate diff <pkg>@<from> <pkg>@<to>\` compares two explicit versions. Exit 2 means the diff risk is at/above \`--fail-on\` (default: high) — treat it like a gate: report, don't proceed.
 - \`targate explain <pkg>\` — why a package would be allowed or blocked, in plain language (\`targate explain --last\` re-explains the run that just finished, offline).
 - \`targate history <pkg>\` — the team's trust history: who approved which version, when, and under which policy/AI model. Useful when a gate stops you on a package the team has approved before at a different version.
+- \`targate graph --why <pkg>\` — every dependency chain that pulls a package into the tree, risk-annotated ("why is this here?"). \`targate graph\` writes an interactive HTML risk graph of the whole tree when the user asks for an overview.
 
 ## Hard guardrails
 

@@ -68,6 +68,7 @@ targate resolves the package from npm, extracts the tarball into quarantine (scr
 | `targate monitor` | Re-check approved/installed packages against a baseline; flag risk that rose over time |
 | `targate history [<pkg>]` | Trust history: who approved what, when, under which policy/AI — `--verify` checks signatures |
 | `targate recommend "<need>"` | Suggest packages for a need (npm search + AI-proposed names), safest first — scored, ranked, with reasons |
+| `targate graph [<pkg>]` | The dependency tree as an interactive risk graph (HTML/SVG/dot/mermaid); `--why <pkg>` explains how a package got in |
 | `targate explain <pkg>` | Explain why a package would be allowed or blocked (`--last` re-explains the previous run) |
 | `targate doctor` | Check the environment: Node, registry, OSV, AI provider, GitHub, policy, cache dirs |
 | `targate policy init` | Scaffold the team policy file (`--preset strict`, `react-native`, `ci`, `ai-agent`) |
@@ -102,6 +103,7 @@ Full specifications live in [`docs/`](docs/README.md):
 | `--deep` & `targate install` | [transitive-and-install.md](docs/transitive-and-install.md) |
 | Approvals · pnpm builds · team policy | [team-workflow.md](docs/team-workflow.md) |
 | Private registries · `.npmrc` · internal scopes | [private-registries.md](docs/private-registries.md) |
+| Dependency risk graph · workspaces · CI artifacts | [dependency-graph.md](docs/dependency-graph.md) |
 | React Native hardening | [react-native.md](docs/react-native.md) |
 | Sandboxed trial install | [sandbox.md](docs/sandbox.md) |
 | CI integration | [ci.md](docs/ci.md) |
@@ -116,7 +118,7 @@ Full specifications live in [`docs/`](docs/README.md):
 pnpm install
 pnpm build
 pnpm dev add <pkg>   # run from source (tsx), e.g. pnpm dev add react-native-mmkv --dry-run
-pnpm test            # vitest suite (513 tests, incl. end-to-end CI and full-install checks on fixture repos)
+pnpm test            # vitest suite (537 tests, incl. end-to-end CI and full-install checks on fixture repos)
 pnpm typecheck
 ```
 
