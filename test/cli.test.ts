@@ -134,6 +134,24 @@ describe("cli routing and validation", () => {
     expect(stderr).toContain("Unknown --fail-on level");
   });
 
+  it("lists the history subcommand and the signing flags in help", async () => {
+    const { code, stdout } = await runCli("--help");
+    expect(code).toBe(0);
+    expect(stdout).toContain("targate history");
+    expect(stdout).toContain("--sign");
+    expect(stdout).toContain("--verify");
+    expect(stdout).toContain("--preset");
+  });
+
+  it("rejects an unknown policy preset and lists the available packs", async () => {
+    const { code, stderr } = await runCli("policy", "init", "--preset", "bogus");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Unknown policy preset");
+    expect(stderr).toContain("strict");
+    expect(stderr).toContain("react-native");
+    expect(stderr).toContain("ai-agent");
+  });
+
   it("rejects explain with neither a spec nor --last", async () => {
     const { code, stderr } = await runCli("explain");
     expect(code).toBe(1);

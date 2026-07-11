@@ -18,10 +18,16 @@ targate explain <package>[@version]     Explain why a package would be allowed o
                                     (analyzes fresh; installs nothing, records nothing)
 targate explain --last                  Explain the most recent add/approve run
                                     (reads .targate/last-run.json — no network)
+targate history [<package>[@version]]   Trust history: every recorded approval — who,
+                                    when, verdict, policy, AI provider. --verify
+                                    checks SSH signatures against the committed
+                                    .targate/allowed-signers file
 targate doctor [--ping]                 Check the environment: Node, package manager,
                                     registry, OSV, AI provider, GitHub, policy,
                                     cache dirs, CI mode. Exits 1 on any failure.
 targate policy init [--format <fmt>]    Scaffold the team policy (yaml | json | js | ts)
+                                    --preset default | strict | react-native | ci |
+                                    ai-agent starts from a ready-made policy pack
 targate cache info                      Show the AI response cache location + size
 targate cache clear [--scope <s>]       Delete the AI response cache (user | project)
 targate agents init [--format <list>]   Scaffold agent-instruction files (skill, agents,
@@ -38,8 +44,9 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 | `diff` | nothing — compares two versions of a package | — |
 | `monitor` | nothing — flags risk that rose since a baseline | — |
 | `explain` | nothing — explains a verdict (fresh or last run) | — |
+| `history` | nothing — lists the trust history (and verifies signatures) | [Team workflow](team-workflow.md#trust-history--targate-history) |
 | `doctor` | nothing — diagnoses the environment | — |
-| `policy init` | scaffolds the team policy file | [Team workflow](team-workflow.md#team-policy--targatepolicy) |
+| `policy init` | scaffolds the team policy file (`--preset` for policy packs) | [Team workflow](team-workflow.md#team-policy--targatepolicy) |
 | `cache` | inspect / clear the AI response cache | [AI response cache](ai-cache.md#invalidating-the-cache) |
 | `agents init` | scaffolds agent-instruction files | [AI coding agents](agents.md) |
 
@@ -89,6 +96,30 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
                         check, no model call)
 ```
 
+## Options (approve & history)
+
+```
+--sign                  (approve) Cryptographically sign the approval entry with
+                        your SSH key (TARGATE_SIGNING_KEY, git user.signingkey,
+                        or ~/.ssh/id_*). The signature covers the whole entry —
+                        version, mode, date, context — in the "targate-approval"
+                        namespace, and verifies against the committed
+                        .targate/allowed-signers file. A signing failure aborts
+                        the recording; nothing is written unsigned.
+--verify                (history) Verify each entry's signature. Exit 2 when any
+                        signature is invalid or verification errored; unsigned
+                        entries are reported but do not fail (use the policy's
+                        requireSignedApprovals to enforce signatures).
+```
+
+## Options (policy init)
+
+```
+--format <fmt>          yaml (default) | json | js | ts
+--preset <name>         Policy pack to start from: default | strict |
+                        react-native | ci | ai-agent (default: default)
+```
+
 ## Options (diff)
 
 ```
@@ -124,6 +155,7 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 - `doctor`: `0` when every check passes or only warns, `1` when at least one check fails.
 - `explain`: `0` on success **regardless of the decision** (it is informational — the gate lives in `add`/`install`/`ci`), `1` on operational errors. Never `2`.
 - `diff`: `0` when the diff risk is below `--fail-on` (default: `low`/`medium`), `2` at or above it (default: `high`), `1` on operational errors (name mismatch, unknown version, not in the lockfile).
+- `history`: `0` on success (an empty history included); with `--verify`, `2` when any signature is invalid or verification errored, `1` on operational errors.
 - `monitor`: `0` when no risk increased (including a plain first run that only creates the baseline), `2` when any `warn`/`critical` event fired, `1` on operational errors.
 - `sandbox`: `0` clean, `2` on a timeout, suspicious log line, or unexpected network destination, `1` when Docker is unavailable or the install failed with no findings.
 
@@ -151,6 +183,7 @@ Payload keys per command (in addition to `schemaVersion` + `command`):
 | `diff` | `diff` (a `VersionDiff`: `from`/`to`, per-category changes, `score`, `diffRisk`, `riskReasons`), `failOn`, `exitCode` |
 | `monitor` | `packages`, `source` (`{approval, direct, lockfile}` counts), `baseline` (`{created, path, previousUpdatedAt, updated}`), `events[]` (each `{package, kind, severity, detail}`), `errors[]`, `summary`, `exitCode` |
 | `doctor` | `checks[]` (each `{id, label, status, message, durationMs}`), `summary`, `exitCode` |
+| `history` | `package` (filter, or absent), `total`, `allowedSigners` (path, `--verify` only), `entries[]` (each the approval record + `key`/`name`/`version`, optional `context` `{targateVersion, decision, risk, score, source, aiProvider, aiModel, policyFile, policyHash, reasons}`, optional `signature`, optional `verification` `{status, signer, detail}`), `exitCode` |
 | `sandbox` | `spec`, `image`, `networkMode`, `captureRequested`, `timedOut`, `suspicious[]`, `network` (observed `{captureActive, dnsQueries, connections, httpRequests, errors}` or `null`), `log`, `exitCode` |
 | `cache` | `action`, `scope`, plus action-specific keys (`path`/`cleared` or cache stats) |
 
@@ -160,3 +193,6 @@ Key structures worth knowing:
 - **`score`** — `{total (0–100), categories[] (each {name, label, score, max, notes?}), floorReason?}`. Informational: a risk-signal aggregation, never the decision.
 - **`signals.reputation`** — reputational/temporal signals: `versionAgeDays`, `releaseAfterInactivityDays`, `releaseGapAnomaly`, `maintainerCount`, `maintainerChange`, `repositoryMismatch`, `hasProvenance`, `deprecated`, `downloads {status, weeklyDownloads?, trend?}`, `repo {status, archived?}`, and (root-package analyses only) `maintainerIntel {status, maintainers[], truncated, newMaintainerNoTrackRecord[]}`. Lookup `status` values distinguish `ok` from `unavailable`/`rate-limited`/`skipped` — an unknown is never reported as clean.
 - **`assessment.deterministic`** — present on AI-sourced assessments: `{decision, risk, reasons}`, the rules engine's own verdict on the same signals (the AI can only make the final decision stricter than this).
+- **`metadata.registryUrl` / `metadata.registrySource`** — which registry served the packument and why (`scope` = a per-scope `.npmrc` rule, `global` = a `registry=` override, `default` = npmjs). See [Private registries](private-registries.md).
+- **`signals.internalScope`** — set when the package matched the policy's `internalScopes`: OSV/downloads/maintainer/GitHub lookups were deliberately skipped and typosquat similarity does not apply.
+- **approval entries** (in `approve`/`history` payloads and `.targate/approvals.json`) — may carry `context` (the trust history: tool version, verdict, score, AI provider/model, policy file + sha256) and `signature` (`{format: "ssh", signer, signature}`). All additions are optional and additive — schemaVersion stays 1.

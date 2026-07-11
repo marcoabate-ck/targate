@@ -28,10 +28,10 @@ The features that set targate apart from a plain vulnerability scanner.
 
 Turn targate into something teams and companies can standardize on.
 
-- [ ] **Trust history** — an auditable record of who approved a package, when, under which policy, with which signals, tool version, and AI provider/model.
-- [ ] **Signed approvals** — cryptographically signed approvals (Git signing / GPG / Sigstore / SLSA-style attestations) so trust history is verifiable, not just declarative.
-- [ ] **Policy packs** — ready-made presets: `default`, `strict`, `react-native`, `ci`, `ai-agent` (e.g. `targate init --policy strict`).
-- [ ] **Private-registry support** — npm private registries, GitHub Packages, Verdaccio, internal scoped packages, per-scope trust levels and allowlists, `.npmrc` credentials.
+- [x] **Trust history** — every approval records who, when, the verdict at review time (decision/risk/score/reasons), targate version, AI provider+model, and the policy file + sha256; `targate history [pkg] [--verify]` shows it. The committed `.targate/approvals.json` + git history is the audit log.
+- [x] **Signed approvals** — shipped with **SSH signatures** (`ssh-keygen -Y`, the same keys as git SSH commit signing) over the canonical approval entry, verified against a committed `.targate/allowed-signers`; `requireSignedApprovals` in the policy makes `add`/`install`/`ci` ignore unsigned or tampered entries. *(GPG and Sigstore/SLSA attestations deliberately out of scope for now.)*
+- [x] **Policy packs** — `targate policy init --preset default | strict | react-native | ci | ai-agent`, each a complete validated policy with a self-describing header.
+- [x] **Private-registry support** — `.npmrc` resolution (per-scope registries, global override, nerf-darted `_authToken`/`_auth`/`username+_password` credentials, `${ENV}` expansion) for metadata + tarball fetches; npmjs-only lookups skip visibly for scope-mapped packages; per-scope trust shipped as policy `internalScopes` (name-privacy: no OSV/downloads/maintainer/GitHub queries, no typosquat check — all shown in report and score).
 
 ## Phase 4 — Expand the platform
 

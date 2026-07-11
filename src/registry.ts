@@ -1,11 +1,14 @@
+import { authHeaderForUrl, DEFAULT_REGISTRY, getNpmrc, resolveRegistry } from "./npmrc.js";
 import { highestSemver } from "./semver.js";
 import type { PackageMetadata, RegistryReputation } from "./types.js";
 
-const REGISTRY = "https://registry.npmjs.org";
-
 export class PackageNotFoundError extends Error {
-  constructor(name: string) {
-    super(`Package "${name}" not found on the npm registry`);
+  constructor(name: string, registryUrl: string = DEFAULT_REGISTRY) {
+    super(
+      registryUrl === DEFAULT_REGISTRY
+        ? `Package "${name}" not found on the npm registry`
+        : `Package "${name}" not found on ${registryUrl} (registry resolved from .npmrc)`,
+    );
     this.name = "PackageNotFoundError";
   }
 }
@@ -26,10 +29,20 @@ export async function fetchPackageMetadata(
   name: string,
   requestedVersion?: string,
 ): Promise<PackageMetadata> {
-  const res = await fetch(`${REGISTRY}/${encodeURIComponent(name).replace("%40", "@")}`, {
-    headers: { accept: "application/json" },
+  // Private-registry support: the packument comes from whichever registry
+  // .npmrc maps this package to (per-scope rule > global override > npmjs),
+  // authenticated with npm's own nerf-darted credentials when configured.
+  const registry = resolveRegistry(name, getNpmrc());
+  const auth = authHeaderForUrl(`${registry.url}/`, getNpmrc());
+  const res = await fetch(`${registry.url}/${encodeURIComponent(name).replace("%40", "@")}`, {
+    headers: { accept: "application/json", ...(auth ? { authorization: auth } : {}) },
   });
-  if (res.status === 404) throw new PackageNotFoundError(name);
+  if (res.status === 404) throw new PackageNotFoundError(name, registry.url);
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(
+      `${registry.url} responded with ${res.status} for ${name} — check the .npmrc credentials for this registry (e.g. //${registry.url.replace(/^https?:\/\//, "")}/:_authToken)`,
+    );
+  }
   if (!res.ok) {
     throw new Error(`npm registry responded with ${res.status} for ${name}`);
   }
@@ -95,6 +108,8 @@ export async function fetchPackageMetadata(
     unpackedSize:
       typeof manifest.dist?.unpackedSize === "number" ? manifest.dist.unpackedSize : undefined,
     fileCount: typeof manifest.dist?.fileCount === "number" ? manifest.dist.fileCount : undefined,
+    registryUrl: registry.url,
+    registrySource: registry.source,
     registryReputation,
   };
 }

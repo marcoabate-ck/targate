@@ -1,12 +1,20 @@
+import path from "node:path";
 import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
-import { isCiEnvironment, recordApproval, type ApprovalRecord } from "../approvals.js";
+import {
+  buildApprovalContext,
+  isCiEnvironment,
+  recordApproval,
+  type ApprovalRecord,
+} from "../approvals.js";
 import { confirm, detectPackageManager } from "../installer.js";
 import { printJson } from "../json-output.js";
 import { writeLastRun } from "../last-run.js";
 import { analyzePackage, type AnalysisStage } from "../pipeline.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
-import { loadPolicy } from "../policy.js";
+import { loadPolicy, policyFileDigest } from "../policy.js";
+import { describeProvider } from "../providers/index.js";
+import { approvalSigner } from "../signing.js";
 import { createTreeProgress } from "../progress.js";
 import { isHardBlock } from "../rules.js";
 import { PackageNotFoundError, parsePackageSpec } from "../registry.js";
@@ -26,6 +34,8 @@ export interface ApproveOptions {
   assumeYes: boolean;
   /** Record the approval as "normal" (lifecycle scripts allowed) rather than "no-scripts". */
   allowScripts?: boolean;
+  /** Cryptographically sign the approval entry (SSH signature). */
+  sign?: boolean;
   /** Escalate to require_approval when OSV can't be reached. */
   failOnOsvError?: boolean;
   /** Also analyze the full transitive tree before approving. */
@@ -95,6 +105,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     if (stage === "policy") note(dim(`  ✓ team policy applied (${detail})`));
     if (stage === "reputation-degraded")
       note(yellow(`  ⚠ reputation lookups degraded — ${detail} (signals UNKNOWN)`));
+    if (stage === "internal-scope") note(dim(`  ℹ internal scope — ${detail}`));
   };
 
   let analysis;
@@ -167,12 +178,28 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
       );
     }
     if (confirmed) {
-      await recordApproval(metadata.name, metadata.version, mode);
-      approval = {
-        mode,
-        approvedAt: new Date().toISOString(),
-        approvedBy: process.env.USER ?? process.env.USERNAME,
-      };
+      // Trust history: record the circumstances (tool version, verdict,
+      // provider/model, policy hash) alongside the approval itself.
+      const ai = assessment.source === "ai" ? describeProvider(opts.assess) : null;
+      const context = buildApprovalContext({
+        assessment,
+        score: score.total,
+        policyFile: policy ? path.basename(policy.file) : undefined,
+        policyHash: policy ? await policyFileDigest(policy.file) : undefined,
+        aiProvider: ai?.provider,
+        aiModel: ai?.model,
+      });
+      try {
+        approval = await recordApproval(metadata.name, metadata.version, mode, process.cwd(), {
+          context,
+          sign: opts.sign ? approvalSigner() : undefined,
+        });
+      } catch (err) {
+        // A signing failure must abort loudly — never silently record an
+        // unsigned approval when the human asked for a signed one.
+        console.error(red(`\nApproval NOT recorded: ${err instanceof Error ? err.message : String(err)}`));
+        return 1;
+      }
       // On pnpm projects, persist the scripts decision through pnpm's native
       // approve-builds mechanism too, so even a later raw `pnpm install`
       // honors it (no-scripts → ignoredBuiltDependencies).

@@ -1,4 +1,5 @@
 import type { AssessOptions } from "../ai.js";
+import { loadPolicy } from "../policy.js";
 import { detectPackageManager } from "../installer.js";
 import { printJson } from "../json-output.js";
 import {
@@ -53,7 +54,9 @@ export async function monitorCommand(opts: MonitorCommandOptions): Promise<numbe
   }
 
   note(dim(`\nMonitoring ${bold(String(targets.length))} package(s) ...`));
+  const policy = await loadPolicy();
   const { snapshots, errors } = await snapshotTargets(targets, {
+    internalScopes: policy?.policy.dependencyPolicy.internalScopes,
     failOnOsvError: opts.failOnOsvError,
     noReputation: opts.noReputation,
     concurrency: opts.concurrency,

@@ -1,7 +1,8 @@
 import path from "node:path";
 import { buildSignals } from "./analyze/index.js";
 import { assessRisk, type AssessOptions } from "./ai.js";
-import { osvUnavailable, queryOsv, type OsvResult } from "./osv.js";
+import { isInternalScope } from "./npmrc.js";
+import { osvSkipped, osvUnavailable, queryOsv, type OsvResult } from "./osv.js";
 import { applyPolicy, type LoadedPolicy } from "./policy.js";
 import { quarantineTarball } from "./quarantine.js";
 import { fetchPackageMetadata } from "./registry.js";
@@ -26,6 +27,7 @@ export type AnalysisStage =
   | "quarantine"
   | "osv"
   | "osv-failed"
+  | "internal-scope"
   | "reputation"
   | "reputation-degraded"
   | "signals"
@@ -77,25 +79,49 @@ export async function buildPackageSignals(
   version: string | undefined,
   opts: Pick<
     AnalyzePackageOptions,
-    "failOnOsvError" | "osv" | "noReputation" | "maintainerIntel" | "onStage"
+    "failOnOsvError" | "osv" | "noReputation" | "maintainerIntel" | "onStage" | "policy"
   >,
 ): Promise<PackageSignals> {
   const metadata = await fetchPackageMetadata(name, version);
   opts.onStage?.("metadata", `${metadata.name}@${metadata.version}`);
 
+  // Policy internalScopes: this package's NAME is private. Every lookup that
+  // would send it to a third party (OSV, npm downloads API, maintainer
+  // search, GitHub) is skipped — visibly, in the report and the score.
+  const internal = isInternalScope(
+    metadata.name,
+    opts.policy?.policy.dependencyPolicy.internalScopes,
+  );
+  if (internal) {
+    opts.onStage?.(
+      "internal-scope",
+      "OSV, downloads, maintainer and GitHub lookups skipped (name privacy)",
+    );
+  }
+  // A package served by a scope-mapped private registry is invisible to the
+  // npmjs-only services (downloads API, maintainer search) — skip those two,
+  // keep OSV and GitHub. A GLOBAL registry override is typically a mirror of
+  // public packages, so everything still applies there.
+  const privateRegistry = metadata.registrySource === "scope";
+
   // Reputation lookups (npm downloads, GitHub repo status, and — root-only —
   // maintainer intelligence) start now so they overlap the tarball download
   // and OSV. fetchReputation never rejects — a failed lookup degrades to an
   // "unknown" status surfaced in the report.
-  const reputationPromise = opts.noReputation
-    ? Promise.resolve(reputationSkipped())
-    : (async (): Promise<ReputationLookup> => {
-        const [base, maintainerIntel] = await Promise.all([
-          fetchReputation(metadata.name, metadata.repositoryUrl),
-          opts.maintainerIntel ? fetchMaintainerIntel(metadata) : Promise.resolve(undefined),
-        ]);
-        return { ...base, maintainerIntel };
-      })();
+  const reputationPromise =
+    opts.noReputation || internal
+      ? Promise.resolve(reputationSkipped())
+      : (async (): Promise<ReputationLookup> => {
+          const [base, maintainerIntel] = await Promise.all([
+            fetchReputation(metadata.name, metadata.repositoryUrl, {
+              skipDownloads: privateRegistry,
+            }),
+            opts.maintainerIntel && !privateRegistry
+              ? fetchMaintainerIntel(metadata)
+              : Promise.resolve(undefined),
+          ]);
+          return { ...base, maintainerIntel };
+        })();
 
   const quarantine = await quarantineTarball(metadata.tarballUrl, {
     integrity: metadata.integrity,
@@ -105,7 +131,9 @@ export async function buildPackageSignals(
 
   try {
     let osv: OsvResult;
-    if (opts.osv) {
+    if (internal) {
+      osv = osvSkipped(); // never send an internal package name to OSV
+    } else if (opts.osv) {
       osv = opts.osv;
       opts.onStage?.(osv.unavailable ? "osv-failed" : "osv");
     } else {
@@ -119,7 +147,7 @@ export async function buildPackageSignals(
     }
 
     const reputation = await reputationPromise;
-    if (!opts.noReputation) {
+    if (!opts.noReputation && !internal) {
       const degraded = [
         reputation.downloads.status === "unavailable" ? "download stats unavailable" : null,
         reputation.repo.status === "rate-limited"
@@ -134,7 +162,9 @@ export async function buildPackageSignals(
       );
     }
 
-    const signals = await buildSignals(metadata, quarantine.packageDir, osv, reputation);
+    const signals = await buildSignals(metadata, quarantine.packageDir, osv, reputation, {
+      internalScope: internal,
+    });
     opts.onStage?.("signals");
     return { metadata, signals };
   } finally {

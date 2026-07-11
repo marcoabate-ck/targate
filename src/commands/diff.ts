@@ -4,6 +4,7 @@ import { detectPackageManager } from "../installer.js";
 import { printJson } from "../json-output.js";
 import { extractLockfileEntries, snapshotLockfile } from "../lockfile.js";
 import { buildPackageSignals } from "../pipeline.js";
+import { loadPolicy } from "../policy.js";
 import { PackageNotFoundError, parsePackageSpec } from "../registry.js";
 import { bold, dim, red, renderVersionDiff } from "../report.js";
 import { highestSemver } from "../semver.js";
@@ -79,7 +80,14 @@ export async function diffCommand(opts: DiffOptions): Promise<number> {
   };
   note(dim(`\nDiffing ${bold(a.name)} ${fromVersion ?? "?"} → ${toVersion ?? "latest"} ...`));
 
-  const lookupOpts = { failOnOsvError: opts.failOnOsvError, noReputation: opts.noReputation };
+  // Policy is loaded for its internalScopes (so a private name is not sent to
+  // OSV even by a diff); diff applies no policy escalation — it reports facts.
+  const policy = await loadPolicy();
+  const lookupOpts = {
+    failOnOsvError: opts.failOnOsvError,
+    noReputation: opts.noReputation,
+    policy,
+  };
   let from, to;
   try {
     [from, to] = await Promise.all([

@@ -84,6 +84,11 @@ export function computeSecurityScore(signals: Signals): SecurityScore {
     if (signals.osvUnavailable) {
       vulnerabilities.deduct(10, "OSV lookup unavailable — vulnerability status unknown");
     }
+    if (signals.internalScope) {
+      // A deliberate policy skip, but the status is still unknown — a clean
+      // 25/25 here would misread as "externally verified clean".
+      vulnerabilities.deduct(5, "OSV lookup skipped (internal scope) — not externally checked");
+    }
   }
 
   // 2. Install behavior — 20

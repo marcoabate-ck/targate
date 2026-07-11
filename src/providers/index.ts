@@ -117,3 +117,19 @@ export function resolveProvider(selection: ProviderSelection): AiProvider | null
     disableJsonMode: deepseekReasoning,
   });
 }
+
+/**
+ * The provider name + model a run WOULD use, for audit metadata (trust
+ * history). Construction only — no network. Never throws: a misconfigured
+ * provider simply yields null (the run itself surfaces the real error).
+ */
+export function describeProvider(
+  selection: ProviderSelection,
+): { provider: string; model: string } | null {
+  try {
+    const p = resolveProvider(selection);
+    return p ? { provider: p.name, model: p.model } : null;
+  } catch {
+    return null;
+  }
+}

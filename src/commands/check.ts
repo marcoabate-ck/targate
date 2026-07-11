@@ -1,12 +1,21 @@
+import path from "node:path";
 import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
-import { getApproval, isCiEnvironment, loadApprovals, recordApproval } from "../approvals.js";
+import {
+  buildApprovalContext,
+  getApproval,
+  isCiEnvironment,
+  loadApprovals,
+  recordApproval,
+} from "../approvals.js";
 import { detectPackageManager, gateInstall } from "../installer.js";
 import { diffLockfiles, snapshotLockfile } from "../lockfile.js";
 import { printJson } from "../json-output.js";
 import { writeLastRun } from "../last-run.js";
 import { analyzePackage, type AnalysisStage } from "../pipeline.js";
-import { loadPolicy } from "../policy.js";
+import { loadPolicy, policyFileDigest } from "../policy.js";
+import { describeProvider } from "../providers/index.js";
+import { applySignedApprovalsPolicy } from "../signing.js";
 import { createTreeProgress } from "../progress.js";
 import { isHardBlock } from "../rules.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
@@ -93,6 +102,8 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
             `  ⚠ OSV lookup failed — malicious-package status is UNKNOWN`,
           ),
         );
+      case "internal-scope":
+        return note(cyan(`  ℹ internal scope — ${detail}`));
       case "reputation":
         return note(dim(`  ✓ reputation lookups done (npm downloads, GitHub)`));
       case "reputation-degraded":
@@ -132,7 +143,10 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   // install script) — but never a HARD block (known-malicious / remote exec).
   // Root clearing happens BEFORE --deep aggregation, so a root approval can
   // never accidentally clear an escalation caused by unapproved transitives.
-  const approvals = await loadApprovals();
+  const approvals = await applySignedApprovalsPolicy(
+    await loadApprovals(),
+    policy?.policy.dependencyPolicy.requireSignedApprovals,
+  );
   const priorApproval = getApproval(approvals, metadata.name, metadata.version);
   const softBlock = assessment.decision === "block" && !isHardBlock(signals);
   // When a prior approval clears the decision, its recorded mode is binding:
@@ -237,7 +251,13 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
         if (picked && picked.length > 0) {
           for (const i of picked) {
             const r = pending[i];
-            await recordApproval(r.name, r.version, "no-scripts");
+            await recordApproval(r.name, r.version, "no-scripts", process.cwd(), {
+              context: buildApprovalContext({
+                assessment: r.assessment,
+                policyFile: policy ? path.basename(policy.file) : undefined,
+                policyHash: policy ? await policyFileDigest(policy.file) : undefined,
+              }),
+            });
             clearTransitive(r, `[team] approved now (no-scripts) — recorded in .targate/approvals.json.`);
           }
           note(green(`  ✓ approved ${picked.length} transitive package(s) (no-scripts)`));
@@ -320,7 +340,17 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       // Phase 2 — record the human approval so the team doesn't re-review.
       // Covers both require_approval and a freshly-approved soft block.
       if (needsApproval) {
-        await recordApproval(metadata.name, metadata.version, result.mode);
+        const ai = assessment.source === "ai" ? describeProvider(opts.assess) : null;
+        await recordApproval(metadata.name, metadata.version, result.mode, process.cwd(), {
+          context: buildApprovalContext({
+            assessment,
+            score: score.total,
+            policyFile: policy ? path.basename(policy.file) : undefined,
+            policyHash: policy ? await policyFileDigest(policy.file) : undefined,
+            aiProvider: ai?.provider,
+            aiModel: ai?.model,
+          }),
+        });
         note(dim(`  ✓ approval recorded in .targate/approvals.json (commit it to share)`));
         // pnpm approve-builds edits pnpm-workspace.yaml for the install.
         if (pm === "pnpm" && signals.hasLifecycleScripts) {

@@ -1,4 +1,5 @@
-import { writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { parse, stringify } from "yaml";
@@ -29,6 +30,20 @@ export interface DependencyPolicy {
   blockMissingRepositoryForRuntimeDeps?: boolean;
   allowKnownPackages?: string[];
   blockPackages?: string[];
+  /**
+   * Only honor approvals whose SSH signature verifies against the committed
+   * .targate/allowed-signers file (see docs/team-workflow.md). Unsigned or
+   * unverifiable entries are ignored — the affected packages ask again.
+   */
+  requireSignedApprovals?: boolean;
+  /**
+   * npm scopes (e.g. "@acme") whose packages are internal: external lookups
+   * that would leak the package NAME to third parties (OSV, npm downloads,
+   * maintainer search) are skipped, and typosquat similarity is not applied.
+   * The report shows the skips — an internal package is never silently
+   * "clean", it is visibly "not externally checked".
+   */
+  internalScopes?: string[];
 }
 
 export interface PolicyFile {
@@ -42,6 +57,7 @@ const BOOLEAN_KEYS = [
   "requireApprovalForNativeCode",
   "requireApprovalForLifecycleScripts",
   "blockMissingRepositoryForRuntimeDeps",
+  "requireSignedApprovals",
 ] as const;
 
 export class PolicyError extends Error {
@@ -79,6 +95,14 @@ export function validatePolicyObject(doc: unknown, sourceName = POLICY_BASENAME)
       if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) {
         throw new PolicyError(`"dependencyPolicy.${listKey}" must be a list of package names`);
       }
+    }
+  }
+  if ("internalScopes" in policy) {
+    const v = policy.internalScopes;
+    if (!Array.isArray(v) || v.some((x) => typeof x !== "string" || !x.startsWith("@"))) {
+      throw new PolicyError(
+        `"dependencyPolicy.internalScopes" must be a list of npm scopes starting with "@" (e.g. "@acme")`,
+      );
     }
   }
 
@@ -151,6 +175,18 @@ export interface LoadedPolicy {
   policy: PolicyFile;
   /** Absolute path of the file the policy came from. */
   file: string;
+}
+
+/**
+ * sha256 (hex) of the policy file bytes — pins WHICH policy an approval was
+ * made under in the trust history. Best-effort: undefined when unreadable.
+ */
+export async function policyFileDigest(file: string): Promise<string | undefined> {
+  try {
+    return createHash("sha256").update(await readFile(file)).digest("hex");
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -273,64 +309,154 @@ export function applyPolicy(
   return result;
 }
 
-const STARTER_POLICY: PolicyFile = {
-  dependencyPolicy: {
-    blockRecentlyPublishedPackages: false,
-    minPackageAgeDays: 7,
-    requireApprovalForNativeCode: false,
-    requireApprovalForLifecycleScripts: true,
-    blockMissingRepositoryForRuntimeDeps: false,
-    allowKnownPackages: ["react", "react-native"],
-    blockPackages: [],
+/**
+ * Policy packs — ready-made presets for `targate policy init --preset <name>`.
+ * Each is a complete, valid PolicyFile a team can adopt as-is and tighten or
+ * loosen later. The generated file's comment header names the preset and its
+ * intent, so a reviewer knows which trust posture the repo started from.
+ */
+export interface PolicyPresetDefinition {
+  /** One-line intent, written into the generated file's header. */
+  description: string;
+  policy: PolicyFile;
+}
+
+export const POLICY_PRESETS: Record<string, PolicyPresetDefinition> = {
+  default: {
+    description:
+      "Balanced starting point: lifecycle scripts need approval, everything else warns.",
+    policy: {
+      dependencyPolicy: {
+        blockRecentlyPublishedPackages: false,
+        minPackageAgeDays: 7,
+        requireApprovalForNativeCode: false,
+        requireApprovalForLifecycleScripts: true,
+        blockMissingRepositoryForRuntimeDeps: false,
+        allowKnownPackages: ["react", "react-native"],
+        blockPackages: [],
+      },
+      aiCache: { enabled: true, scope: "user", ttlHours: 24, exclude: [] },
+    },
   },
-  aiCache: {
-    enabled: true,
-    scope: "user",
-    ttlHours: 24,
-    exclude: [],
+  strict: {
+    description:
+      "Maximum friction: young packages block, native code and scripts need approval, approvals must be signed.",
+    policy: {
+      dependencyPolicy: {
+        blockRecentlyPublishedPackages: true,
+        minPackageAgeDays: 14,
+        requireApprovalForNativeCode: true,
+        requireApprovalForLifecycleScripts: true,
+        blockMissingRepositoryForRuntimeDeps: true,
+        requireSignedApprovals: true,
+        allowKnownPackages: [],
+        blockPackages: [],
+      },
+      aiCache: { enabled: true, scope: "user", ttlHours: 24, exclude: [] },
+    },
+  },
+  "react-native": {
+    description:
+      "Mobile-focused: native code (Podspec/Gradle/permissions) always gets a human, missing repos block.",
+    policy: {
+      dependencyPolicy: {
+        blockRecentlyPublishedPackages: false,
+        minPackageAgeDays: 7,
+        requireApprovalForNativeCode: true,
+        requireApprovalForLifecycleScripts: true,
+        blockMissingRepositoryForRuntimeDeps: true,
+        allowKnownPackages: ["react", "react-native"],
+        blockPackages: [],
+      },
+      aiCache: { enabled: true, scope: "user", ttlHours: 24, exclude: [] },
+    },
+  },
+  ci: {
+    description:
+      "Pipelines: approvals come only from the committed file, scripts and missing repos stop the build; AI cache off.",
+    policy: {
+      dependencyPolicy: {
+        blockRecentlyPublishedPackages: false,
+        minPackageAgeDays: 7,
+        requireApprovalForNativeCode: false,
+        requireApprovalForLifecycleScripts: true,
+        blockMissingRepositoryForRuntimeDeps: true,
+        allowKnownPackages: [],
+        blockPackages: [],
+      },
+      aiCache: { enabled: false },
+    },
+  },
+  "ai-agent": {
+    description:
+      "Unattended AI agents: anything needing judgment stops the agent — a human approves out-of-band via targate approve.",
+    policy: {
+      dependencyPolicy: {
+        blockRecentlyPublishedPackages: true,
+        minPackageAgeDays: 14,
+        requireApprovalForNativeCode: true,
+        requireApprovalForLifecycleScripts: true,
+        blockMissingRepositoryForRuntimeDeps: true,
+        allowKnownPackages: [],
+        blockPackages: [],
+      },
+      aiCache: { enabled: true, scope: "project", ttlHours: 24, exclude: [] },
+    },
   },
 };
 
 export type PolicyFormat = "yaml" | "json" | "js" | "ts";
 
-const POLICY_COMMENT = [
-  "targate team dependency policy — applied on top of the AI/rules assessment.",
-  "The policy can only make decisions stricter, except allowKnownPackages",
-  "(pre-approved packages; known-malicious packages are always blocked).",
-  "aiCache controls reuse of AI assessments (never used in CI).",
-];
+function policyComment(preset: string): string[] {
+  return [
+    `targate team dependency policy — preset: ${preset}.`,
+    POLICY_PRESETS[preset].description,
+    "Applied on top of the AI/rules assessment. The policy can only make",
+    "decisions stricter, except allowKnownPackages (pre-approved packages;",
+    "known-malicious packages are always blocked).",
+    "aiCache controls reuse of AI assessments (never used in CI).",
+  ];
+}
 
 // JSON -> JS object literal: unquote keys for the js/ts templates
-const STARTER_BODY = JSON.stringify(STARTER_POLICY, null, 2).replace(
-  /"([a-zA-Z][\w]*)":/g,
-  "$1:",
-);
+function objectLiteral(policy: PolicyFile): string {
+  return JSON.stringify(policy, null, 2).replace(/"([a-zA-Z][\w]*)":/g, "$1:");
+}
 
-function policyTemplate(format: PolicyFormat): string {
-  const hash = POLICY_COMMENT.map((l) => `# ${l}`).join("\n");
-  const slash = POLICY_COMMENT.map((l) => `// ${l}`).join("\n");
+function policyTemplate(format: PolicyFormat, preset: string): string {
+  const comment = policyComment(preset);
+  const hash = comment.map((l) => `# ${l}`).join("\n");
+  const slash = comment.map((l) => `// ${l}`).join("\n");
+  const policy = POLICY_PRESETS[preset].policy;
   switch (format) {
     case "yaml":
-      return `${hash}\n${stringify(STARTER_POLICY)}`;
+      return `${hash}\n${stringify(policy)}`;
     case "json":
-      return JSON.stringify(STARTER_POLICY, null, 2) + "\n";
+      return JSON.stringify(policy, null, 2) + "\n";
     case "js":
-      return `${slash}\n/** @type {import("targate").PolicyFile} */\nexport default ${STARTER_BODY};\n`;
+      return `${slash}\n/** @type {import("targate").PolicyFile} */\nexport default ${objectLiteral(policy)};\n`;
     case "ts":
-      return `${slash}\nimport type { PolicyFile } from "targate";\n\nconst policy: PolicyFile = ${STARTER_BODY};\n\nexport default policy;\n`;
+      return `${slash}\nimport type { PolicyFile } from "targate";\n\nconst policy: PolicyFile = ${objectLiteral(policy)};\n\nexport default policy;\n`;
   }
 }
 
 /**
- * Scaffold a starter targate.policy.<format>. Returns the file path, or null
- * when a policy file (in ANY supported format) already exists.
+ * Scaffold a targate.policy.<format> from a preset (see POLICY_PRESETS).
+ * Returns the file path, or null when a policy file (in ANY supported
+ * format) already exists. Throws PolicyError on an unknown preset.
  */
 export async function initPolicy(
   cwd: string = process.cwd(),
   format: PolicyFormat = "yaml",
+  preset = "default",
 ): Promise<string | null> {
+  if (!(preset in POLICY_PRESETS)) {
+    throw new PolicyError(
+      `Unknown policy preset "${preset}". Available presets: ${Object.keys(POLICY_PRESETS).join(", ")}`,
+    );
+  }
   if (findPolicyFile(cwd)) return null;
   const file = path.join(cwd, `${POLICY_BASENAME}.${format}`);
-  await writeFile(file, policyTemplate(format));
+  await writeFile(file, policyTemplate(format, preset));
   return file;
 }

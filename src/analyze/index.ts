@@ -16,6 +16,11 @@ export async function buildSignals(
   osv: OsvResult,
   // Network lookups are injected (like osv) so this stays offline and pure.
   reputation: ReputationLookup = reputationSkipped(),
+  options: {
+    /** Policy internalScopes matched — external checks were skipped and
+     *  typosquat similarity does not apply to a private name. */
+    internalScope?: boolean;
+  } = {},
 ): Promise<Signals> {
   const lifecycleScripts = extractLifecycleScripts(metadata.scripts);
   const nativeSurface = await analyzeNativeSurface(packageDir);
@@ -49,11 +54,14 @@ export async function buildSignals(
     maliciousRecords: osv.maliciousRecords,
     advisories: osv.advisories,
     osvUnavailable: osv.unavailable,
+    internalScope: options.internalScope || undefined,
     repositoryMissing: !metadata.repositoryUrl,
     recentPublish:
       metadata.ageInDays !== undefined && metadata.ageInDays <= RECENT_PUBLISH_DAYS,
     ageInDays: metadata.ageInDays,
-    nameSimilarity: checkNameSimilarity(metadata.name),
+    // Typosquat similarity compares against POPULAR PUBLIC names — meaningless
+    // (and noisy) for a company-internal package.
+    nameSimilarity: options.internalScope ? null : checkNameSimilarity(metadata.name),
     dependencyCount: metadata.dependencyCount,
     directDependencies: metadata.directDependencies,
     reputation: deriveReputation(metadata, reputation),

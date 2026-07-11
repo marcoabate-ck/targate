@@ -67,10 +67,17 @@ export function resetReputationCacheForTests(): void {
 export async function fetchReputation(
   name: string,
   repositoryUrl: string | undefined,
-  opts?: { githubToken?: string },
+  opts?: {
+    githubToken?: string;
+    /** The npmjs downloads API cannot know packages served by another
+     *  registry — skip the lookup instead of reporting a bogus "unknown". */
+    skipDownloads?: boolean;
+  },
 ): Promise<ReputationLookup> {
   const [downloads, repo] = await Promise.all([
-    fetchDownloads(name),
+    opts?.skipDownloads
+      ? Promise.resolve<DownloadsSignal>({ status: "skipped" })
+      : fetchDownloads(name),
     fetchRepoStatus(repositoryUrl, opts?.githubToken),
   ]);
   return { downloads, repo };

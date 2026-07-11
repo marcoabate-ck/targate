@@ -59,6 +59,11 @@ export function renderReport(
           : null,
         `deps: ${metadata.dependencyCount}`,
         metadata.repositoryUrl ? `repo: ${metadata.repositoryUrl}` : "repo: MISSING",
+        // Non-default registry is worth seeing: it changes which infrastructure
+        // was trusted for the packument and tarball.
+        metadata.registrySource && metadata.registrySource !== "default"
+          ? `registry: ${metadata.registryUrl} (${metadata.registrySource === "scope" ? "scoped" : "override"})`
+          : null,
       ]
         .filter(Boolean)
         .join("  ·  "),
@@ -147,9 +152,13 @@ export function renderSignalLines(signals: Signals): string[] {
   );
   lines.push(
     "  " +
-      (signals.osvUnavailable
-        ? yellow("⚠ OSV/OpenSSF lookup unavailable — malicious-package status UNKNOWN")
-        : dim("✓ OSV/OpenSSF lookup completed")),
+      (signals.internalScope
+        ? cyan(
+            "ℹ internal scope — OSV, downloads and maintainer lookups skipped (policy internalScopes: the package name stays private; malicious-package status NOT externally checked)",
+          )
+        : signals.osvUnavailable
+          ? yellow("⚠ OSV/OpenSSF lookup unavailable — malicious-package status UNKNOWN")
+          : dim("✓ OSV/OpenSSF lookup completed")),
   );
   for (const finding of signals.scriptCommandFindings) {
     lines.push("  " + red(`! ${finding}`));
@@ -310,6 +319,11 @@ export function residualRisks(signals: Signals): string[] {
   }
   if (signals.osvUnavailable) {
     risks.push("the malicious-package status was UNKNOWN at analysis time (OSV unavailable)");
+  }
+  if (signals.internalScope) {
+    risks.push(
+      "internal scope: OSV/downloads/maintainer checks were skipped by policy — nothing external vouches for this package",
+    );
   }
   if (signals.content.hasMinifiedCode) {
     risks.push("minified/obfuscated code limits what static analysis can see");

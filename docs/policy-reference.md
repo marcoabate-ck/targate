@@ -32,6 +32,8 @@ interface DependencyPolicy {
   blockMissingRepositoryForRuntimeDeps?: boolean;
   allowKnownPackages?: string[];
   blockPackages?: string[];
+  requireSignedApprovals?: boolean;
+  internalScopes?: string[];
 }
 ```
 
@@ -46,6 +48,8 @@ interface DependencyPolicy {
 | `blockMissingRepositoryForRuntimeDeps` | boolean | `false` | Package with no repository metadata → **block**. |
 | `allowKnownPackages` | string[] | `["react", "react-native"]`¹ | Pre-approved names. Clears **soft** (heuristic) blocks to `allow`; **cannot** clear a hard block. |
 | `blockPackages` | string[] | `[]` | Names that are always **blocked**, evaluated before the allow list. |
+| `requireSignedApprovals` | boolean | `false` | Only honor approvals whose SSH signature verifies against the committed `.targate/allowed-signers`; unsigned/invalid entries are ignored (the package asks again). See [signed approvals](team-workflow.md#signed-approvals--targate-approve---sign). |
+| `internalScopes` | string[] (each starting `@`) | `[]` | Scopes whose package **names must not leak**: OSV, npm downloads, maintainer search and GitHub lookups are skipped, typosquat similarity is not applied, and every skip is shown in the report/score. See [private registries](private-registries.md#internalscopes--name-privacy). |
 
 ¹ Defaults shown are the values `targate policy init` scaffolds. A field you omit from your file simply doesn't apply — there is no hidden default beyond note ².
 ² `minPackageAgeDays` only takes effect when it is set, or when `blockRecentlyPublishedPackages` is `true` (in which case an unset `minPackageAgeDays` falls back to `7`).

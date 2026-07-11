@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { getApproval, loadApprovals } from "./approvals.js";
+import { applySignedApprovalsPolicy } from "./signing.js";
 import type { AssessOptions } from "./ai.js";
 import { detectPackageManager } from "./installer.js";
 import { lockfileVersionIndex, resolveInstalledVersion, snapshotLockfile } from "./lockfile.js";
@@ -117,8 +118,14 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
     log(`note: no ${pm} lockfile found — analyzing declared version ranges, not resolved versions`);
   }
 
-  const approvals = await loadApprovals(cwd);
   const policy = await loadPolicy(cwd);
+  // In CI the signature requirement matters most — an attacker who can push
+  // an approvals.json edit must not be able to green a poisoned dependency.
+  const approvals = await applySignedApprovalsPolicy(
+    await loadApprovals(cwd),
+    policy?.policy.dependencyPolicy.requireSignedApprovals,
+    cwd,
+  );
   const results: CiPackageResult[] = [];
   let exitCode = 0;
 
