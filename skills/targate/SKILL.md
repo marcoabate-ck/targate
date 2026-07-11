@@ -24,7 +24,7 @@ targate add <package>[@version] --yes
 - Add `--json` when you need to parse the verdict programmatically (prints `{ schemaVersion, command, metadata, signals, assessment, score, deep, install }`; the decision is `assessment.decision`, while `install.status` is the actual install outcome; new keys may be added within a schemaVersion — ignore unknown keys).
 - Add `--no-cache` to force a fresh analysis, ignoring any cached verdict — e.g. when re-checking a package you suspect changed. (targate caches AI assessments between runs; it also invalidates automatically when a package's contents or the model change.)
 
-To install **all** dependencies of a project (a plain `npm install` / `pnpm install` / `yarn install` — e.g. after cloning), run `targate install` instead. It vets the entire dependency tree before the install runs any lifecycle scripts, refuses (exit 2) if any package is blocked or needs approval, and otherwise installs with scripts disabled by default (`--allow-scripts` to run them). Same exit-code contract as below.
+To install **all** dependencies of a project (e.g. after cloning), run `targate install` instead. It reviews the exact committed lockfile and installs it immutably with scripts disabled by default. Use `--update-lockfile` only when you explicitly want targate to stage, review, and apply a lockfile update. It refuses (exit 2) if any package is blocked or needs approval. Same exit-code contract as below.
 
 ## Interpret the exit code
 

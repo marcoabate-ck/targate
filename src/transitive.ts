@@ -1,8 +1,3 @@
-import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { promisify } from "node:util";
 import { assessManyWithCache, resolveBatchProvider, type AssessOptions } from "./ai.js";
 import { DEFAULT_CONCURRENCY, mapLimit } from "./concurrency.js";
 import { extractLockfileEntries } from "./lockfile.js";
@@ -18,8 +13,8 @@ import type { AiProvider } from "./providers/types.js";
 import { isHardBlock } from "./rules.js";
 import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
 import type { ApprovalMode, ScriptPolicy } from "./trust-decision.js";
-
-const execFileAsync = promisify(execFile);
+import { detectPackageManager } from "./installer.js";
+import { resolveInstallPlan, type InstallPlan } from "./install-plan.js";
 
 /** Packages assessed per AI request in the batched path. */
 const DEFAULT_BATCH_SIZE = 8;
@@ -27,14 +22,11 @@ const DEFAULT_BATCH_SIZE = 8;
 /**
  * Transitive dependency analysis (`targate add --deep`).
  *
- * The tree is resolved by npm itself with `--package-lock-only`: only a
- * lockfile is produced — no node_modules, no tarball unpacking by npm, and
- * `--ignore-scripts` on top, so nothing from the tree executes. This gives
- * the EXACT versions a real install would place on disk (same resolver),
- * instead of a homegrown approximation of semver range resolution. Each
- * unique name@version then goes through the same per-package pipeline as
- * the root — where the AI response cache makes shared/repeated dependencies
- * cheap.
+ * The project's actual package manager produces a staged manifest + lockfile
+ * with lifecycle scripts disabled. Those exact versions are analyzed, then
+ * the reviewed files are applied and installed frozen; resolution never runs
+ * a second time. Each unique name@version goes through the same per-package
+ * pipeline as the root, with the AI response cache amortizing repeat work.
  */
 
 export interface TreePackage {
@@ -60,9 +52,6 @@ export function parseResolvedTree(
   return packages.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
 }
 
-const NPM_BIN = process.platform === "win32" ? "npm.cmd" : "npm";
-const RESOLVE_TIMEOUT_MS = 120_000;
-
 /**
  * Resolve the full dependency tree of name@version in a throwaway project.
  * Throws with a clear message when resolution fails — a --deep run must
@@ -71,38 +60,31 @@ const RESOLVE_TIMEOUT_MS = 120_000;
 export async function resolveTransitiveTree(
   name: string,
   version: string,
+  packageManager = detectPackageManager(),
+  cwd: string = process.cwd(),
 ): Promise<TreePackage[]> {
-  const dir = await mkdtemp(path.join(tmpdir(), "targate-deep-"));
+  return (await resolveTransitiveInstallPlan(name, version, packageManager, cwd)).packages;
+}
+
+/** Resolve and retain the exact staged lockfile that add --deep will install. */
+export async function resolveTransitiveInstallPlan(
+  name: string,
+  version: string,
+  packageManager = detectPackageManager(),
+  cwd: string = process.cwd(),
+): Promise<InstallPlan> {
   try {
-    await writeFile(
-      path.join(dir, "package.json"),
-      JSON.stringify({ name: "targate-deep-resolution", version: "0.0.0", private: true }),
+    return await resolveInstallPlan({
+      packageManager,
+      cwd,
+      root: { name, version, spec: `${name}@${version}` },
+    });
+  } catch (err) {
+    throw new Error(
+      `--deep: ${packageManager} could not resolve the dependency tree of ${name}@${version}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
     );
-    try {
-      await execFileAsync(
-        NPM_BIN,
-        [
-          "install",
-          `${name}@${version}`,
-          "--package-lock-only", // lockfile only: no node_modules is written
-          "--ignore-scripts",
-          "--no-audit",
-          "--no-fund",
-          "--loglevel=error",
-        ],
-        { cwd: dir, timeout: RESOLVE_TIMEOUT_MS },
-      );
-    } catch (err) {
-      throw new Error(
-        `--deep: npm could not resolve the dependency tree of ${name}@${version}: ${
-          err instanceof Error ? err.message.split("\n")[0] : String(err)
-        }`,
-      );
-    }
-    const lock = await readFile(path.join(dir, "package-lock.json"), "utf8");
-    return parseResolvedTree(lock, name, version);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
   }
 }
 

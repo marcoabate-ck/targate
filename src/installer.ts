@@ -74,16 +74,35 @@ export type InstallResult =
   | { status: "installed"; mode: InstallMode; command: string[]; installed: true }
   | { status: "skipped"; command?: string[]; installed: false }
   | { status: "blocked"; installed: false }
-  | { status: "failed"; command: string[]; exitCode: number; installed: false };
+  | { status: "failed"; command: string[]; exitCode: number; installed: false; reason?: string };
 
-async function executeInstall(command: string[]): Promise<InstallResult | null> {
+async function executeInstall(
+  command: string[],
+  beforeInstall?: () => Promise<void>,
+  verifyInstall?: () => Promise<boolean>,
+): Promise<InstallResult | null> {
   try {
+    await beforeInstall?.();
     const exitCode = await runCommand(command);
-    return exitCode === 0
-      ? null
-      : { status: "failed", command, exitCode, installed: false };
-  } catch {
-    return { status: "failed", command, exitCode: 1, installed: false };
+    if (exitCode !== 0) return { status: "failed", command, exitCode, installed: false };
+    if (verifyInstall && !(await verifyInstall())) {
+      return {
+        status: "failed",
+        command,
+        exitCode: 1,
+        installed: false,
+        reason: "Installed lockfile does not match the reviewed plan.",
+      };
+    }
+    return null;
+  } catch (err) {
+    return {
+      status: "failed",
+      command,
+      exitCode: 1,
+      installed: false,
+      reason: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -114,6 +133,12 @@ export async function gateInstall(
      * did NOT authorize its lifecycle scripts, so the install must honor that.
      */
     ignoreScripts?: boolean;
+    /** Override add commands, used by immutable deep-install plans. */
+    commands?: { normal: string[]; noScripts: string[] };
+    /** Apply the reviewed plan immediately before invoking the package manager. */
+    beforeInstall?: () => Promise<void>;
+    /** Verify the final lockfile fingerprint after a successful child process. */
+    verifyInstall?: () => Promise<boolean>;
     /** Prompt implementation — injectable for tests; defaults to interactive confirm(). */
     confirmFn?: (question: string, defaultYes?: boolean) => Promise<boolean>;
   } = {},
@@ -125,9 +150,11 @@ export async function gateInstall(
     return { status: "blocked", installed: false };
   }
 
-  const noScripts = buildInstallCommand(pm, spec, { ignoreScripts: true });
+  const noScripts = opts.commands?.noScripts ?? buildInstallCommand(pm, spec, { ignoreScripts: true });
   // A "no-scripts" approval caps the allow path at the scripts-disabled command.
-  const normal = opts.ignoreScripts ? noScripts : buildInstallCommand(pm, spec);
+  const normal = opts.ignoreScripts
+    ? noScripts
+    : (opts.commands?.normal ?? buildInstallCommand(pm, spec));
 
   if (decision === "require_approval" || overridableBlock) {
     // Never auto-approve a package that requires human review (--yes), and in
@@ -140,7 +167,7 @@ export async function gateInstall(
       `This package needs manual approval. Approve WITHOUT lifecycle scripts (${noScripts.join(" ")})?`,
     );
     if (approveNoScripts) {
-      const failure = await executeInstall(noScripts);
+      const failure = await executeInstall(noScripts, opts.beforeInstall, opts.verifyInstall);
       if (failure) return failure;
       return { status: "installed", mode: "no-scripts", command: noScripts, installed: true };
     }
@@ -148,7 +175,7 @@ export async function gateInstall(
       `Approve INCLUDING lifecycle scripts (${normal.join(" ")})? Only do this if you trust the package.`,
     );
     if (approveFull) {
-      const failure = await executeInstall(normal);
+      const failure = await executeInstall(normal, opts.beforeInstall, opts.verifyInstall);
       if (failure) return failure;
       return { status: "installed", mode: "normal", command: normal, installed: true };
     }
@@ -161,7 +188,7 @@ export async function gateInstall(
     opts.assumeYes ||
     (await ask(`Proceed with install (${normal.join(" ")})?`, decision === "allow"));
   if (!proceed) return { status: "skipped", installed: false };
-  const failure = await executeInstall(normal);
+  const failure = await executeInstall(normal, opts.beforeInstall, opts.verifyInstall);
   if (failure) return failure;
   return {
     status: "installed",

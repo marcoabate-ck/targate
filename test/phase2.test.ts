@@ -126,6 +126,23 @@ describe("lockfile diff", () => {
     expect(entries).toContain("@scope/pkg@2.0.0");
   });
 
+  it("parses quoted pnpm keys and strips peer suffixes", () => {
+    const lock = [
+      "packages:",
+      "  '@scope/pkg@2.0.0(peer@1.0.0)':",
+      "  'plain@1.2.3':",
+    ].join("\n");
+    expect([...extractLockfileEntries("pnpm", lock)].sort()).toEqual([
+      "@scope/pkg@2.0.0",
+      "plain@1.2.3",
+    ]);
+  });
+
+  it("parses unquoted Yarn Berry version fields", () => {
+    const lock = 'left-pad@npm:^1.0.0:\n  version: 1.3.0\n  resolution: "left-pad@npm:1.3.0"\n';
+    expect([...extractLockfileEntries("yarn", lock)]).toEqual(["left-pad@1.3.0"]);
+  });
+
   it("diffs before/after snapshots", () => {
     const before = JSON.stringify({
       packages: { "node_modules/a": { version: "1.0.0" } },

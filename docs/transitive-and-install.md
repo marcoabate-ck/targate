@@ -8,7 +8,7 @@
 targate add glob --deep --dry-run
 ```
 
-By default targate analyzes only the package you named. With `--deep` it first resolves the **exact dependency tree** a real install would produce — npm itself does the resolution (`--package-lock-only --ignore-scripts` in a throwaway directory: only a lockfile is generated, no `node_modules`, nothing from the tree executes) — then runs the same per-package pipeline (quarantine, OSV, signals, AI/rules, team policy) on **every unique `name@version`** in the tree, a few packages at a time.
+By default targate analyzes only the package you named. With `--deep` it asks the project's actual package manager (npm, pnpm, or Yarn) to produce a staged manifest and lockfile with lifecycle scripts disabled. It analyzes **every unique `name@version` from that exact lockfile**, applies the reviewed files only after the gate passes, and installs in frozen/immutable mode. The final lockfile fingerprint must match the reviewed plan, so installation cannot silently resolve a different transitive version.
 
 The final decision is the **strictest verdict across the whole tree**: a blocked transitive dependency blocks the install exactly like a blocked root; a `require_approval` anywhere in the tree escalates the run. Flagged packages are listed in the reasons (`--json` includes the full per-package results under `deep`).
 
@@ -32,17 +32,19 @@ While the tree is being analyzed, an interactive terminal shows a **live progres
 ```bash
 targate install                 # vet the whole tree, then install (scripts disabled)
 targate install --dry-run       # vet only; print the recommended install command
-targate install --frozen-lockfile   # immutable install (npm ci / pnpm|yarn --frozen-lockfile)
+targate install --update-lockfile   # explicitly re-resolve, review, then apply a lock update
 targate install --allow-scripts     # run scripts only if no approval denies them
 ```
 
 What it does:
 
-1. **Enumerates the whole tree.** Prefers the committed lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock`) as the source of truth for what will land on disk; with no lockfile, npm resolves the manifest in a throwaway directory (`--package-lock-only --ignore-scripts`, nothing executes) — the report shows `source: lockfile` or `resolved`.
+1. **Builds an immutable install plan.** A committed lockfile is reviewed as-is. `--update-lockfile` asks the project's actual package manager to produce a staged update with scripts disabled; the working tree is untouched until review passes. Without a lockfile, this explicit flag is required.
 2. **Vets every unique `name@version`** through the same pipeline as `--deep` (quarantine, OSV, signals, AI/rules, team policy), a few at a time, reusing the [AI response cache](ai-cache.md).
-3. **Gates the install.** If any package is `block`, or `require_approval` and not in the committed `.targate/approvals.json`, targate **refuses** and exits `2` — it never runs the install. Otherwise it runs the real install.
+3. **Gates the install.** If any package is `block`, or `require_approval` and not in the committed `.targate/approvals.json`, targate **refuses** and exits `2`. Otherwise it applies the reviewed staged files when needed and runs npm `ci` or pnpm/Yarn with `--frozen-lockfile`.
 4. **Scripts off by default.** The actual install runs with `--ignore-scripts`. `--allow-scripts` can enable them only when the reviewed tree contains no binding `no-scripts` approval; one such approval keeps scripts disabled globally. On pnpm, picker approvals also update `ignoredBuiltDependencies` (see [Team workflow](team-workflow.md#pnpm-approve-builds-integration)).
 
-Exit codes: `0` vetted (and installed, unless `--dry-run`), `2` refused (blocked/unapproved package in the tree), `1` error. `--json` prints the full report (`{ packageManager, source, total, results, decision, exitCode }`).
+5. **Verifies the result.** The final lockfile SHA-256 fingerprint must equal the reviewed plan. Changes during review or installation fail with exit `1` and require a new review.
 
-**Caveats.** A first cold scan of a large tree is heavy (N tarballs + OSV lookups; the cache amortizes re-runs). And targate vets *before* executing, so it is meaningful on a clean or `--frozen-lockfile` install — it cannot retroactively un-run scripts for packages already present in `node_modules`.
+Exit codes: `0` vetted (and installed, unless `--dry-run`), `2` refused (blocked/unapproved package in the tree), `1` error or lockfile drift. `--json` includes `planFingerprint` and the final `install` outcome.
+
+**Caveats.** A first cold scan of a large tree is heavy (N tarballs + OSV lookups; the cache amortizes re-runs). Targate cannot retroactively un-run scripts for packages already present in `node_modules`.
