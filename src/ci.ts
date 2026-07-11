@@ -12,6 +12,7 @@ import { analyzePackage } from "./pipeline.js";
 import { loadPolicy } from "./policy.js";
 import { isHardBlock } from "./rules.js";
 import type { RiskAssessment } from "./types.js";
+import { resolvePackageTrust } from "./trust-decision.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -148,14 +149,10 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
 
       // A hard block always fails CI. A soft block or require_approval fails
       // only when it lacks a committed approval (approval drift).
-      const approved = getApproval(approvals, metadata.name, metadata.version) !== null;
-      const hard = isHardBlock(signals);
-      if (
-        hard ||
-        ((assessment.decision === "block" || assessment.decision === "require_approval") && !approved)
-      ) {
-        exitCode = 2;
-      }
+      const approval = getApproval(approvals, metadata.name, metadata.version);
+      const trust = resolvePackageTrust(assessment, isHardBlock(signals), approval);
+      const approved = trust.approved;
+      if (trust.unresolved) exitCode = 2;
       results.push({
         name: metadata.name,
         version: metadata.version,

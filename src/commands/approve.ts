@@ -26,6 +26,7 @@ import {
   type TransitiveResult,
 } from "../transitive.js";
 import type { Decision } from "../types.js";
+import { resolvePackageTrust } from "../trust-decision.js";
 
 export interface ApproveOptions {
   spec: string;
@@ -60,8 +61,20 @@ export type ApproveOutcome = "hard-blocked" | "already-allowed" | "approvable";
  *   for — record it.
  */
 export function approveOutcome(decision: Decision, hardBlock: boolean): ApproveOutcome {
-  if (decision === "block") return hardBlock ? "hard-blocked" : "approvable";
-  if (decision === "require_approval") return "approvable";
+  const trust = resolvePackageTrust(
+    {
+      decision,
+      risk: decision === "block" ? "high" : decision === "allow" ? "low" : "medium",
+      summary: "",
+      reasons: [],
+      recommendedAction: "",
+      source: "rules",
+    },
+    hardBlock,
+    null,
+  );
+  if (trust.hardBlocked) return "hard-blocked";
+  if (trust.unresolved) return "approvable";
   return "already-allowed"; // allow | allow_with_warnings
 }
 

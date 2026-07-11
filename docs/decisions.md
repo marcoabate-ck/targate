@@ -7,7 +7,7 @@
 | **ALLOW WITH WARNINGS** | Native code present; missing repository metadata; vulnerability advisories; large direct-dependency count; OSV lookup unavailable |
 | **ALLOW** | No scripts, no records, consistent metadata |
 
-With an AI provider configured, the model weighs the same signals contextually (e.g. "this postinstall just compiles native bindings"). The clamp is one-directional: **the AI can escalate but never de-escalate a deterministic BLOCK.** Concretely, `clampDecision` re-runs the rules engine and, if it returns BLOCK, forces the final decision to BLOCK regardless of what the model returned — so a model that is jailbroken, prompt-injected, or simply wrong cannot turn a rules-engine BLOCK into ALLOW. The AI is still free to reach BLOCK or REQUIRE APPROVAL on its own when the rules engine was more permissive.
+With an AI provider configured, the model weighs the same signals contextually (e.g. "this postinstall just compiles native bindings"). The clamp is one-directional: **the AI can escalate but never de-escalate the deterministic verdict.** `clampDecision` compares both results through `DECISION_SEVERITY` and keeps the stricter one. A model that is jailbroken, prompt-injected, or simply wrong therefore cannot turn `allow_with_warnings`, `require_approval`, or `block` into a weaker result.
 
 ## Hard vs soft blocks
 

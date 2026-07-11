@@ -17,6 +17,7 @@ import {
 import type { AiProvider } from "./providers/types.js";
 import { isHardBlock } from "./rules.js";
 import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
+import type { ApprovalMode, ScriptPolicy } from "./trust-decision.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -111,6 +112,10 @@ export interface TransitiveResult {
   assessment: RiskAssessment;
   /** True when the block is a HARD block (never overridable by an approval). */
   hardBlock?: boolean;
+  /** Trust resolution added by tree-level callers that have approval context. */
+  approved?: boolean;
+  approvalMode?: ApprovalMode;
+  scriptPolicy?: ScriptPolicy;
   error?: string;
 }
 

@@ -68,7 +68,24 @@ export function runCommand(command: string[]): Promise<number> {
   });
 }
 
-export type InstallMode = "normal" | "no-scripts" | "skipped" | "blocked";
+export type InstallMode = "normal" | "no-scripts";
+
+export type InstallResult =
+  | { status: "installed"; mode: InstallMode; command: string[]; installed: true }
+  | { status: "skipped"; command?: string[]; installed: false }
+  | { status: "blocked"; installed: false }
+  | { status: "failed"; command: string[]; exitCode: number; installed: false };
+
+async function executeInstall(command: string[]): Promise<InstallResult | null> {
+  try {
+    const exitCode = await runCommand(command);
+    return exitCode === 0
+      ? null
+      : { status: "failed", command, exitCode, installed: false };
+  } catch {
+    return { status: "failed", command, exitCode: 1, installed: false };
+  }
+}
 
 /**
  * Gate the real install behind the decision. A HARD block never installs. A
@@ -100,12 +117,12 @@ export async function gateInstall(
     /** Prompt implementation — injectable for tests; defaults to interactive confirm(). */
     confirmFn?: (question: string, defaultYes?: boolean) => Promise<boolean>;
   } = {},
-): Promise<{ mode: InstallMode; command?: string[]; installed: boolean }> {
+): Promise<InstallResult> {
   const dry = opts.dryRun === true;
   const ask = opts.confirmFn ?? confirm;
   const overridableBlock = decision === "block" && opts.overridable === true;
   if (decision === "block" && !overridableBlock) {
-    return { mode: "blocked", installed: false };
+    return { status: "blocked", installed: false };
   }
 
   const noScripts = buildInstallCommand(pm, spec, { ignoreScripts: true });
@@ -117,31 +134,39 @@ export async function gateInstall(
     // --dry-run just report the recommended (scripts-disabled) command without
     // prompting or installing. Approval itself is a separate action.
     if (opts.assumeYes || dry) {
-      return { mode: "skipped", command: noScripts, installed: false };
+      return { status: "skipped", command: noScripts, installed: false };
     }
     const approveNoScripts = await ask(
       `This package needs manual approval. Approve WITHOUT lifecycle scripts (${noScripts.join(" ")})?`,
     );
     if (approveNoScripts) {
-      await runCommand(noScripts);
-      return { mode: "no-scripts", command: noScripts, installed: true };
+      const failure = await executeInstall(noScripts);
+      if (failure) return failure;
+      return { status: "installed", mode: "no-scripts", command: noScripts, installed: true };
     }
     const approveFull = await ask(
       `Approve INCLUDING lifecycle scripts (${normal.join(" ")})? Only do this if you trust the package.`,
     );
     if (approveFull) {
-      await runCommand(normal);
-      return { mode: "normal", command: normal, installed: true };
+      const failure = await executeInstall(normal);
+      if (failure) return failure;
+      return { status: "installed", mode: "normal", command: normal, installed: true };
     }
-    return { mode: "skipped", installed: false };
+    return { status: "skipped", installed: false };
   }
 
   // allow / allow_with_warnings — nothing to approve; dry-run just reports.
-  if (dry) return { mode: "skipped", command: normal, installed: false };
+  if (dry) return { status: "skipped", command: normal, installed: false };
   const proceed =
     opts.assumeYes ||
     (await ask(`Proceed with install (${normal.join(" ")})?`, decision === "allow"));
-  if (!proceed) return { mode: "skipped", installed: false };
-  await runCommand(normal);
-  return { mode: opts.ignoreScripts ? "no-scripts" : "normal", command: normal, installed: true };
+  if (!proceed) return { status: "skipped", installed: false };
+  const failure = await executeInstall(normal);
+  if (failure) return failure;
+  return {
+    status: "installed",
+    mode: opts.ignoreScripts ? "no-scripts" : "normal",
+    command: normal,
+    installed: true,
+  };
 }

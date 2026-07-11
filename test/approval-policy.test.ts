@@ -8,7 +8,7 @@ import { makeMetadata, makeSignals } from "./helpers.js";
 
 /**
  * Command-level acceptance specs for approval and script-policy semantics.
- * They remain expected failures until the corresponding invariants are fixed.
+ * These are release-blocker acceptance tests: none may regress to expected failure.
  */
 
 let originalCwd: string;
@@ -47,7 +47,7 @@ afterEach(async () => {
 });
 
 describe("approval script policy", () => {
-  it.fails("a transitive no-scripts approval forces the final add command to disable scripts", async () => {
+  it("a transitive no-scripts approval forces the final add command to disable scripts", async () => {
     const dir = await tempDir("targate-deep-no-scripts-");
     process.chdir(dir);
     await mkdir(path.join(dir, ".targate"));
@@ -115,7 +115,7 @@ describe("approval script policy", () => {
     expect(output.join("\n")).toContain("npm install root-package@1.0.0 --ignore-scripts");
   });
 
-  it.fails("full install cannot override a no-scripts approval with --allow-scripts", async () => {
+  it("full install cannot override a no-scripts approval with --allow-scripts", async () => {
     const dir = await tempDir("targate-install-no-scripts-");
     process.chdir(dir);
 
@@ -159,7 +159,7 @@ describe("approval script policy", () => {
     expect(output.join("\n")).toContain("npm install --ignore-scripts");
   });
 
-  it.fails("an approved soft block is not listed as unresolved again", async () => {
+  it("an approved soft block is not listed as unresolved again", async () => {
     const dir = await tempDir("targate-install-unresolved-");
     process.chdir(dir);
 

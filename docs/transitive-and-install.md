@@ -33,7 +33,7 @@ While the tree is being analyzed, an interactive terminal shows a **live progres
 targate install                 # vet the whole tree, then install (scripts disabled)
 targate install --dry-run       # vet only; print the recommended install command
 targate install --frozen-lockfile   # immutable install (npm ci / pnpm|yarn --frozen-lockfile)
-targate install --allow-scripts     # run lifecycle scripts after the tree passes
+targate install --allow-scripts     # run scripts only if no approval denies them
 ```
 
 What it does:
@@ -41,7 +41,7 @@ What it does:
 1. **Enumerates the whole tree.** Prefers the committed lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock`) as the source of truth for what will land on disk; with no lockfile, npm resolves the manifest in a throwaway directory (`--package-lock-only --ignore-scripts`, nothing executes) — the report shows `source: lockfile` or `resolved`.
 2. **Vets every unique `name@version`** through the same pipeline as `--deep` (quarantine, OSV, signals, AI/rules, team policy), a few at a time, reusing the [AI response cache](ai-cache.md).
 3. **Gates the install.** If any package is `block`, or `require_approval` and not in the committed `.targate/approvals.json`, targate **refuses** and exits `2` — it never runs the install. Otherwise it runs the real install.
-4. **Scripts off by default.** The actual install runs with `--ignore-scripts`; approve individual packages' build scripts via pnpm's `onlyBuiltDependencies` (see [Team workflow](team-workflow.md#pnpm-approve-builds-integration)) or re-run with `--allow-scripts` once reviewed.
+4. **Scripts off by default.** The actual install runs with `--ignore-scripts`. `--allow-scripts` can enable them only when the reviewed tree contains no binding `no-scripts` approval; one such approval keeps scripts disabled globally. On pnpm, picker approvals also update `ignoredBuiltDependencies` (see [Team workflow](team-workflow.md#pnpm-approve-builds-integration)).
 
 Exit codes: `0` vetted (and installed, unless `--dry-run`), `2` refused (blocked/unapproved package in the tree), `1` error. `--json` prints the full report (`{ packageManager, source, total, results, decision, exitCode }`).
 

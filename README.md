@@ -53,7 +53,7 @@ flowchart TD
   H -->|block| K[Never installed]
 ```
 
-targate resolves the package from npm, extracts the tarball into quarantine (scripts never run), statically inspects lifecycle scripts and contents, checks OSV/OpenSSF for malicious records, maps the React Native native surface, then reasons over every signal — with an AI provider if one is configured, or a deterministic rules engine otherwise. **Every deterministic BLOCK is a hard floor the AI can never downgrade.** Full walkthrough: [how it works](docs/how-it-works.md) · [architecture](docs/architecture.md).
+targate resolves the package from npm, extracts the tarball into quarantine (scripts never run), statically inspects lifecycle scripts and contents, checks OSV/OpenSSF for malicious records, maps the React Native native surface, then reasons over every signal — with an AI provider if one is configured, or a deterministic rules engine otherwise. **Every deterministic verdict is a floor the AI can never downgrade.** Full walkthrough: [how it works](docs/how-it-works.md) · [architecture](docs/architecture.md).
 
 ## Commands at a glance
 
@@ -78,7 +78,7 @@ Exit codes: `0` ok · `1` error · `2` blocked (or suspicious sandbox / failed C
 
 ## Key guarantees
 
-- **Deterministic security floor.** The rules engine decides first; the AI can only make a verdict *stricter*. A jailbroken or prompt-injected model cannot turn a rules-engine BLOCK into an allow. See [docs/decisions.md](docs/decisions.md).
+- **Deterministic security floor.** The rules engine decides first; the AI can only make a verdict *stricter*. A jailbroken or prompt-injected model cannot turn `allow_with_warnings`, `require_approval`, or `block` into a weaker result. See [docs/decisions.md](docs/decisions.md).
 - **Hard vs soft blocks.** Known-malicious and remote-code-execution blocks can never be overridden; heuristic ("soft") blocks can be deliberately cleared by a committed approval or allow-list entry.
 - **Auditable, verifiable trust.** Every approval records its circumstances (who, when, verdict, tool version, AI model, policy hash) — `targate history` shows it; `targate approve --sign` adds an SSH signature that `requireSignedApprovals` enforces in CI, so a hand-edited approvals file cannot green a poisoned dependency.
 - **Nothing untrusted executes during analysis.** Tarballs are checksum-verified against the registry manifest, extracted into quarantine with strict path checking, and only ever *read* — lifecycle scripts never run. (One caveat: `.ts`/`.js` **config** files do execute; set `TARGATE_NO_EXEC_CONFIG=1` in repos you don't trust — see [docs/security.md](docs/security.md).)

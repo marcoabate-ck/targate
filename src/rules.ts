@@ -231,13 +231,7 @@ export function applyOsvFailurePolicy(
 
 /**
  * Clamp an AI decision so it can never be more permissive than the
- * deterministic rules engine. Every deterministic BLOCK is a HARD FLOOR:
- * if evaluateRules() blocks the package, the AI's decision is forced to
- * BLOCK regardless of what the model returned. The AI may only ever make a
- * decision *stricter*, never weaker, than the rules engine's block verdict.
- *
- * (The AI is still free to escalate a rules "allow" to "require_approval",
- * or to reach "block" on its own — the clamp only raises floors.)
+ * deterministic rules engine. DECISION_SEVERITY is the only ordering source.
  */
 export function clampDecision(
   ai: RiskAssessment,
@@ -253,19 +247,18 @@ export function clampDecision(
     reasons: floor.reasons,
   };
 
-  if (ai.decision === "block") return { ...ai, deterministic };
-  if (floor.decision !== "block") return { ...ai, deterministic };
+  if (DECISION_SEVERITY[ai.decision] >= DECISION_SEVERITY[floor.decision]) {
+    return { ...ai, deterministic };
+  }
 
-  const reason = signals.knownMalicious
-    ? "Overridden by policy: package has a known malicious-package record."
-    : "Overridden by policy: deterministic rules block this package; the AI cannot downgrade a hard BLOCK.";
+  const reason = floor.decision === "block"
+    ? "Overridden by policy: deterministic rules block this package; the AI cannot downgrade a hard BLOCK."
+    : `Overridden by policy: deterministic rules require ${floor.decision}; the AI cannot downgrade it to ${ai.decision}.`;
   return {
     ...ai,
-    risk: "high",
-    decision: "block",
+    risk: floor.risk,
+    decision: floor.decision,
     recommendedAction: floor.recommendedAction,
-    // Surface the deterministic block reasons alongside the AI's own so the
-    // developer sees exactly why the floor fired.
     reasons: [reason, ...floor.reasons, ...ai.reasons],
     suggestedAlternatives: ai.suggestedAlternatives ?? floor.suggestedAlternatives,
     source: ai.source,

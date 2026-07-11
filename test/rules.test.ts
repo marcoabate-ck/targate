@@ -199,6 +199,25 @@ describe("clampDecision — deterministic BLOCK is a hard floor", () => {
   });
 });
 
+describe("clampDecision — monotonic ordering", () => {
+  it("keeps deterministic allow_with_warnings when AI says allow", () => {
+    const signals = makeSignals({ repositoryMissing: true });
+    expect(clampDecision(aiAllow(), signals).decision).toBe("allow_with_warnings");
+  });
+
+  it("keeps deterministic require_approval when AI says allow", () => {
+    const signals = makeSignals({
+      hasLifecycleScripts: true,
+      lifecycleScripts: { postinstall: "node setup.js" },
+    });
+    const result = clampDecision(aiAllow(), signals);
+    expect(result.decision).toBe("require_approval");
+    expect(result.risk).toBe("medium");
+    expect(result.recommendedAction).toContain("scripts disabled");
+    expect(result.reasons).toContain("AI thinks this is fine");
+  });
+});
+
 describe("clampDecision — deterministic verdict capture (explain AI reasoning)", () => {
   it("attaches the rules verdict when the floor does not block", () => {
     const signals = makeSignals({ hasNativeCode: true });

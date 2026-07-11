@@ -114,6 +114,8 @@ describe("targate install", () => {
     expect(report.decision).toBe("allow");
     expect(report.exitCode).toBe(0);
     expect(report.results[0].name).toBe("left-pad");
+    expect(report.install.status).toBe("skipped");
+    expect(report.install.command).toEqual(["npm", "install", "--ignore-scripts"]);
   });
 
   it("refuses the install (exit 2) when a package in the tree is blocked", async () => {
@@ -137,5 +139,26 @@ describe("targate install", () => {
     expect(code).toBe(2);
     // reset for other tests in the file
     tarballBytes = await buildTarball();
+  });
+
+  it("--json without --yes stays non-interactive and reports a skipped install", async () => {
+    cwd = process.cwd();
+    dir = await fixtureProject();
+    process.chdir(dir);
+    stubNetwork();
+
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((...a) => lines.push(a.join(" ")));
+    const code = await installCommand({
+      json: true,
+      dryRun: false,
+      assumeYes: false,
+      assess: { useAi: false },
+    });
+    spy.mockRestore();
+
+    expect(code).toBe(0);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]).install.status).toBe("skipped");
   });
 });

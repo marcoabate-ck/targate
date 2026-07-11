@@ -2,7 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { execConfigDisabled, isExecConfigFile, loadConfigFile } from "./config-loader.js";
-import type { InstallMode } from "./installer.js";
+import type { ApprovalMode } from "./trust-decision.js";
+import { isApprovalApplicable } from "./trust-decision.js";
 import type { Decision, RiskAssessment, RiskLevel } from "./types.js";
 import { TARGATE_VERSION } from "./version.js";
 
@@ -76,7 +77,7 @@ export interface ApprovalSignature {
 
 export interface ApprovalRecord {
   /** "normal" (scripts allowed) or "no-scripts". */
-  mode: Extract<InstallMode, "normal" | "no-scripts">;
+  mode: ApprovalMode;
   approvedAt: string;
   approvedBy?: string;
   /** Trust history — circumstances of the approval (tool, verdict, policy). */
@@ -124,7 +125,7 @@ function jsonPath(cwd: string): string {
   return path.join(cwd, APPROVALS_DIR, `${APPROVALS_BASENAME}.json`);
 }
 
-function isApprovalsMap(value: unknown): value is ApprovalsMap {
+function isApprovalsMap(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -148,7 +149,11 @@ export async function loadApprovals(cwd: string = process.cwd()): Promise<Approv
     }
     try {
       const doc = await loadConfigFile(file);
-      if (isApprovalsMap(doc)) Object.assign(merged, doc);
+      if (isApprovalsMap(doc)) {
+        for (const [key, record] of Object.entries(doc)) {
+          if (isApprovalApplicable(record)) merged[key] = record as ApprovalRecord;
+        }
+      }
     } catch {
       // A broken approvals source must never crash the analysis — it only
       // means the affected packages will ask for approval again.
@@ -158,7 +163,8 @@ export async function loadApprovals(cwd: string = process.cwd()): Promise<Approv
 }
 
 export function getApproval(approvals: ApprovalsMap, name: string, version: string) {
-  return approvals[`${name}@${version}`] ?? null;
+  const approval = approvals[`${name}@${version}`];
+  return isApprovalApplicable(approval, version) ? approval : null;
 }
 
 export interface RecordApprovalExtras {
@@ -189,7 +195,11 @@ export async function recordApproval(
   if (existsSync(file)) {
     try {
       const doc = JSON.parse(await readFile(file, "utf8"));
-      if (isApprovalsMap(doc)) existing = doc;
+      if (isApprovalsMap(doc)) {
+        existing = Object.fromEntries(
+          Object.entries(doc).filter(([, value]) => isApprovalApplicable(value)),
+        ) as ApprovalsMap;
+      }
     } catch {
       /* unreadable json — rewrite it */
     }
