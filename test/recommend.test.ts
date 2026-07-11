@@ -7,6 +7,7 @@ import { recommendCommand } from "../src/commands/recommend.js";
 import {
   DEFAULT_RECOMMEND_LIMIT,
   MAX_RECOMMEND_LIMIT,
+  mergeCandidates,
   rankRecommendations,
   recommendPackages,
   searchCandidates,
@@ -143,6 +144,7 @@ describe("rankRecommendations", () => {
       name,
       version: "1.0.0",
       weeklyDownloads: weekly,
+      source: "npm-search",
       score: { total: score, categories: [] },
       assessment: {
         risk: "low",
@@ -172,7 +174,13 @@ describe("searchCandidates", () => {
     stubNetwork([{ name: "alpha", weekly: 100 }]);
     const found = await searchCandidates("alpha things", 5);
     expect(found).toEqual([
-      { name: "alpha", version: "1.0.0", description: "alpha does things", weeklyDownloads: 100 },
+      {
+        name: "alpha",
+        version: "1.0.0",
+        description: "alpha does things",
+        weeklyDownloads: 100,
+        source: "npm-search",
+      },
     ]);
   });
 
@@ -245,6 +253,82 @@ describe("recommendPackages", () => {
   });
 });
 
+describe("mergeCandidates", () => {
+  it("dedupes by name and tags overlap as 'both'", () => {
+    const merged = mergeCandidates(
+      [
+        { name: "alpha", weeklyDownloads: 10, source: "npm-search" },
+        { name: "beta", source: "npm-search" },
+      ],
+      ["beta", "gamma"],
+    );
+    expect(merged).toEqual([
+      { name: "alpha", weeklyDownloads: 10, source: "npm-search" },
+      { name: "beta", source: "both" },
+      { name: "gamma", source: "ai" },
+    ]);
+  });
+});
+
+describe("AI-suggested candidates", () => {
+  it("analyzes AI suggestions with the same pipeline and tags sources", async () => {
+    stubNetwork([
+      { name: "good-popular", weekly: 1_000 },
+      { name: "ai-pick", weekly: 50 }, // packument exists; NOT in search results
+    ]);
+    const report = await recommendPackages("padding", {
+      limit: 3,
+      search: async () => [
+        { name: "good-popular", weeklyDownloads: 1_000, source: "npm-search" },
+      ],
+      suggest: async () => ["ai-pick", "good-popular"],
+    });
+    expect(report.aiSuggestions.status).toBe("ok");
+    expect(report.analyzed).toBe(2);
+    const byName = Object.fromEntries(report.recommendations.map((r) => [r.name, r]));
+    expect(byName["good-popular"].source).toBe("both");
+    expect(byName["ai-pick"].source).toBe("ai");
+    // AI-suggested candidates get real scores from the same pipeline.
+    expect(byName["ai-pick"].score.total).toBeGreaterThan(0);
+    expect(byName["ai-pick"].assessment.source).toBe("rules");
+  });
+
+  it("rejects hallucinated AI names via the registry lookup, with a distinct reason", async () => {
+    stubNetwork([{ name: "good-popular", weekly: 1_000 }]);
+    const report = await recommendPackages("padding", {
+      limit: 2,
+      suggest: async () => ["totally-made-up-pkg-xyz"],
+    });
+    const ghost = report.rejected.find((r) => r.name === "totally-made-up-pkg-xyz");
+    expect(ghost?.reason).toContain("does not exist on the npm registry");
+    expect(ghost?.source).toBe("ai");
+    expect(report.recommendations.map((r) => r.name)).toEqual(["good-popular"]);
+  });
+
+  it("an AI failure degrades to search-only, never fatal", async () => {
+    stubNetwork([{ name: "good-popular", weekly: 1_000 }]);
+    const report = await recommendPackages("padding", {
+      limit: 2,
+      suggest: async () => {
+        throw new Error("model exploded");
+      },
+    });
+    expect(report.aiSuggestions.status).toBe("unavailable");
+    expect(report.aiSuggestions.detail).toContain("model exploded");
+    expect(report.recommendations.map((r) => r.name)).toEqual(["good-popular"]);
+  });
+
+  it("skips AI discovery with --no-ai / no provider, stating why", async () => {
+    stubNetwork([{ name: "good-popular", weekly: 1_000 }]);
+    const noAi = await recommendPackages("padding", { limit: 1, assess: { useAi: false } });
+    expect(noAi.aiSuggestions.status).toBe("skipped");
+    expect(noAi.aiSuggestions.detail).toContain("--no-ai");
+
+    const noProvider = await recommendPackages("padding", { limit: 1 });
+    expect(noProvider.aiSuggestions.status).toBe("skipped");
+  });
+});
+
 describe("recommendCommand", () => {
   it("--json prints a single enveloped document", async () => {
     stubNetwork([{ name: "good-popular", weekly: 500 }]);
@@ -257,6 +341,7 @@ describe("recommendCommand", () => {
     expect(doc.command).toBe("recommend");
     expect(doc.query).toBe("padding");
     expect(doc.recommendations[0].name).toBe("good-popular");
+    expect(doc.aiSuggestions.status).toBe("skipped"); // no provider in tests
     expect(doc.exitCode).toBe(0);
   });
 

@@ -16,6 +16,13 @@ export interface AiProvider {
    * falls back to `assess` for any package left without a verdict.
    */
   assessBatch(signalsList: Signals[]): Promise<BatchAssessment[]>;
+  /**
+   * Propose up to `count` npm package names for a free-text need (used by
+   * `targate recommend`). Optional: a provider without it simply contributes
+   * no AI candidates. Suggestions are names ONLY — every one is resolved on
+   * the registry and analyzed deterministically before it can be recommended.
+   */
+  suggestPackages?(need: string, count: number): Promise<string[]>;
 }
 
 export type ProviderName = "anthropic" | "deepseek" | "openai" | "ollama" | "custom";

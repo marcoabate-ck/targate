@@ -1,3 +1,4 @@
+import type { AssessOptions } from "../ai.js";
 import { printJson } from "../json-output.js";
 import { loadPolicy } from "../policy.js";
 import {
@@ -14,6 +15,8 @@ export interface RecommendCommandOptions {
   json: boolean;
   noReputation?: boolean;
   failOnOsvError?: boolean;
+  /** Provider selection for AI candidate suggestions (--no-ai → search-only). */
+  assess?: AssessOptions;
 }
 
 const DECISION_PAINT: Record<Decision, (t: string) => string> = {
@@ -54,6 +57,7 @@ export async function recommendCommand(opts: RecommendCommandOptions): Promise<n
       noReputation: opts.noReputation,
       failOnOsvError: opts.failOnOsvError,
       policy,
+      assess: opts.assess,
       onCandidate: (name, outcome, detail) => {
         if (outcome === "ok") note(dim(`  ✓ ${name} analyzed`));
         else note(yellow(`  ✗ ${name} excluded — ${detail}`));
@@ -70,6 +74,21 @@ export async function recommendCommand(opts: RecommendCommandOptions): Promise<n
   if (opts.json) {
     printJson("recommend", { ...report, exitCode: 0 });
     return 0;
+  }
+
+  const ai = report.aiSuggestions;
+  if (ai.status === "ok") {
+    note(
+      dim(
+        `  ℹ AI suggestions (${[ai.provider, ai.model].filter(Boolean).join("/") || "injected"}): ${
+          ai.names.length > 0 ? ai.names.join(", ") : "none"
+        } — names only; analysis and ranking stay deterministic`,
+      ),
+    );
+  } else if (ai.status === "unavailable") {
+    note(yellow(`  ⚠ AI suggestions unavailable (${ai.detail}) — continuing search-only`));
+  } else {
+    note(dim(`  ℹ AI suggestions skipped (${ai.detail}) — search-only`));
   }
 
   if (report.analyzed === 0) {
@@ -90,6 +109,7 @@ export async function recommendCommand(opts: RecommendCommandOptions): Promise<n
       `score ${r.score.total}/100`,
       formatDownloads(r.weeklyDownloads),
       DECISION_PAINT[r.assessment.decision](r.assessment.decision.replace(/_/g, " ")),
+      dim(r.source === "both" ? "search+AI" : r.source === "ai" ? "AI-suggested" : "npm search"),
     ]
       .filter(Boolean)
       .join(dim("  ·  "));
@@ -112,7 +132,9 @@ export async function recommendCommand(opts: RecommendCommandOptions): Promise<n
   } else {
     const winner = report.recommendations[0];
     console.log(
-      dim("Candidates come from npm search relevance — targate ranks the safety of what search returned; it cannot know every package that could serve the need."),
+      dim(
+        "Discovery is npm search relevance plus optional AI suggestions (names only — every candidate is registry-resolved and deterministically analyzed). targate ranks the safety of what was discovered; it cannot know every package that could serve the need.",
+      ),
     );
     console.log(cyan(`\nNext: targate add ${winner.name}`) + dim(" (gates the actual install)"));
   }

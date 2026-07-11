@@ -98,3 +98,28 @@ export function stripJsonFences(text: string): string {
 export function stripThinkBlocks(text: string): string {
   return text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 }
+
+/** npm package-name shape (scoped or bare) — the hallucination first pass. */
+const NPM_NAME_RE = /^(@[a-z0-9][a-z0-9-_.]*\/)?[a-z0-9][a-z0-9-_.]*$/;
+
+/**
+ * Validate an AI suggestions payload: `{suggestions: string[]}`. Names are
+ * lowercased, shape-checked, and deduped; anything that cannot be an npm name
+ * is dropped here (real existence is checked later by the registry fetch).
+ */
+export function validateSuggestions(raw: unknown, max: number): string[] {
+  if (typeof raw !== "object" || raw === null || !Array.isArray((raw as { suggestions?: unknown }).suggestions)) {
+    throw new Error('AI suggestions response must be {"suggestions": string[]}');
+  }
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const entry of (raw as { suggestions: unknown[] }).suggestions) {
+    if (typeof entry !== "string") continue;
+    const name = entry.trim().toLowerCase();
+    if (!NPM_NAME_RE.test(name) || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+    if (names.length >= max) break;
+  }
+  return names;
+}
