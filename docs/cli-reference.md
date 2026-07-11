@@ -19,8 +19,9 @@ targate explain <package>[@version]     Explain why a package would be allowed o
 targate explain --last                  Explain the most recent add/approve run
                                     (reads .targate/last-run.json — no network)
 targate recommend "<need>"              Suggest packages for a need, safest first
-                                    (npm-search candidates → full deterministic
-                                    analysis → ranked by security score; no AI)
+                                    (npm-search + AI-suggested candidates → full
+                                    deterministic analysis → ranked by security
+                                    score; --no-ai for search-only discovery)
 targate history [<package>[@version]]   Trust history: every recorded approval — who,
                                     when, verdict, policy, AI provider. --verify
                                     checks SSH signatures against the committed
@@ -125,7 +126,7 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 --fail-on-osv-error     Escalate candidates whose OSV lookup failed
 ```
 
-Candidate discovery is npm search relevance; targate ranks the **safety** of what search returned (full pipeline per candidate: quarantine, scripts/contents, OSV, reputation, maintainer intel, security score, rules verdict + team policy). Known-malicious, hard-block, deprecated, and policy-blocked candidates are excluded with the reason shown. Ranking is security score, adoption (weekly downloads) as tie-breaker. Deliberately **no AI** — recommendations are reproducible.
+Candidates come from **two discovery sources, merged and deduped**: npm search relevance, and — when an AI provider is configured — the model, asked to propose exact package names for the need (`--no-ai` for search-only; an AI failure degrades to search-only, visibly, never fatally). The AI contributes **names only**: every candidate, whatever its source, is resolved on the registry (which rejects hallucinated names with a distinct reason) and analyzed with the full deterministic pipeline (quarantine, scripts/contents, OSV, reputation, maintainer intel, security score, rules verdict + team policy). Known-malicious, hard-block, deprecated, and policy-blocked candidates are excluded with the reason shown. Ranking is **fully deterministic** — security score, adoption (weekly downloads) as tie-breaker — the AI cannot boost, demote, or vouch for anything. Each result is tagged with its source (`npm search` / `AI-suggested` / `search+AI`).
 
 ## Options (policy init)
 
@@ -200,7 +201,7 @@ Payload keys per command (in addition to `schemaVersion` + `command`):
 | `monitor` | `packages`, `source` (`{approval, direct, lockfile}` counts), `baseline` (`{created, path, previousUpdatedAt, updated}`), `events[]` (each `{package, kind, severity, detail}`), `errors[]`, `summary`, `exitCode` |
 | `doctor` | `checks[]` (each `{id, label, status, message, durationMs}`), `summary`, `exitCode` |
 | `history` | `package` (filter, or absent), `total`, `allowedSigners` (path, `--verify` only), `entries[]` (each the approval record + `key`/`name`/`version`, optional `context` `{targateVersion, decision, risk, score, source, aiProvider, aiModel, policyFile, policyHash, reasons}`, optional `signature`, optional `verification` `{status, signer, detail}`), `exitCode` |
-| `recommend` | `query`, `analyzed`, `recommendations[]` (ranked; each `{name, version, description, weeklyDownloads, score, assessment, signals}`), `rejected[]` (each `{name, version, reason}`), `exitCode` |
+| `recommend` | `query`, `analyzed`, `recommendations[]` (ranked; each `{name, version, description, weeklyDownloads, source, score, assessment, signals}`), `rejected[]` (each `{name, version, reason, source}`), `aiSuggestions` (`{status: "ok"\|"skipped"\|"unavailable", provider?, model?, names[], detail?}`), `exitCode` |
 | `sandbox` | `spec`, `image`, `networkMode`, `captureRequested`, `timedOut`, `suspicious[]`, `network` (observed `{captureActive, dnsQueries, connections, httpRequests, errors}` or `null`), `log`, `exitCode` |
 | `cache` | `action`, `scope`, plus action-specific keys (`path`/`cleared` or cache stats) |
 

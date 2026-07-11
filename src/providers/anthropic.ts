@@ -3,12 +3,14 @@ import type { RiskAssessment, Signals } from "../types.js";
 import {
   ASSESSMENT_JSON_SCHEMA,
   BATCH_ASSESSMENT_JSON_SCHEMA,
+  SUGGESTIONS_JSON_SCHEMA,
   SYSTEM_PROMPT,
   buildBatchUserPrompt,
+  buildSuggestPrompt,
   buildUserPrompt,
 } from "./prompt.js";
 import type { AiProvider, BatchAssessment } from "./types.js";
-import { validateAssessment, validateBatchAssessment } from "./validate.js";
+import { validateAssessment, validateBatchAssessment, validateSuggestions } from "./validate.js";
 
 const DEFAULT_MODEL = "claude-opus-4-8";
 
@@ -48,6 +50,11 @@ export class AnthropicProvider implements AiProvider {
       maxTokens,
     );
     return validateBatchAssessment(JSON.parse(text));
+  }
+
+  async suggestPackages(need: string, count: number): Promise<string[]> {
+    const text = await this.complete(buildSuggestPrompt(need, count), SUGGESTIONS_JSON_SCHEMA, 2048);
+    return validateSuggestions(JSON.parse(text), count);
   }
 
   private async complete(

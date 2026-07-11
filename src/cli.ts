@@ -45,9 +45,12 @@ Usage:
   targate explain --last                  Explain the most recent add/approve run
                                       (reads .targate/last-run.json, no network)
   targate recommend "<need>"              Suggest packages for a need, safest first:
-                                      npm-search candidates analyzed with the full
-                                      deterministic pipeline, ranked by security
-                                      score (adoption breaks ties). No AI.
+                                      npm-search + AI-suggested candidates (names
+                                      only, hallucinations rejected on registry
+                                      lookup), each analyzed with the full
+                                      deterministic pipeline and ranked by
+                                      security score (adoption breaks ties).
+                                      --no-ai → search-only discovery.
   targate history [<package>[@version]]   Trust history: every recorded approval —
                                       who, when, verdict, policy, AI provider.
                                       --verify checks SSH signatures against
@@ -390,6 +393,7 @@ async function main(): Promise<number> {
         json: values.json,
         noReputation: values["no-reputation"],
         failOnOsvError: values["fail-on-osv-error"],
+        assess,
       });
     }
 

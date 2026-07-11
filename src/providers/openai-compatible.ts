@@ -4,8 +4,10 @@ import {
   SYSTEM_PROMPT,
   batchJsonModeInstruction,
   buildBatchUserPrompt,
+  buildSuggestPrompt,
   buildUserPrompt,
   jsonModeInstruction,
+  suggestJsonModeInstruction,
 } from "./prompt.js";
 import type { AiProvider, BatchAssessment } from "./types.js";
 import {
@@ -13,6 +15,7 @@ import {
   stripThinkBlocks,
   validateAssessment,
   validateBatchAssessment,
+  validateSuggestions,
 } from "./validate.js";
 
 export interface OpenAiCompatibleOptions {
@@ -77,6 +80,14 @@ export class OpenAiCompatibleProvider implements AiProvider {
       buildBatchUserPrompt(signalsList),
     );
     return validateBatchAssessment(parsed);
+  }
+
+  async suggestPackages(need: string, count: number): Promise<string[]> {
+    const parsed = await this.complete(
+      `${SYSTEM_PROMPT}${suggestJsonModeInstruction()}`,
+      buildSuggestPrompt(need, count),
+    );
+    return validateSuggestions(parsed, count);
   }
 
   private async complete(systemContent: string, userContent: string): Promise<unknown> {
