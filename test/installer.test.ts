@@ -51,7 +51,7 @@ describe("buildInstallCommand", () => {
 describe("gateInstall", () => {
   it("never installs blocked packages", async () => {
     const result = await gateInstall("block", "pnpm", "evil-pkg", { assumeYes: true });
-    expect(result.mode).toBe("blocked");
+    expect(result.status).toBe("blocked");
     expect(result.command).toBeUndefined();
   });
 
@@ -59,12 +59,12 @@ describe("gateInstall", () => {
     const result = await gateInstall("require_approval", "pnpm", "some-pkg", {
       assumeYes: true,
     });
-    expect(result.mode).toBe("skipped");
+    expect(result.status).toBe("skipped");
   });
 
   it("skips install on dry-run but reports the command", async () => {
     const result = await gateInstall("allow", "pnpm", "left-pad", { dryRun: true });
-    expect(result.mode).toBe("skipped");
+    expect(result.status).toBe("skipped");
     expect(result.command).toEqual(["pnpm", "add", "left-pad"]);
     expect(result.installed).toBe(false);
   });
@@ -76,7 +76,7 @@ describe("gateInstall", () => {
       dryRun: true,
       ignoreScripts: true,
     });
-    expect(result.mode).toBe("skipped");
+    expect(result.status).toBe("skipped");
     expect(result.command).toEqual(["pnpm", "add", "esbuild@0.27.3", "--ignore-scripts"]);
   });
 
@@ -91,7 +91,7 @@ describe("gateInstall", () => {
       dryRun: true,
       confirmFn: boom,
     });
-    expect(result.mode).toBe("skipped");
+    expect(result.status).toBe("skipped");
     expect(result.command).toEqual(["pnpm", "add", "some-pkg", "--ignore-scripts"]);
     expect(result.installed).toBe(false);
   });
@@ -102,7 +102,7 @@ describe("gateInstall", () => {
       overridable: true,
       confirmFn: boom,
     });
-    expect(result.mode).toBe("skipped");
+    expect(result.status).toBe("skipped");
     expect(result.installed).toBe(false);
   });
 
@@ -111,7 +111,7 @@ describe("gateInstall", () => {
     const result = await gateInstall("require_approval", "pnpm", "some-pkg", {
       confirmFn: no,
     });
-    expect(result.mode).toBe("skipped");
+    expect(result.status).toBe("skipped");
     expect(result.installed).toBe(false);
   });
 
@@ -120,7 +120,7 @@ describe("gateInstall", () => {
       overridable: false,
       confirmFn: boom,
     });
-    expect(result.mode).toBe("blocked");
+    expect(result.status).toBe("blocked");
     expect(result.installed).toBe(false);
   });
 });

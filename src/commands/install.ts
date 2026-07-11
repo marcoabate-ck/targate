@@ -25,6 +25,7 @@ import { createTreeProgress } from "../progress.js";
 import { bold, cyan, dim, green, red, yellow } from "../report.js";
 import { multiSelect } from "../select.js";
 import type { PackageManager } from "../types.js";
+import { recordBuildApproval } from "../pnpm-builds.js";
 
 export interface InstallOptions {
   packageManager?: string;
@@ -126,13 +127,14 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
   );
 
   const flagged = report.results.filter((r) => r.assessment.decision !== "allow");
-  const unresolved = report.results.filter(
-    (r) => r.assessment.decision === "block" || (r.assessment.decision === "require_approval" && !r.approved),
+  const unresolved = report.results.filter((r) =>
+    r.unresolved ??
+    (r.hardBlock === true ||
+      ((r.assessment.decision === "block" || r.assessment.decision === "require_approval") &&
+        !r.approved)),
   );
 
-  if (opts.json) {
-    printJson("install", report);
-  } else {
+  if (!opts.json) {
     note("");
     note(
       bold("Dependency tree review") +
@@ -186,6 +188,11 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
               policyHash,
             }),
           });
+          r.approved = true;
+          r.approvalMode = "no-scripts";
+          r.scriptPolicy = "deny";
+          r.unresolved = false;
+          if (pm === "pnpm") await recordBuildApproval(r.name, "ignored");
         }
         note(
           green(
@@ -198,6 +205,7 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
     }
 
     if (remaining.length > 0) {
+      if (opts.json) printJson("install", { ...report, install: { status: "blocked" as const } });
       note(
         red(
           bold(
@@ -211,27 +219,48 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
     note(green("\nAll flagged packages approved — continuing with the install."));
   }
 
-  const ignoreScripts = !opts.allowScripts;
+  const treeDeniesScripts = report.results.some(
+    (r) => r.scriptPolicy === "deny" || r.approvalMode === "no-scripts",
+  );
+  const ignoreScripts = treeDeniesScripts || !opts.allowScripts;
   const command = buildBootstrapInstallCommand(pm, {
     ignoreScripts,
     frozenLockfile: opts.frozenLockfile,
   });
 
   if (opts.dryRun) {
+    if (opts.json) {
+      printJson("install", {
+        ...report,
+        install: { status: "skipped" as const, command },
+      });
+    }
     note(green(bold("\nTree looks clean.")) + dim(`  recommended command: ${command.join(" ")}`));
     return 0;
   }
 
   const proceed =
     opts.assumeYes ||
-    (await confirm(`\nTree passed review. Run the install (${command.join(" ")})?`, true));
+    (!opts.json && await confirm(`\nTree passed review. Run the install (${command.join(" ")})?`, true));
   if (!proceed) {
+    if (opts.json) printJson("install", { ...report, install: { status: "skipped" as const } });
     note(dim("\nNothing installed."));
     return 0;
   }
 
-  const code = await runCommand(command);
+  let code: number;
+  try {
+    code = await runCommand(command);
+  } catch {
+    code = 1;
+  }
   if (code !== 0) {
+    if (opts.json) {
+      printJson("install", {
+        ...report,
+        install: { status: "failed" as const, command, exitCode: code },
+      });
+    }
     note(red(`\nInstall command exited with code ${code}.`));
     return 1;
   }
@@ -242,6 +271,16 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
         : "\nInstalled.",
     ),
   );
+  if (opts.json) {
+    printJson("install", {
+      ...report,
+      install: {
+        status: "installed" as const,
+        mode: ignoreScripts ? "no-scripts" as const : "normal" as const,
+        command,
+      },
+    });
+  }
   if (ignoreScripts) {
     note(
       dim(

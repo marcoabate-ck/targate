@@ -29,6 +29,7 @@ import {
   type TransitiveResult,
 } from "../transitive.js";
 import type { PackageManager } from "../types.js";
+import { resolvePackageTrust } from "../trust-decision.js";
 
 export interface CheckOptions {
   spec: string;
@@ -148,11 +149,12 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     policy?.policy.dependencyPolicy.requireSignedApprovals,
   );
   const priorApproval = getApproval(approvals, metadata.name, metadata.version);
-  const softBlock = assessment.decision === "block" && !isHardBlock(signals);
+  const rootTrust = resolvePackageTrust(assessment, isHardBlock(signals), priorApproval);
+  const softBlock = assessment.decision === "block" && !rootTrust.hardBlocked;
   // When a prior approval clears the decision, its recorded mode is binding:
   // "no-scripts" means the team cleared the package WITHOUT authorizing its
   // lifecycle scripts — the eventual install must run with --ignore-scripts.
-  let enforceNoScripts = false;
+  let enforceNoScripts = rootTrust.scriptPolicy === "deny";
   if (priorApproval && (assessment.decision === "require_approval" || softBlock)) {
     enforceNoScripts = priorApproval.mode === "no-scripts";
     assessment = {
@@ -216,8 +218,14 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
         };
       };
       for (const r of deepResults) {
-        if (!transitiveNeedsApproval(r)) continue;
         const prior = getApproval(approvals, r.name, r.version);
+        if (prior) {
+          r.approved = true;
+          r.approvalMode = prior.mode;
+          r.scriptPolicy = prior.mode === "no-scripts" ? "deny" : "allow";
+          if (r.scriptPolicy === "deny") enforceNoScripts = true;
+        }
+        if (!transitiveNeedsApproval(r)) continue;
         if (prior) {
           clearTransitive(
             r,
@@ -258,6 +266,11 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
                 policyHash: policy ? await policyFileDigest(policy.file) : undefined,
               }),
             });
+            r.approved = true;
+            r.approvalMode = "no-scripts";
+            r.scriptPolicy = "deny";
+            enforceNoScripts = true;
+            if (pm === "pnpm") await recordBuildApproval(r.name, "ignored");
             clearTransitive(r, `[team] approved now (no-scripts) — recorded in .targate/approvals.json.`);
           }
           note(green(`  ✓ approved ${picked.length} transitive package(s) (no-scripts)`));
@@ -271,9 +284,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   // `targate explain --last` can explain it without re-analyzing. Best-effort.
   await writeLastRun("add", [{ metadata, signals, assessment, score }]);
 
-  if (opts.json) {
-    printJson("add", { metadata, signals, assessment, score, deep: deepResults });
-  } else {
+  if (!opts.json) {
     console.log(renderReport(metadata, signals, assessment, score));
     if (deepResults) {
       const flagged = deepResults.filter((r) => r.assessment.decision !== "allow");
@@ -311,7 +322,11 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     confirmFn: opts.json ? async () => false : undefined,
   });
 
-  switch (result.mode) {
+  if (opts.json) {
+    printJson("add", { metadata, signals, assessment, score, deep: deepResults, install: result });
+  }
+
+  switch (result.status) {
     case "blocked":
       note(red(bold("\nInstallation blocked. This package was not installed.")));
       return 2;
@@ -329,8 +344,10 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
         );
       }
       return 0;
-    case "no-scripts":
-    case "normal": {
+    case "failed":
+      note(red(`\nInstall command failed (${result.command.join(" ")}) with exit code ${result.exitCode}.`));
+      return 1;
+    case "installed": {
       // These modes are only reached on a REAL install (dry-run never prompts
       // and never reaches here — it returns "skipped").
       note(

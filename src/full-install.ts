@@ -9,7 +9,13 @@ import type { AssessOptions } from "./ai.js";
 import { extractLockfileEntries, lockfileName, snapshotLockfile } from "./lockfile.js";
 import type { LoadedPolicy } from "./policy.js";
 import { analyzeTransitiveDeps, type TreePackage, type TransitiveResult } from "./transitive.js";
-import { DECISION_SEVERITY, type Decision, type PackageManager } from "./types.js";
+import type { Decision, PackageManager } from "./types.js";
+import {
+  aggregateTreeTrust,
+  resolvePackageTrust,
+  type ApprovalMode,
+  type ScriptPolicy,
+} from "./trust-decision.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -96,8 +102,11 @@ export async function resolveProjectTree(
 }
 
 export interface InstallVetResult extends TransitiveResult {
-  /** True when a require_approval/blocked package is in the committed approvals. */
+  /** True when an applicable committed approval exists and no hard block invalidates it. */
   approved: boolean;
+  approvalMode?: ApprovalMode;
+  scriptPolicy: ScriptPolicy;
+  unresolved: boolean;
 }
 
 /**
@@ -111,21 +120,21 @@ export function aggregateInstallDecision(results: InstallVetResult[]): {
   decision: Decision;
   exitCode: number;
 } {
-  let decision: Decision = "allow";
-  let exitCode = 0;
-  for (const r of results) {
-    if (DECISION_SEVERITY[r.assessment.decision] > DECISION_SEVERITY[decision]) {
-      decision = r.assessment.decision;
-    }
-    if (
-      r.hardBlock ||
-      ((r.assessment.decision === "block" || r.assessment.decision === "require_approval") &&
-        !r.approved)
-    ) {
-      exitCode = 2;
-    }
-  }
-  return { decision, exitCode };
+  const aggregate = aggregateTreeTrust(
+    results.map((r) => ({
+      decision: r.assessment.decision,
+      hardBlocked: r.hardBlock === true,
+      unresolved:
+        r.unresolved ??
+        (r.hardBlock === true ||
+          ((r.assessment.decision === "block" || r.assessment.decision === "require_approval") &&
+            !r.approved)),
+      approved: r.approved,
+      scriptPolicy: r.scriptPolicy ?? (r.approvalMode === "no-scripts" ? "deny" : "allow"),
+      reasons: [...r.assessment.reasons],
+    })),
+  );
+  return { decision: aggregate.decision, exitCode: aggregate.unresolved ? 2 : 0 };
 }
 
 export interface InstallReport {
@@ -170,15 +179,29 @@ export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport
     noReputation: opts.noReputation,
     onProgress: opts.onProgress,
     onResult: (r, i, total) => {
-      const approved = getApproval(opts.approvals, r.name, r.version) !== null;
-      opts.onResult?.({ ...r, approved }, i, total);
+      const approval = getApproval(opts.approvals, r.name, r.version);
+      const trust = resolvePackageTrust(r.assessment, r.hardBlock === true, approval);
+      opts.onResult?.({
+        ...r,
+        approved: trust.approved,
+        approvalMode: trust.approved ? approval?.mode : undefined,
+        scriptPolicy: trust.scriptPolicy,
+        unresolved: trust.unresolved,
+      }, i, total);
     },
   });
 
-  const results: InstallVetResult[] = raw.map((r) => ({
-    ...r,
-    approved: getApproval(opts.approvals, r.name, r.version) !== null,
-  }));
+  const results: InstallVetResult[] = raw.map((r) => {
+    const approval = getApproval(opts.approvals, r.name, r.version);
+    const trust = resolvePackageTrust(r.assessment, r.hardBlock === true, approval);
+    return {
+      ...r,
+      approved: trust.approved,
+      approvalMode: trust.approved ? approval?.mode : undefined,
+      scriptPolicy: trust.scriptPolicy,
+      unresolved: trust.unresolved,
+    };
+  });
   const { decision, exitCode } = aggregateInstallDecision(results);
 
   return {

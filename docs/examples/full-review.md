@@ -4,7 +4,7 @@ A plain `npm install <pkg>` resolves the package and **runs its lifecycle script
 
 The runs below are real `targate` output (rules engine only, `--no-ai`, `--dry-run` so nothing is installed). Your version numbers and day counts will differ as packages and advisories move.
 
-> The examples use `--no-ai` so the output is fully deterministic and reproducible. With an AI provider configured (`source: ai`), the model weighs the same signals contextually; a deterministic BLOCK is still a hard floor it can never downgrade. See [Decision policy](../decisions.md).
+> The examples use `--no-ai` so the output is fully deterministic and reproducible. With an AI provider configured (`source: ai`), the model weighs the same signals contextually, but every deterministic verdict remains a floor it can never downgrade. See [Decision policy](../decisions.md).
 
 ## 1. A clean package → ALLOW
 

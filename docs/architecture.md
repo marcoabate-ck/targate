@@ -71,7 +71,7 @@ That's the whole probabilistic surface. It exists to catch *combinations* of sig
 - Explain its reasoning in the report (`source: ai`).
 
 **Cannot:**
-- **Downgrade a deterministic BLOCK.** A jailbroken, prompt-injected, or simply wrong model cannot turn a rules-engine BLOCK into an allow — the clamp overrides it. See [Decision policy](decisions.md).
+- **Downgrade any deterministic verdict.** A jailbroken, prompt-injected, or simply wrong model cannot turn `allow_with_warnings`, `require_approval`, or `block` into a weaker result — the clamp overrides it. See [Decision policy](decisions.md).
 - Run any package code (there is no execution stage before the decision).
 - Reach a decision when a provider is misconfigured or fails — targate falls back to the rules engine and notes it.
 

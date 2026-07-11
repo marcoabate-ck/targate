@@ -117,6 +117,7 @@ describe("targate add --json emits only JSON on stdout (agent contract)", () => 
       "assessment",
       "command",
       "deep",
+      "install",
       "metadata",
       "schemaVersion",
       "score",
@@ -127,6 +128,7 @@ describe("targate add --json emits only JSON on stdout (agent contract)", () => 
     expect(parsed.assessment.decision).toBe("allow");
     expect(parsed.score.total).toBeGreaterThan(0);
     expect(parsed.deep).toBeNull();
+    expect(parsed.install.status).toBe("skipped");
 
     // The run is recorded for `targate explain --last` (best-effort side effect).
     const lastRun = JSON.parse(await readFile(path.join(dir, ".targate", "last-run.json"), "utf8"));

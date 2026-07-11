@@ -363,9 +363,9 @@ Payload keys per command (in addition to `schemaVersion` + `command`):
 
 | `command` | Payload keys |
 |---|---|
-| `add` | `metadata`, `signals`, `assessment`, `score`, `deep` (per-package results of a `--deep` run, else `null`) |
+| `add` | `metadata`, `signals`, `assessment`, `score`, `deep` (per-package results of a `--deep` run, else `null`), `install` (`installed` / `skipped` / `blocked` / `failed`, with command and child exit code when applicable) |
 | `approve` | `metadata`, `signals`, `assessment`, `score`, `deep`, `outcome` (`hard-blocked` \| `already-allowed` \| `approvable`), `approval` (the recorded entry, or `null`) |
-| `install` | `packageManager`, `source`, `total`, `results[]`, `decision`, `exitCode` |
+| `install` | `packageManager`, `source`, `total`, `results[]`, `decision`, `exitCode`, `install` (`installed` / `skipped` / `blocked` / `failed`, with command and child exit code when applicable) |
 | `ci` | `baseRef`, `changes[]`, `results[]`, `exitCode` |
 | `explain` | `source` (`fresh` \| `last-run`), `originCommand`, `analyzedAt`, `packages[]` (each `{metadata, signals, assessment, score}`) |
 | `diff` | `diff` (a `VersionDiff`: `from`/`to`, per-category changes, `score`, `diffRisk`, `riskReasons`), `failOn`, `exitCode` |

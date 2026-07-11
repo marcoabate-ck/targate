@@ -40,7 +40,7 @@ afterEach(async () => {
 });
 
 describe("trust invariants", () => {
-  it.fails("the AI cannot lower deterministic require_approval to allow", () => {
+  it("the AI cannot lower deterministic require_approval to allow", () => {
     const signals = makeSignals({
       hasLifecycleScripts: true,
       lifecycleScripts: { postinstall: "node setup.js" },
@@ -50,7 +50,7 @@ describe("trust invariants", () => {
     expect(clampDecision(aiAllow(), signals).decision).toBe("require_approval");
   });
 
-  it.fails("a non-zero package-manager exit is an install failure", async () => {
+  it("a non-zero package-manager exit is an install failure", async () => {
     const binDir = await tempDir("targate-fake-pm-");
     const fakePnpm = path.join(binDir, "pnpm");
     await writeFile(fakePnpm, "#!/usr/bin/env node\nprocess.exit(7);\n");
@@ -68,7 +68,7 @@ describe("trust invariants", () => {
     });
   });
 
-  it.fails("malformed approval records are ignored fail-safe", async () => {
+  it("malformed approval records are ignored fail-safe", async () => {
     const dir = await tempDir("targate-invalid-approval-");
     await mkdir(path.join(dir, ".targate"));
     await writeFile(
@@ -84,7 +84,7 @@ describe("trust invariants", () => {
     expect(await loadApprovals(dir)).toEqual({});
   });
 
-  it.fails("full-tree review retains the no-scripts approval mode", async () => {
+  it("full-tree review retains the no-scripts approval mode", async () => {
     const dir = await tempDir("targate-approval-mode-");
     await writeFile(path.join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
     await writeFile(
