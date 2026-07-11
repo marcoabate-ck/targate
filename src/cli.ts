@@ -11,6 +11,7 @@ import { explainCommand } from "./commands/explain.js";
 import { historyCommand } from "./commands/history.js";
 import { installCommand } from "./commands/install.js";
 import { monitorCommand } from "./commands/monitor.js";
+import { recommendCommand } from "./commands/recommend.js";
 import { sandboxCommand } from "./commands/sandbox.js";
 import { initPolicy, POLICY_PRESETS, type PolicyFormat } from "./policy.js";
 import type { SandboxNetwork } from "./sandbox.js";
@@ -43,6 +44,10 @@ Usage:
                                       blocked (analyzes fresh, installs nothing)
   targate explain --last                  Explain the most recent add/approve run
                                       (reads .targate/last-run.json, no network)
+  targate recommend "<need>"              Suggest packages for a need, safest first:
+                                      npm-search candidates analyzed with the full
+                                      deterministic pipeline, ranked by security
+                                      score (adoption breaks ties). No AI.
   targate history [<package>[@version]]   Trust history: every recorded approval —
                                       who, when, verdict, policy, AI provider.
                                       --verify checks SSH signatures against
@@ -96,6 +101,8 @@ Options (add & ci):
   --frozen-lockfile       (install) Immutable install (npm ci / --frozen-lockfile)
   --allow-scripts         (install) Run lifecycle scripts (default: disabled)
                           (approve) Record the approval as scripts-allowed
+  --limit <n>             (recommend) Candidates to analyze (default: 5, max: 15;
+                          each costs a real tarball download + analysis)
   --sign                  (approve) Sign the approval entry with your SSH key
                           (TARGATE_SIGNING_KEY, git user.signingkey, or
                           ~/.ssh/id_*) so it verifies against the committed
@@ -173,6 +180,7 @@ async function main(): Promise<number> {
       sign: { type: "boolean", default: false },
       verify: { type: "boolean", default: false },
       preset: { type: "string" },
+      limit: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -362,6 +370,26 @@ async function main(): Promise<number> {
         noReputation: values["no-reputation"],
         concurrency,
         assess,
+      });
+    }
+
+    case "recommend": {
+      if (!rest[0]) {
+        console.error(red('Usage: targate recommend "<need>" [--limit <n>]'));
+        return 1;
+      }
+      const parsedLimit = Number(values.limit);
+      if (values.limit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit <= 0)) {
+        console.error(red(`Invalid --limit: ${values.limit}. Use a positive integer.`));
+        return 1;
+      }
+      return recommendCommand({
+        // Unquoted multi-word needs arrive as several positionals — join them.
+        query: rest.join(" "),
+        limit: values.limit !== undefined ? parsedLimit : undefined,
+        json: values.json,
+        noReputation: values["no-reputation"],
+        failOnOsvError: values["fail-on-osv-error"],
       });
     }
 

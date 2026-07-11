@@ -38,7 +38,7 @@ Turn targate into something teams and companies can standardize on.
 Reach, discoverability, and long-term value.
 
 - [ ] **Dependency graph** — visualize risk across the dependency tree (text now; later SVG/HTML, CI artifacts, monorepo/workspace views, high-risk and lifecycle-script filters).
-- [ ] **Recommend & alternatives** — `targate recommend "<need>"`: suggest safer packages for a need, with scores and reasons, turning targate from a gatekeeper into a dependency advisor. (After scoring, reputation, and explainability land.)
+- [x] **Recommend & alternatives** — `targate recommend "<need>"`: npm-search candidates analyzed with the **full deterministic pipeline** (quarantine, scripts/contents, OSV, reputation, maintainer intel, security score, rules verdict + team policy), ranked safest-first (score, adoption tie-break); malicious / hard-block / deprecated / policy-blocked candidates excluded with reasons. Deliberately no AI — recommendations are reproducible. *(Candidate discovery is npm search relevance; targate ranks the safety of what search returned.)*
 - [ ] **VS Code extension** — in-editor warnings on new `package.json` deps, hover scores, a "Review with targate" command, and repo-policy integration. (Depends on stable JSON output.)
 
 ---

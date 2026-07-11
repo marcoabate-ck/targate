@@ -25,7 +25,8 @@ export type JsonCommand =
   | "diff"
   | "monitor"
   | "sandbox"
-  | "history";
+  | "history"
+  | "recommend";
 
 /** Payload keys may not collide with envelope keys — enforced at the type level. */
 type EnvelopeSafe = object & { schemaVersion?: never; command?: never };

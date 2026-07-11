@@ -18,6 +18,9 @@ targate explain <package>[@version]     Explain why a package would be allowed o
                                     (analyzes fresh; installs nothing, records nothing)
 targate explain --last                  Explain the most recent add/approve run
                                     (reads .targate/last-run.json — no network)
+targate recommend "<need>"              Suggest packages for a need, safest first
+                                    (npm-search candidates → full deterministic
+                                    analysis → ranked by security score; no AI)
 targate history [<package>[@version]]   Trust history: every recorded approval — who,
                                     when, verdict, policy, AI provider. --verify
                                     checks SSH signatures against the committed
@@ -45,6 +48,7 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 | `monitor` | nothing — flags risk that rose since a baseline | — |
 | `explain` | nothing — explains a verdict (fresh or last run) | — |
 | `history` | nothing — lists the trust history (and verifies signatures) | [Team workflow](team-workflow.md#trust-history--targate-history) |
+| `recommend` | nothing — suggests packages for a need, safest first | — |
 | `doctor` | nothing — diagnoses the environment | — |
 | `policy init` | scaffolds the team policy file (`--preset` for policy packs) | [Team workflow](team-workflow.md#team-policy--targatepolicy) |
 | `cache` | inspect / clear the AI response cache | [AI response cache](ai-cache.md#invalidating-the-cache) |
@@ -112,6 +116,17 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
                         requireSignedApprovals to enforce signatures).
 ```
 
+## Options (recommend)
+
+```
+--limit <n>             Candidates to analyze (default: 5, max: 15 — each costs
+                        a real tarball download + full analysis)
+--no-reputation         Skip external reputation lookups per candidate
+--fail-on-osv-error     Escalate candidates whose OSV lookup failed
+```
+
+Candidate discovery is npm search relevance; targate ranks the **safety** of what search returned (full pipeline per candidate: quarantine, scripts/contents, OSV, reputation, maintainer intel, security score, rules verdict + team policy). Known-malicious, hard-block, deprecated, and policy-blocked candidates are excluded with the reason shown. Ranking is security score, adoption (weekly downloads) as tie-breaker. Deliberately **no AI** — recommendations are reproducible.
+
 ## Options (policy init)
 
 ```
@@ -156,6 +171,7 @@ targate agents init [--format <list>]   Scaffold agent-instruction files (skill,
 - `explain`: `0` on success **regardless of the decision** (it is informational — the gate lives in `add`/`install`/`ci`), `1` on operational errors. Never `2`.
 - `diff`: `0` when the diff risk is below `--fail-on` (default: `low`/`medium`), `2` at or above it (default: `high`), `1` on operational errors (name mismatch, unknown version, not in the lockfile).
 - `history`: `0` on success (an empty history included); with `--verify`, `2` when any signature is invalid or verification errored, `1` on operational errors.
+- `recommend`: `0` on success (even with zero eligible candidates — it is advisory; the gate lives in `add`), `1` when the npm search itself fails. Never `2`.
 - `monitor`: `0` when no risk increased (including a plain first run that only creates the baseline), `2` when any `warn`/`critical` event fired, `1` on operational errors.
 - `sandbox`: `0` clean, `2` on a timeout, suspicious log line, or unexpected network destination, `1` when Docker is unavailable or the install failed with no findings.
 
@@ -184,6 +200,7 @@ Payload keys per command (in addition to `schemaVersion` + `command`):
 | `monitor` | `packages`, `source` (`{approval, direct, lockfile}` counts), `baseline` (`{created, path, previousUpdatedAt, updated}`), `events[]` (each `{package, kind, severity, detail}`), `errors[]`, `summary`, `exitCode` |
 | `doctor` | `checks[]` (each `{id, label, status, message, durationMs}`), `summary`, `exitCode` |
 | `history` | `package` (filter, or absent), `total`, `allowedSigners` (path, `--verify` only), `entries[]` (each the approval record + `key`/`name`/`version`, optional `context` `{targateVersion, decision, risk, score, source, aiProvider, aiModel, policyFile, policyHash, reasons}`, optional `signature`, optional `verification` `{status, signer, detail}`), `exitCode` |
+| `recommend` | `query`, `analyzed`, `recommendations[]` (ranked; each `{name, version, description, weeklyDownloads, score, assessment, signals}`), `rejected[]` (each `{name, version, reason}`), `exitCode` |
 | `sandbox` | `spec`, `image`, `networkMode`, `captureRequested`, `timedOut`, `suspicious[]`, `network` (observed `{captureActive, dnsQueries, connections, httpRequests, errors}` or `null`), `log`, `exitCode` |
 | `cache` | `action`, `scope`, plus action-specific keys (`path`/`cleared` or cache stats) |
 
