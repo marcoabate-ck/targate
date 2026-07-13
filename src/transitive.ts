@@ -32,6 +32,8 @@ const DEFAULT_BATCH_SIZE = 8;
 export interface TreePackage {
   name: string;
   version: string;
+  resolved?: string;
+  integrity?: string;
 }
 
 /** Pure part of the resolution: lockfile content -> unique packages, root excluded. */
@@ -98,6 +100,7 @@ export interface TransitiveResult {
   approved?: boolean;
   approvalMode?: ApprovalMode;
   scriptPolicy?: ScriptPolicy;
+  artifact?: Signals["artifact"];
   error?: string;
 }
 
@@ -187,12 +190,16 @@ export async function analyzeTransitiveDeps(
         policy: opts.policy,
         osv: osvFor(pkg),
         noReputation: opts.noReputation,
+        lockedArtifact: pkg,
+        lockfileTrusted: opts.lockfileTrusted,
+        cwd: opts.cwd ?? opts.assess.cwd,
       });
       result = {
         name: pkg.name,
         version: pkg.version,
         assessment: analysis.assessment,
         hardBlock: isHardBlock(analysis.signals),
+        artifact: analysis.signals.artifact,
       };
     } catch (err) {
       result = errorResult(pkg, err instanceof Error ? err.message : String(err));
@@ -231,6 +238,9 @@ async function analyzeTreeBatched(
         osv: osvFor(pkg),
         noReputation: opts.noReputation,
         policy: opts.policy,
+        lockedArtifact: pkg,
+        lockfileTrusted: opts.lockfileTrusted,
+        cwd: opts.cwd ?? opts.assess.cwd,
       });
       result = { pkg, signals, ok: true };
     } catch (err) {
@@ -266,6 +276,7 @@ async function analyzeTreeBatched(
         version: b.pkg.version,
         assessment,
         hardBlock: isHardBlock(b.signals),
+        artifact: b.signals.artifact,
       });
     }),
   );

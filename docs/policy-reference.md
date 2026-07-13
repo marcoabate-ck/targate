@@ -22,6 +22,7 @@ targate.policy.ts   →  .js  →  .mjs  →  .cjs  →  .yaml  →  .yml  →  
 interface PolicyFile {
   dependencyPolicy: DependencyPolicy;   // required
   aiCache?: AiCachePolicy;              // optional — see ai-cache.md
+  registries?: Record<string, { mirrorOf: string }>;
 }
 
 interface DependencyPolicy {
@@ -33,8 +34,19 @@ interface DependencyPolicy {
   allowKnownPackages?: string[];
   blockPackages?: string[];
   requireSignedApprovals?: boolean;
+  requirePublicMirrorVerification?: boolean;
   internalScopes?: string[];
 }
+```
+
+### `registries` fields
+
+Use this mapping when a scoped/private registry is an exact mirror of another registry. Targate fetches the exact version's checksum independently from `mirrorOf` and hard-blocks any divergence. Global `.npmrc` `registry=` overrides default to `https://registry.npmjs.org`; scoped registries require this explicit declaration. Policy `internalScopes` are never compared publicly.
+
+```yaml
+registries:
+  https://packages.example.com:
+    mirrorOf: https://registry.npmjs.org
 ```
 
 ### `dependencyPolicy` fields
@@ -49,6 +61,7 @@ interface DependencyPolicy {
 | `allowKnownPackages` | string[] | `["react", "react-native"]`¹ | Pre-approved names. Clears **soft** (heuristic) blocks to `allow`; **cannot** clear a hard block. |
 | `blockPackages` | string[] | `[]` | Names that are always **blocked**, evaluated before the allow list. |
 | `requireSignedApprovals` | boolean | `false` | Only honor approvals whose SSH signature verifies against the committed `.targate/allowed-signers`; unsigned/invalid entries are ignored (the package asks again). See [signed approvals](team-workflow.md#signed-approvals--targate-approve---sign). |
+| `requirePublicMirrorVerification` | boolean | `false` | A mirrored package whose upstream registry cannot be reached becomes `require_approval` instead of `allow_with_warnings`. Divergence is always a hard block regardless of this setting. Enabled by the `strict`, `ci`, and `ai-agent` presets. |
 | `internalScopes` | string[] (each starting `@`) | `[]` | Scopes whose package **names must not leak**: OSV, npm downloads, maintainer search and GitHub lookups are skipped, typosquat similarity is not applied, and every skip is shown in the report/score. See [private registries](private-registries.md#internalscopes--name-privacy). |
 
 ¹ Defaults shown are the values `targate policy init` scaffolds. A field you omit from your file simply doesn't apply — there is no hidden default beyond note ².
@@ -74,6 +87,7 @@ dependencyPolicy:
   minPackageAgeDays: 7
   requireApprovalForNativeCode: false
   requireApprovalForLifecycleScripts: true
+  requirePublicMirrorVerification: false
   blockMissingRepositoryForRuntimeDeps: false
   allowKnownPackages: [react, react-native]
   blockPackages: []
@@ -82,6 +96,9 @@ aiCache:
   scope: user
   ttlHours: 24
   exclude: []
+registries:
+  https://packages.example.com:
+    mirrorOf: https://registry.npmjs.org
 ```
 
 ```ts
@@ -117,8 +134,9 @@ targate emits one of four decisions, ordered by strictness (the single source of
 The order in which effects are resolved. Higher entries win over lower ones.
 
 ```text
-1. Hard deterministic block   — known-malicious OSV/OpenSSF record, or a lifecycle
-                                 command that downloads AND executes remote code.
+1. Hard deterministic block   — artifact-identity mismatch, known-malicious
+                                 OSV/OpenSSF record, or a lifecycle command that
+                                 downloads AND executes remote code.
                                  Immune to the AI, the allow list, approvals, and policy.
 2. Team blockPackages         — an explicit block-list entry (evaluated before the allow list).
 3. Team allowKnownPackages    — clears a SOFT block to `allow`; ignored against a hard block.
@@ -143,6 +161,7 @@ The policy is schema-validated on load (a `PolicyError` aborts the run with a cl
 - `minPackageAgeDays` must be a non-negative finite number;
 - `allowKnownPackages` and `blockPackages` must be lists of strings;
 - `aiCache.enabled` boolean, `aiCache.scope` one of `"user"`/`"project"`, `aiCache.ttlHours` a positive number, `aiCache.exclude` a list of strings.
+- every `registries` key and `mirrorOf` value must be an absolute URL.
 
 Invalid YAML/JSON is reported as an `Invalid YAML: …` error rather than silently ignored.
 

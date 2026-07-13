@@ -99,6 +99,16 @@ describe("cacheKey", () => {
     const signals = makeSignals();
     expect(cacheKey({ ...base, signals })).toBe(cacheKey({ ...base, signals }));
   });
+
+  it("always misses when the tarball digest changes even if scanner findings do not", () => {
+    const signals = makeSignals();
+    const changed = makeSignals({
+      artifact: { ...signals.artifact, digest: "sha512-ZGlmZmVyZW50" },
+    });
+    expect(cacheKey({ ...base, signals: changed })).not.toBe(
+      cacheKey({ ...base, signals }),
+    );
+  });
 });
 
 describe("read/write cached assessments", () => {

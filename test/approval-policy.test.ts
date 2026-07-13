@@ -40,6 +40,7 @@ afterEach(async () => {
   process.chdir(originalCwd);
   vi.restoreAllMocks();
   vi.doUnmock("../src/pipeline.js");
+  vi.doUnmock("../src/registry.js");
   vi.doUnmock("../src/transitive.js");
   vi.doUnmock("../src/full-install.js");
   vi.resetModules();
@@ -64,6 +65,11 @@ describe("approval script policy", () => {
 
     const metadata = makeMetadata({ name: "root-package", version: "1.0.0" });
     const signals = makeSignals({ package: "root-package", version: "1.0.0" });
+
+    vi.doMock("../src/registry.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../src/registry.js")>();
+      return { ...actual, fetchPackageMetadata: vi.fn(async () => metadata) };
+    });
 
     vi.doMock("../src/pipeline.js", async (importOriginal) => {
       const actual = await importOriginal<typeof import("../src/pipeline.js")>();

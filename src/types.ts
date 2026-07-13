@@ -171,6 +171,31 @@ export interface ContentFindings {
   installTimeFindings: string[];
 }
 
+/** How strongly the analyzed tarball bytes are bound to an independent identity. */
+export type ArtifactTrust =
+  | "public-equivalent"
+  | "lockfile-verified"
+  | "history-verified"
+  | "registry-consistent"
+  | "private-only"
+  | "unverified"
+  | "public-unavailable"
+  | "mutated";
+
+export interface ArtifactSignal {
+  trust: ArtifactTrust;
+  /** Canonical digest of the bytes targate actually inspected. */
+  digest: string;
+  registryUrl: string;
+  tarballUrl: string;
+  registryIntegrity?: string;
+  lockfileIntegrity?: string;
+  publicIntegrity?: string;
+  historicalIntegrity?: string;
+  publicRegistryUrl?: string;
+  reasons: string[];
+}
+
 export interface RnHardeningSignals {
   podspecFindings: string[];
   gradleFindings: string[];
@@ -183,6 +208,8 @@ export interface RnHardeningSignals {
 export interface Signals {
   package: string;
   version: string;
+  /** Cryptographic identity of the exact tarball inspected by targate. */
+  artifact: ArtifactSignal;
   lifecycleScripts: Record<string, string>;
   hasLifecycleScripts: boolean;
   /** Deterministic findings from inspecting the lifecycle command strings. */

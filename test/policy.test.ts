@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyPolicy, parsePolicy, PolicyError, type PolicyFile } from "../src/policy.js";
+import { applyPolicy, artifactMirrorFor, parsePolicy, PolicyError, type PolicyFile } from "../src/policy.js";
 import type { RiskAssessment } from "../src/types.js";
 import { makeSignals } from "./helpers.js";
 
@@ -77,6 +77,42 @@ describe("parsePolicy", () => {
     expect(() => parsePolicy("dependencyPolicy: {}\naiCache:\n  exclude: nope\n")).toThrow(
       PolicyError,
     );
+  });
+
+  it("validates declarative private-registry mirror mappings", () => {
+    const parsed = parsePolicy([
+      "dependencyPolicy: {}",
+      "registries:",
+      "  https://packages.example/:",
+      "    mirrorOf: https://registry.npmjs.org/",
+    ].join("\n"));
+    expect(
+      artifactMirrorFor("https://packages.example", "scope", parsed),
+    ).toBe("https://registry.npmjs.org");
+    expect(() => parsePolicy("dependencyPolicy: {}\nregistries:\n  nope:\n    mirrorOf: npm\n"))
+      .toThrow(PolicyError);
+  });
+
+  it("treats a global registry override as an npm mirror by default", () => {
+    expect(artifactMirrorFor("https://mirror.example", "global")).toBe(
+      "https://registry.npmjs.org",
+    );
+  });
+
+  it("can fail closed when public mirror verification is unavailable", () => {
+    const signals = makeSignals({
+      artifact: {
+        ...makeSignals().artifact,
+        trust: "public-unavailable",
+        reasons: ["public registry offline"],
+      },
+    });
+    const result = applyPolicy(
+      makeAssessment({ decision: "allow_with_warnings", risk: "medium" }),
+      signals,
+      policy({ requirePublicMirrorVerification: true }),
+    );
+    expect(result.decision).toBe("require_approval");
   });
 });
 

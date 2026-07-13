@@ -7,7 +7,7 @@ import { getApproval, loadApprovals } from "./approvals.js";
 import { applySignedApprovalsPolicy } from "./signing.js";
 import type { AssessOptions } from "./ai.js";
 import { detectPackageManager } from "./installer.js";
-import { lockfileVersionIndex, resolveInstalledVersion, snapshotLockfile } from "./lockfile.js";
+import { extractLockfileArtifacts, lockfileName, lockfileVersionIndex, resolveInstalledVersion, snapshotLockfile } from "./lockfile.js";
 import { analyzePackage } from "./pipeline.js";
 import { loadPolicy } from "./policy.js";
 import { isHardBlock } from "./rules.js";
@@ -115,6 +115,11 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
   const pm = detectPackageManager(cwd);
   const lockContent = await snapshotLockfile(pm, cwd);
   const lockIndex = lockContent ? lockfileVersionIndex(pm, lockContent) : null;
+  const lockArtifacts = lockContent ? extractLockfileArtifacts(pm, lockContent) : [];
+  const baseLockContent = await gitShow(baseRef, lockfileName(pm), cwd);
+  const baseLockArtifacts = baseLockContent
+    ? extractLockfileArtifacts(pm, baseLockContent)
+    : [];
   if (!lockIndex) {
     log(`note: no ${pm} lockfile found — analyzing declared version ranges, not resolved versions`);
   }
@@ -141,10 +146,30 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
       `analyzing ${change.name}@${resolved.version || change.range} (${change.kind}, version from ${resolved.source})`,
     );
     try {
+      const lockedArtifact = lockArtifacts.find(
+        (artifact) => artifact.name === change.name && artifact.version === resolved.version,
+      );
+      const baseArtifact = baseLockArtifacts.find(
+        (artifact) => artifact.name === change.name && artifact.version === resolved.version,
+      );
       const { metadata, signals, assessment } = await analyzePackage(
         change.name,
         resolved.version || undefined,
-        { assess, failOnOsvError: opts.failOnOsvError, policy, noReputation: opts.noReputation },
+        {
+          assess,
+          failOnOsvError: opts.failOnOsvError,
+          policy,
+          noReputation: opts.noReputation,
+          cwd,
+          lockedArtifact,
+          // A checksum newly introduced by this PR came from the current
+          // resolution and is not an independent trust anchor. It becomes
+          // trusted only when the base ref already pinned the same artifact.
+          lockfileTrusted: Boolean(
+            lockedArtifact?.integrity &&
+            baseArtifact?.integrity === lockedArtifact.integrity,
+          ),
+        },
       );
 
       // A hard block always fails CI. A soft block or require_approval fails

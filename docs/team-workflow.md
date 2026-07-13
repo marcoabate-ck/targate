@@ -49,6 +49,10 @@ On pnpm projects, an interactive approval also updates `pnpm-workspace.yaml` thr
 
 After every real install, `targate` prints which packages the install actually added to the lockfile (direct + transitive), so surprise transitive dependencies are visible immediately.
 
+## Artifact ledger — `.targate/artifacts.json`
+
+Every successful real `targate add` / `targate install` records the SHA-512 digest of the exact reviewed artifact, keyed by registry origin and `name@version`. Commit `.targate/artifacts.json` to share that historical identity with teammates and CI. A later same-version digest change is a hard block; targate never overwrites the old value and the normal approval flow cannot clear it. The ledger is evidence of prior observation, not proof that a first-seen private artifact was authentic.
+
 ## Team policy — `targate.policy.*`
 
 `targate policy init [--format yaml|json|js|ts]` scaffolds the policy file. Supported formats, first match wins: `targate.policy.{ts,js,mjs,cjs,yaml,yml,json}`. For the complete field-by-field schema, defaults, precedence, and validation rules, see the [Policy reference](policy-reference.md); this section is the workflow-level summary.

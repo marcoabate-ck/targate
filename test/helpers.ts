@@ -36,6 +36,14 @@ export function makeSignals(overrides: Partial<Signals> = {}): Signals {
   return {
     package: "example-package",
     version: "1.0.0",
+    artifact: {
+      trust: "registry-consistent",
+      digest: "sha512-dGVzdA==",
+      registryUrl: "https://registry.npmjs.org",
+      tarballUrl: "https://registry.npmjs.org/example-package/-/example-package-1.0.0.tgz",
+      registryIntegrity: "sha512-dGVzdA==",
+      reasons: ["test fixture"],
+    },
     lifecycleScripts: {},
     hasLifecycleScripts: false,
     scriptCommandFindings: [],

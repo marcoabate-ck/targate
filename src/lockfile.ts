@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import { compareSemver } from "./semver.js";
 import type { PackageManager } from "./types.js";
 
@@ -12,6 +13,106 @@ const LOCKFILES: Record<PackageManager, string> = {
 
 export function lockfileName(pm: PackageManager): string {
   return LOCKFILES[pm];
+}
+
+export interface LockedPackageArtifact {
+  name: string;
+  version: string;
+  resolved?: string;
+  /** Raw tarball SRI (Yarn Berry cache checksums are intentionally excluded). */
+  integrity?: string;
+}
+
+function artifactKey(artifact: LockedPackageArtifact): string {
+  return `${artifact.name}@${artifact.version}`;
+}
+
+function mergeArtifact(
+  artifacts: Map<string, LockedPackageArtifact>,
+  artifact: LockedPackageArtifact,
+): void {
+  const key = artifactKey(artifact);
+  const previous = artifacts.get(key);
+  if (previous?.integrity && artifact.integrity && previous.integrity !== artifact.integrity) {
+    throw new Error(`Lockfile contains conflicting integrity values for ${key}`);
+  }
+  const resolved = artifact.resolved ?? previous?.resolved;
+  const integrity = artifact.integrity ?? previous?.integrity;
+  artifacts.set(key, {
+    name: artifact.name,
+    version: artifact.version,
+    ...(resolved ? { resolved } : {}),
+    ...(integrity ? { integrity } : {}),
+  });
+}
+
+function pnpmIdentity(rawKey: string): { name: string; version: string } | null {
+  const key = rawKey.replace(/^\//, "").replace(/\([^\r\n]*\)$/, "");
+  const at = key.lastIndexOf("@");
+  if (at > 0) return { name: key.slice(0, at), version: key.slice(at + 1) };
+  const legacy = key.match(/^(@[^/]+\/[^/]+|[^/]+)\/([^/]+)$/);
+  return legacy ? { name: legacy[1], version: legacy[2] } : null;
+}
+
+/** Extract exact artifact identities and checksums exposed by each lockfile format. */
+export function extractLockfileArtifacts(
+  pm: PackageManager,
+  content: string,
+): LockedPackageArtifact[] {
+  const artifacts = new Map<string, LockedPackageArtifact>();
+  if (pm === "npm") {
+    try {
+      const doc = JSON.parse(content) as {
+        packages?: Record<string, { version?: string; resolved?: string; integrity?: string }>;
+      };
+      for (const [key, meta] of Object.entries(doc.packages ?? {})) {
+        if (!key || !meta.version) continue;
+        mergeArtifact(artifacts, {
+          name: key.replace(/^.*node_modules\//, ""),
+          version: meta.version,
+          ...(typeof meta.resolved === "string" ? { resolved: meta.resolved } : {}),
+          ...(typeof meta.integrity === "string" ? { integrity: meta.integrity } : {}),
+        });
+      }
+    } catch {
+      return [];
+    }
+  } else if (pm === "pnpm") {
+    try {
+      const doc = parseYaml(content) as {
+        packages?: Record<string, { resolution?: { integrity?: string; tarball?: string } | string }>;
+      };
+      for (const [key, meta] of Object.entries(doc?.packages ?? {})) {
+        const identity = pnpmIdentity(key);
+        if (!identity) continue;
+        const resolution = typeof meta?.resolution === "object" ? meta.resolution : undefined;
+        mergeArtifact(artifacts, {
+          ...identity,
+          ...(typeof resolution?.tarball === "string" ? { resolved: resolution.tarball } : {}),
+          ...(typeof resolution?.integrity === "string" ? { integrity: resolution.integrity } : {}),
+        });
+      }
+    } catch {
+      return [];
+    }
+  } else {
+    for (const block of content.split(/\n\n/)) {
+      const header = block.match(/^"?((?:@[\w.-]+\/)?[\w.-]+)@[^\n]*?:\s*\n/);
+      const version = block.match(/\n\s+version:?\s+["']?([^\s"']+)["']?/);
+      if (!header || !version) continue;
+      const resolved = block.match(/\n\s+(?:resolved|resolution):?\s+["']?([^\s"']+)["']?/);
+      const integrity = block.match(/\n\s+integrity:?\s+([^\s]+)/);
+      mergeArtifact(artifacts, {
+        name: header[1],
+        version: version[1],
+        ...(resolved ? { resolved: resolved[1] } : {}),
+        ...(integrity ? { integrity: integrity[1] } : {}),
+      });
+    }
+  }
+  return [...artifacts.values()].sort(
+    (a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version),
+  );
 }
 
 /**

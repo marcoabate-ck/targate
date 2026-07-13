@@ -6,7 +6,7 @@ Interactive runs cache the AI's assessment so re-reviewing the same dependency (
 provider / model / reasoning flag / name@version / sha256(signals)
 ```
 
-so the same lib checked with a different provider or model is always a fresh call, and any change in the deterministic evidence (a new OSV record, different tarball findings) is a cache miss by construction — a stale "allow" cannot survive new evidence. Two further guarantees:
+so the same lib checked with a different provider or model is always a fresh call. `signals` contains the canonical SHA-512 digest of the exact tarball, so **different bytes are always a cache miss even when both versions produce identical static findings**. A stale "allow" cannot survive a replaced artifact. Two further guarantees:
 
 - **Cached answers are re-clamped on read.** The deterministic BLOCK floor is enforced at decision time, never trusted from disk — a hand-edited or poisoned cache entry cannot bypass it.
 - **CI never uses the cache.** `targate ci` strips cache settings unconditionally; a CI verdict is always a fresh assessment.
@@ -29,7 +29,7 @@ With `scope: project` the cache lives in the repo's `.targate/` directory — ad
 Most invalidation is automatic:
 
 - **TTL** — entries older than `ttlHours` (default 24) are ignored and pruned on the next write.
-- **Evidence change** — because the key includes `sha256(signals)` and `provider/model/reasoning`, a new OSV record, different tarball contents, or a different model is a **cache miss by construction**. A genuinely-changed package re-invalidates itself.
+- **Evidence change** — because the key includes `sha256(signals)` (including `signals.artifact.digest`) and `provider/model/reasoning`, a new OSV record, any tarball-byte change, or a different model is a **cache miss by construction**.
 
 To force it explicitly:
 

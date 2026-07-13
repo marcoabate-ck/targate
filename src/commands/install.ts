@@ -1,6 +1,7 @@
 import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
 import path from "node:path";
+import { recordArtifactObservations } from "../artifact-ledger.js";
 import {
   buildApprovalContext,
   isCiEnvironment,
@@ -304,6 +305,23 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
     note(red(`\n${reason}`));
     return 1;
   }
+  let artifactLedger: { status: "recorded" | "failed"; reason?: string };
+  try {
+    await recordArtifactObservations(
+      report.results.flatMap((result) =>
+        result.artifact
+          ? [{ name: result.name, version: result.version, artifact: result.artifact }]
+          : [],
+      ),
+      process.cwd(),
+    );
+    artifactLedger = { status: "recorded" };
+  } catch (err) {
+    artifactLedger = {
+      status: "failed",
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
   note(
     green(
       ignoreScripts
@@ -319,7 +337,13 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
         mode: ignoreScripts ? "no-scripts" as const : "normal" as const,
         command,
       },
+      artifactLedger,
     });
+  }
+  if (artifactLedger.status === "failed") {
+    note(yellow(`Artifact identity could not be recorded: ${artifactLedger.reason}`));
+  } else {
+    note(dim("Artifact identities recorded in .targate/artifacts.json."));
   }
   if (ignoreScripts) {
     note(

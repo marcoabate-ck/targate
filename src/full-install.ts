@@ -102,6 +102,7 @@ export interface InstallReport {
   decision: Decision;
   exitCode: number;
   planFingerprint: string;
+  artifactFingerprint: string;
 }
 
 export interface VetInstallOptions {
@@ -143,6 +144,8 @@ export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport
     concurrency: opts.concurrency,
     noAiBatch: opts.noAiBatch,
     noReputation: opts.noReputation,
+    cwd: opts.cwd,
+    lockfileTrusted: plan.source === "existing",
     onProgress: opts.onProgress,
     onResult: (r, i, total) => {
       const approval = getApproval(opts.approvals, r.name, r.version);
@@ -178,5 +181,6 @@ export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport
     decision,
     exitCode,
     planFingerprint: plan.fingerprint,
+    artifactFingerprint: plan.artifactFingerprint,
   };
 }

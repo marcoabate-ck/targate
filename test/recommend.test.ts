@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as tar from "tar";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { recommendCommand } from "../src/commands/recommend.js";
 import {
   DEFAULT_RECOMMEND_LIMIT,
@@ -19,15 +19,14 @@ import { resetReputationCacheForTests } from "../src/reputation.js";
 
 let dir: string;
 let cwd: string;
-let tarballBytes: Buffer;
 
-async function buildTarball(): Promise<Buffer> {
+async function buildTarball(name: string, scripts: Record<string, string> = {}): Promise<Buffer> {
   const work = await mkdtemp(path.join(tmpdir(), "targate-tgz-"));
   try {
     await mkdir(path.join(work, "package"));
     await writeFile(
       path.join(work, "package", "package.json"),
-      JSON.stringify({ name: "candidate", version: "1.0.0" }),
+      JSON.stringify({ name, version: "1.0.0", scripts, dependencies: {} }),
     );
     const file = path.join(work, "p.tgz");
     await tar.c({ gzip: true, cwd: work, file }, ["package"]);
@@ -93,7 +92,10 @@ function stubNetwork(candidates: FakeCandidate[]): void {
         };
       }
       if (url.endsWith(".tgz")) {
-        return { ok: true, status: 200, arrayBuffer: async () => tarballBytes };
+        const name = decodeURIComponent(url.split("/").at(-3) ?? "");
+        const candidate = byName.get(name);
+        const bytes = await buildTarball(name, candidate?.scripts);
+        return { ok: true, status: 200, arrayBuffer: async () => bytes };
       }
       if (url.includes("api.osv.dev")) {
         const body = init?.body ? JSON.parse(String(init.body)) : {};
@@ -118,10 +120,6 @@ function stubNetwork(candidates: FakeCandidate[]): void {
     }),
   );
 }
-
-beforeAll(async () => {
-  tarballBytes = await buildTarball();
-});
 
 beforeEach(async () => {
   cwd = process.cwd();

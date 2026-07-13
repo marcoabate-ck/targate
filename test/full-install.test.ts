@@ -52,7 +52,9 @@ describe("treeFromLockfile", () => {
 
   it("parses pnpm lockfile packages", () => {
     const lock = ["packages:", "", "  left-pad@1.3.0:", "    resolution: {integrity: sha512-x}"].join("\n");
-    expect(treeFromLockfile("pnpm", lock)).toEqual([{ name: "left-pad", version: "1.3.0" }]);
+    expect(treeFromLockfile("pnpm", lock)).toEqual([
+      { name: "left-pad", version: "1.3.0", integrity: "sha512-x" },
+    ]);
   });
 });
 

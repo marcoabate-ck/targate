@@ -30,7 +30,7 @@ flowchart TD
 |---|---|
 | **CLI** | Parses the command (`add`, `approve`, `install`, `sandbox`, `ci`, `policy`, `agents`), flags, and provider selection. |
 | **Package resolver** | Fetches registry metadata: version, repository, maintainers, publish dates, scripts, dependencies. |
-| **Tarball fetcher** | Downloads the tarball and **verifies its checksum** against the registry manifest (`dist.integrity` SRI, falling back to `dist.shasum`) before anything reads it. A mismatch aborts loudly. |
+| **Tarball fetcher** | Downloads the tarball, computes canonical SHA-512, and verifies every available registry, lockfile, public-mirror, and historical checksum before anything can execute. A mismatch becomes a deterministic hard block. |
 | **Quarantine extractor** | Extracts into an isolated temp dir with strict path checking. Contents are only ever *read* — lifecycle scripts are never executed. |
 | **Static analyzer** | Detects lifecycle scripts and inspects their command strings; scans contents for `process.env` / `child_process` / network / `eval` / obfuscation; maps the React Native native surface; checks for typosquatting. |
 | **OSV / OpenSSF lookup** | Queries for known-malicious records (`MAL-*`, GHSA malware) and vulnerability advisories. |

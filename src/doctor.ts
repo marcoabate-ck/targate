@@ -64,6 +64,13 @@ function pingSignals(): Signals {
   return {
     package: "targate-doctor-ping",
     version: "1.0.0",
+    artifact: {
+      trust: "registry-consistent",
+      digest: "sha512-cGluZw==",
+      registryUrl: "https://registry.npmjs.org",
+      tarballUrl: "https://registry.npmjs.org/targate-doctor-ping.tgz",
+      reasons: ["synthetic doctor signal"],
+    },
     lifecycleScripts: {},
     hasLifecycleScripts: false,
     scriptCommandFindings: [],
