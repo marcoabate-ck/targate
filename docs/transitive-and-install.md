@@ -8,7 +8,7 @@
 targate add glob --deep --dry-run
 ```
 
-By default targate analyzes only the package you named. With `--deep` it asks the project's actual package manager (npm, pnpm, or Yarn) to produce a staged manifest and lockfile with lifecycle scripts disabled. It analyzes **every unique `name@version` from that exact lockfile**, applies the reviewed files only after the gate passes, and installs in frozen/immutable mode. The final lockfile fingerprint must match the reviewed plan, so installation cannot silently resolve a different transitive version.
+By default targate analyzes only the package you named. With `--deep` it asks the project's actual package manager (npm, pnpm, or Yarn) to produce a staged manifest and lockfile with lifecycle scripts disabled. It analyzes **every unique `name@version` from that exact lockfile**, including the lockfile's tarball URL/integrity where the format exposes them, applies the reviewed files only after the gate passes, and installs in frozen/immutable mode. Both the lockfile and canonical artifact-list fingerprints must match the reviewed plan, so installation cannot silently resolve a different version or tarball identity.
 
 The final decision is the **strictest verdict across the whole tree**: a blocked transitive dependency blocks the install exactly like a blocked root; a `require_approval` anywhere in the tree escalates the run. Flagged packages are listed in the reasons (`--json` includes the full per-package results under `deep`).
 
@@ -41,6 +41,7 @@ What it does:
 1. **Builds an immutable install plan.** A committed lockfile is reviewed as-is. `--update-lockfile` asks the project's actual package manager to produce a staged update with scripts disabled; the working tree is untouched until review passes. Without a lockfile, this explicit flag is required.
 2. **Vets every unique `name@version`** through the same pipeline as `--deep` (quarantine, OSV, signals, AI/rules, team policy), a few at a time, reusing the [AI response cache](ai-cache.md).
 3. **Gates the install.** If any package is `block`, or `require_approval` and not in the committed `.targate/approvals.json`, targate **refuses** and exits `2`. Otherwise it applies the reviewed staged files when needed and runs npm `ci` or pnpm/Yarn with `--frozen-lockfile`.
+4. **Records installed identities.** After a successful real install, targate writes the observed SHA-512 values to `.targate/artifacts.json`. Commit this ledger to detect same-version replacement across machines and CI; targate refuses to overwrite a conflicting historical digest.
 4. **Scripts off by default.** The actual install runs with `--ignore-scripts`. `--allow-scripts` can enable them only when the reviewed tree contains no binding `no-scripts` approval; one such approval keeps scripts disabled globally. On pnpm, picker approvals also update `ignoredBuiltDependencies` (see [Team workflow](team-workflow.md#pnpm-approve-builds-integration)).
 
 5. **Verifies the result.** The final lockfile SHA-256 fingerprint must equal the reviewed plan. Changes during review or installation fail with exit `1` and require a new review.

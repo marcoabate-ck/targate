@@ -5,6 +5,7 @@ import path from "node:path";
 import { parse, stringify } from "yaml";
 import type { AiCachePolicy } from "./ai-cache.js";
 import { execConfigDisabled, isExecConfigFile, loadConfigFile } from "./config-loader.js";
+import { DEFAULT_REGISTRY } from "./npmrc.js";
 import { isHardBlock } from "./rules.js";
 import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
 
@@ -36,6 +37,8 @@ export interface DependencyPolicy {
    * unverifiable entries are ignored — the affected packages ask again.
    */
   requireSignedApprovals?: boolean;
+  /** Fail closed when an npm mirror cannot be compared with its upstream registry. */
+  requirePublicMirrorVerification?: boolean;
   /**
    * npm scopes (e.g. "@acme") whose packages are internal: external lookups
    * that would leak the package NAME to third parties (OSV, npm downloads,
@@ -50,6 +53,12 @@ export interface PolicyFile {
   dependencyPolicy: DependencyPolicy;
   /** AI response cache options — see AiCachePolicy (src/ai-cache.ts). */
   aiCache?: AiCachePolicy;
+  /** Private registries explicitly declared as mirrors of another registry. */
+  registries?: Record<string, RegistryPolicy>;
+}
+
+export interface RegistryPolicy {
+  mirrorOf: string;
 }
 
 const BOOLEAN_KEYS = [
@@ -58,6 +67,7 @@ const BOOLEAN_KEYS = [
   "requireApprovalForLifecycleScripts",
   "blockMissingRepositoryForRuntimeDeps",
   "requireSignedApprovals",
+  "requirePublicMirrorVerification",
 ] as const;
 
 export class PolicyError extends Error {
@@ -106,7 +116,47 @@ export function validatePolicyObject(doc: unknown, sourceName = POLICY_BASENAME)
     }
   }
 
-  return { dependencyPolicy: policy as DependencyPolicy, aiCache: validateAiCache(doc) };
+  return {
+    dependencyPolicy: policy as DependencyPolicy,
+    aiCache: validateAiCache(doc),
+    registries: validateRegistries(doc),
+  };
+}
+
+function validateRegistries(doc: object): Record<string, RegistryPolicy> | undefined {
+  if (!("registries" in doc)) return undefined;
+  const raw = (doc as { registries: unknown }).registries;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new PolicyError(`"registries" must be a mapping from registry URL to configuration`);
+  }
+  const result: Record<string, RegistryPolicy> = {};
+  for (const [registryUrl, value] of Object.entries(raw)) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new PolicyError(`"registries.${registryUrl}" must be a mapping`);
+    }
+    const mirrorOf = (value as Record<string, unknown>).mirrorOf;
+    try {
+      new URL(registryUrl);
+      if (typeof mirrorOf !== "string") throw new Error();
+      new URL(mirrorOf);
+    } catch {
+      throw new PolicyError(`"registries.${registryUrl}.mirrorOf" must be an absolute URL`);
+    }
+    result[registryUrl.replace(/\/+$/, "")] = { mirrorOf: mirrorOf.replace(/\/+$/, "") };
+  }
+  return result;
+}
+
+/** Global overrides are npm mirrors by convention; scoped registries must opt in. */
+export function artifactMirrorFor(
+  registryUrl: string,
+  source: "scope" | "global" | "default" | undefined,
+  policy?: PolicyFile,
+): string | undefined {
+  const normalized = registryUrl.replace(/\/+$/, "");
+  const explicit = policy?.registries?.[normalized];
+  if (explicit) return explicit.mirrorOf;
+  return source === "global" ? DEFAULT_REGISTRY : undefined;
 }
 
 /** Validate the optional aiCache section of a policy document. */
@@ -260,7 +310,7 @@ export function applyPolicy(
         ...result,
         reasons: [
           ...result.reasons,
-          `[policy] "${signals.package}" is on the allow list, but it matches a HARD block (known-malicious record or remote code execution) that the allow list cannot override.`,
+          `[policy] "${signals.package}" is on the allow list, but it matches a HARD block (artifact mutation, known-malicious record, or remote code execution) that the allow list cannot override.`,
         ],
       };
     }
@@ -299,6 +349,17 @@ export function applyPolicy(
       result,
       "require_approval",
       "Team policy requires approval for lifecycle scripts.",
+    );
+  }
+
+  if (
+    p.requirePublicMirrorVerification &&
+    signals.artifact.trust === "public-unavailable"
+  ) {
+    result = escalate(
+      result,
+      "require_approval",
+      "Team policy requires successful public-registry verification for mirrored packages.",
     );
   }
 
@@ -349,6 +410,7 @@ export const POLICY_PRESETS: Record<string, PolicyPresetDefinition> = {
         requireApprovalForLifecycleScripts: true,
         blockMissingRepositoryForRuntimeDeps: true,
         requireSignedApprovals: true,
+        requirePublicMirrorVerification: true,
         allowKnownPackages: [],
         blockPackages: [],
       },
@@ -381,6 +443,7 @@ export const POLICY_PRESETS: Record<string, PolicyPresetDefinition> = {
         requireApprovalForNativeCode: false,
         requireApprovalForLifecycleScripts: true,
         blockMissingRepositoryForRuntimeDeps: true,
+        requirePublicMirrorVerification: true,
         allowKnownPackages: [],
         blockPackages: [],
       },
@@ -397,6 +460,7 @@ export const POLICY_PRESETS: Record<string, PolicyPresetDefinition> = {
         requireApprovalForNativeCode: true,
         requireApprovalForLifecycleScripts: true,
         blockMissingRepositoryForRuntimeDeps: true,
+        requirePublicMirrorVerification: true,
         allowKnownPackages: [],
         blockPackages: [],
       },

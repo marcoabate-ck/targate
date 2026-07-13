@@ -118,6 +118,20 @@ export function renderReport(
  */
 export function renderSignalLines(signals: Signals): string[] {
   const lines: string[] = [];
+  const artifact = signals.artifact;
+  if (artifact) {
+    const artifactLine = `${artifact.trust} · ${artifact.digest === "unavailable" ? artifact.digest : artifact.digest.slice(0, 27) + "…"}`;
+    lines.push(
+      "  " +
+        (artifact.trust === "mutated"
+          ? red(`! artifact identity MISMATCH — ${artifactLine}`)
+          : ["unverified", "public-unavailable", "private-only"].includes(artifact.trust)
+            ? yellow(`⚠ artifact identity: ${artifactLine}`)
+            : dim(`✓ artifact identity: ${artifactLine}`)),
+    );
+  } else {
+    lines.push("  " + yellow("⚠ artifact identity unavailable (legacy saved run)"));
+  }
   lines.push(
     "  " +
       check(

@@ -6,6 +6,7 @@ import { getApproval, loadApprovals, recordApproval } from "../src/approvals.js"
 import {
   diffLockfiles,
   extractLockfileEntries,
+  extractLockfileArtifacts,
   lockfileVersionIndex,
   resolveInstalledVersion,
 } from "../src/lockfile.js";
@@ -141,6 +142,42 @@ describe("lockfile diff", () => {
   it("parses unquoted Yarn Berry version fields", () => {
     const lock = 'left-pad@npm:^1.0.0:\n  version: 1.3.0\n  resolution: "left-pad@npm:1.3.0"\n';
     expect([...extractLockfileEntries("yarn", lock)]).toEqual(["left-pad@1.3.0"]);
+  });
+
+  it("extracts npm and pnpm artifact integrity for immutable review", () => {
+    const npm = JSON.stringify({
+      packages: {
+        "node_modules/pkg": {
+          version: "1.0.0",
+          resolved: "https://mirror/pkg.tgz",
+          integrity: "sha512-npm",
+        },
+      },
+    });
+    expect(extractLockfileArtifacts("npm", npm)).toEqual([
+      {
+        name: "pkg",
+        version: "1.0.0",
+        resolved: "https://mirror/pkg.tgz",
+        integrity: "sha512-npm",
+      },
+    ]);
+    const pnpm = "packages:\n  pkg@1.0.0:\n    resolution: {integrity: sha512-pnpm, tarball: https://mirror/pkg.tgz}\n";
+    expect(extractLockfileArtifacts("pnpm", pnpm)).toEqual([
+      {
+        name: "pkg",
+        version: "1.0.0",
+        resolved: "https://mirror/pkg.tgz",
+        integrity: "sha512-pnpm",
+      },
+    ]);
+  });
+
+  it("does not mistake a Yarn Berry cache checksum for tarball SRI", () => {
+    const lock = 'pkg@npm:^1.0.0:\n  version: 1.0.0\n  resolution: "pkg@npm:1.0.0"\n  checksum: 10c0/abc\n';
+    expect(extractLockfileArtifacts("yarn", lock)).toEqual([
+      { name: "pkg", version: "1.0.0", resolved: "pkg@npm:1.0.0" },
+    ]);
   });
 
   it("diffs before/after snapshots", () => {

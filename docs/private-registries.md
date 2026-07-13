@@ -2,6 +2,33 @@
 
 targate reads the same `.npmrc` configuration npm does, so packages served by a private registry — GitHub Packages, Verdaccio, Artifactory, an npmjs mirror, or npm's own private scoped packages — are analyzed exactly like public ones: metadata and tarball come from *your* registry, authenticated with *your* credentials, and the analysis itself (quarantine, scripts, contents, native surface) is unchanged.
 
+## Public-mirror integrity
+
+A global `registry=` override is treated as a mirror of npm public. For every exact `name@version`, targate anonymously fetches the checksum directly from `registry.npmjs.org` and verifies the private tarball three ways:
+
+```text
+downloaded private tarball == private-registry checksum == npm-public checksum
+```
+
+This detects a compromised mirror that rewrites both its cached tarball and its packument, including on the first installation. Private credentials are never sent to the public endpoint. A mismatch is a deterministic hard block and cannot be cleared by an approval or allow list.
+
+Targate analyzes lifecycle scripts and dependency declarations from the `package.json` inside the verified tarball, then compares those critical fields with the private packument. A mirror that serves the original public bytes but removes `postinstall` from its metadata is therefore blocked too.
+
+Scoped registries are assumed private unless declared as mirrors:
+
+```yaml
+# targate.policy.yaml
+dependencyPolicy:
+  internalScopes: ["@acme-internal"]
+registries:
+  https://npm.acme.example:
+    mirrorOf: https://registry.npmjs.org
+```
+
+`internalScopes` always wins: those names are never queried publicly, even if their registry is configured as a mirror. If a mirrored package does not exist on npm public, it is reported as `private-only`, not blocked. If public comparison is unavailable, the result is `public-unavailable` rather than falsely verified.
+
+Set `dependencyPolicy.requirePublicMirrorVerification: true` to fail closed: `public-unavailable` then requires human approval. The `strict`, `ci`, and `ai-agent` presets enable it; checksum divergence is always a hard block with or without the option.
+
 ## What is read
 
 The user `~/.npmrc` and the project `.npmrc` are merged (project wins), and three kinds of entries matter:
@@ -37,6 +64,7 @@ targate's external intelligence sources only know **public npmjs packages**, so 
 - A **global override** is treated as a mirror of public packages — every lookup still applies, keyed by the public name.
 - A **scope-mapped registry** hosts packages the npmjs downloads API and maintainer search cannot know — those two are skipped (`status: "skipped"`, shown in the report), while OSV and GitHub still run.
 - Every skip is visible in the report, the score, and the JSON — an unchecked package is never presented as externally verified clean.
+- Artifact trust is also visible as `signals.artifact.trust`; successful real installs record their digest in the committable `.targate/artifacts.json` ledger so a later same-version mutation is blocked.
 
 ## `internalScopes` — name privacy
 

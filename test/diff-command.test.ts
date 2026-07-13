@@ -7,13 +7,16 @@ import { diffCommand } from "../src/commands/diff.js";
 
 let dir: string;
 let cwd: string;
-let tarballBytes: Buffer;
+const tarballs = new Map<string, Buffer>();
 
-async function buildTarball(): Promise<Buffer> {
+async function buildTarball(version: string, scripts: Record<string, string>): Promise<Buffer> {
   const work = await mkdtemp(path.join(tmpdir(), "targate-tgz-"));
   try {
     await mkdir(path.join(work, "package"));
-    await writeFile(path.join(work, "package", "package.json"), JSON.stringify({ name: "widget", version: "x" }));
+    await writeFile(
+      path.join(work, "package", "package.json"),
+      JSON.stringify({ name: "widget", version, scripts, dependencies: {} }),
+    );
     const file = path.join(work, "p.tgz");
     await tar.c({ gzip: true, cwd: work, file }, ["package"]);
     return await readFile(file);
@@ -61,14 +64,18 @@ function stubNetwork(): void {
       if (url.includes("api.npmjs.org/downloads")) return { ok: true, status: 200, json: async () => ({ downloads: [] }) };
       if (url.includes("registry.npmjs.org/-/v1/search")) return { ok: true, status: 200, json: async () => ({ total: 0, objects: [] }) };
       if (url.includes("api.github.com")) return { ok: true, status: 200, headers: new Headers(), json: async () => ({ archived: false }) };
-      if (url.endsWith(".tgz")) return { ok: true, status: 200, arrayBuffer: async () => new Uint8Array(tarballBytes).buffer };
+      if (url.endsWith(".tgz")) {
+        const version = url.includes("2.0.0") ? "2.0.0" : "1.0.0";
+        return { ok: true, status: 200, arrayBuffer: async () => tarballs.get(version)! };
+      }
       return { ok: true, status: 200, json: async () => widgetDoc() };
     }),
   );
 }
 
 beforeAll(async () => {
-  tarballBytes = await buildTarball();
+  tarballs.set("1.0.0", await buildTarball("1.0.0", {}));
+  tarballs.set("2.0.0", await buildTarball("2.0.0", { postinstall: "node install.js" }));
 });
 beforeEach(async () => {
   cwd = process.cwd();

@@ -1,4 +1,4 @@
-import type { PackageMetadata, Signals } from "../types.js";
+import type { ArtifactSignal, PackageMetadata, Signals } from "../types.js";
 import type { OsvResult } from "../osv.js";
 import { deriveReputation, reputationSkipped, type ReputationLookup } from "../reputation.js";
 import { analyzeContent } from "./content.js";
@@ -20,6 +20,8 @@ export async function buildSignals(
     /** Policy internalScopes matched — external checks were skipped and
      *  typosquat similarity does not apply to a private name. */
     internalScope?: boolean;
+    /** Identity of the exact tarball extracted at packageDir. */
+    artifact?: ArtifactSignal;
   } = {},
 ): Promise<Signals> {
   const lifecycleScripts = extractLifecycleScripts(metadata.scripts);
@@ -43,6 +45,13 @@ export async function buildSignals(
   return {
     package: metadata.name,
     version: metadata.version,
+    artifact: options.artifact ?? {
+      trust: "unverified",
+      digest: "unavailable",
+      registryUrl: metadata.registryUrl ?? "unknown",
+      tarballUrl: metadata.tarballUrl,
+      reasons: ["artifact identity was not supplied by the caller"],
+    },
     lifecycleScripts,
     hasLifecycleScripts: Object.keys(lifecycleScripts).length > 0,
     scriptCommandFindings,

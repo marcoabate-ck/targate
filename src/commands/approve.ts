@@ -52,7 +52,7 @@ export type ApproveOutcome = "hard-blocked" | "already-allowed" | "approvable";
 
 /**
  * What `targate approve` can do with an assessment. Pure so it's unit-testable:
- * - a HARD block (known-malicious / remote code execution) can NEVER be
+ * - a HARD block (artifact mutation / known-malicious / remote execution) can NEVER be
  *   approved away — approval refuses it;
  * - an `allow` / `allow_with_warnings` package installs without any approval,
  *   so there is nothing to record;
@@ -244,7 +244,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
       note(
         red(
           bold(
-            `\nCannot approve ${metadata.name}@${metadata.version}: this is a HARD block (known-malicious or remote code execution). It can never be approved.`,
+            `\nCannot approve ${metadata.name}@${metadata.version}: this is a HARD block (artifact mutation, known-malicious record, or remote code execution). It can never be approved.`,
           ),
         ),
       );

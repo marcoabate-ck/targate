@@ -1,4 +1,5 @@
 import { authHeaderForUrl, DEFAULT_REGISTRY, getNpmrc, resolveRegistry } from "./npmrc.js";
+import type { PublicArtifactEvidence } from "./quarantine.js";
 import { highestSemver } from "./semver.js";
 import type { PackageMetadata, RegistryReputation } from "./types.js";
 
@@ -10,6 +11,54 @@ export class PackageNotFoundError extends Error {
         : `Package "${name}" not found on ${registryUrl} (registry resolved from .npmrc)`,
     );
     this.name = "PackageNotFoundError";
+  }
+}
+
+/**
+ * Fetch only the exact-version checksum from an independent registry. This is
+ * intentionally anonymous and bypasses .npmrc so private credentials can
+ * never leak to the public comparison endpoint.
+ */
+export async function fetchArtifactEvidence(
+  name: string,
+  version: string,
+  registryUrl: string = DEFAULT_REGISTRY,
+): Promise<PublicArtifactEvidence> {
+  const base = registryUrl.replace(/\/+$/, "");
+  try {
+    const res = await fetch(`${base}/${encodeURIComponent(name).replace("%40", "@")}`, {
+      headers: { accept: "application/json" },
+    });
+    if (res.status === 404) return { status: "not-found", registryUrl: base };
+    if (!res.ok) {
+      return { status: "unavailable", registryUrl: base, reason: `HTTP ${res.status}` };
+    }
+    const doc = (await res.json()) as { versions?: Record<string, { dist?: Record<string, unknown> }> };
+    const dist = doc.versions?.[version]?.dist;
+    if (!dist) return { status: "not-found", registryUrl: base };
+    const integrity = typeof dist.integrity === "string" ? dist.integrity : undefined;
+    const shasum = typeof dist.shasum === "string" ? dist.shasum : undefined;
+    if (!integrity && !shasum) {
+      return {
+        status: "unavailable",
+        registryUrl: base,
+        reason: "exact version has no published checksum",
+      };
+    }
+    return {
+      status: "available",
+      registryUrl: base,
+      checksums: {
+        integrity,
+        shasum,
+      },
+    };
+  } catch (err) {
+    return {
+      status: "unavailable",
+      registryUrl: base,
+      reason: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

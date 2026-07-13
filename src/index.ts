@@ -7,12 +7,13 @@
  *   const policy: PolicyFile = { dependencyPolicy: { minPackageAgeDays: 7 } };
  *   export default policy;
  */
-export type { DependencyPolicy, PolicyFile } from "./policy.js";
+export type { DependencyPolicy, PolicyFile, RegistryPolicy } from "./policy.js";
 export type { AiCachePolicy } from "./ai-cache.js";
 export type { ApprovalRecord, ApprovalsMap } from "./approvals.js";
-export type { Decision, RiskAssessment, RiskLevel, Signals } from "./types.js";
+export type { ArtifactSignal, ArtifactTrust, Decision, RiskAssessment, RiskLevel, Signals } from "./types.js";
 export type { ScriptPolicy } from "./trust-decision.js";
 export type { InstallPlan, PlanPackageSpec } from "./install-plan.js";
+export type { LockedPackageArtifact } from "./lockfile.js";
 
 import type { PolicyFile } from "./policy.js";
 import type { ApprovalsMap } from "./approvals.js";

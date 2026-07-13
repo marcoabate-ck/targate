@@ -13,6 +13,8 @@ With an AI provider configured, the model weighs the same signals contextually (
 
 Not every BLOCK is equal. A **hard block** can never be overridden — by the AI, the allow list, or an approval:
 
+- downloaded tarball bytes disagree with the reviewed lockfile, public mirror source, registry checksum, or historical artifact ledger;
+
 - a known-malicious OSV/OpenSSF record, or
 - a lifecycle command that **downloads and executes** remote code (`curl … | bash`, `wget … | sh`, `node -e`).
 

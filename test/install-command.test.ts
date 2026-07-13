@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as tar from "tar";
@@ -14,6 +15,9 @@ import { installCommand } from "../src/commands/install.js";
 let dir: string;
 let cwd: string;
 let tarballBytes: Buffer;
+
+const tarballIntegrity = () =>
+  `sha512-${createHash("sha512").update(tarballBytes).digest("base64")}`;
 
 async function buildTarball(scripts: Record<string, string> = {}): Promise<Buffer> {
   const work = await mkdtemp(path.join(tmpdir(), "targate-tgz-"));
@@ -52,7 +56,10 @@ function stubNetwork(scripts: Record<string, string> = {}): void {
               name: "left-pad",
               repository: { url: "https://github.com/x/left-pad" },
               maintainers: [{ name: "x" }],
-              dist: { tarball: "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz" },
+              dist: {
+                tarball: "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz",
+                integrity: tarballIntegrity(),
+              },
               scripts,
               dependencies: {},
             },
@@ -72,7 +79,11 @@ async function fixtureProject(): Promise<string> {
   );
   await writeFile(
     path.join(d, "package-lock.json"),
-    JSON.stringify({ packages: { "node_modules/left-pad": { version: "1.3.0" } } }),
+    JSON.stringify({
+      packages: {
+        "node_modules/left-pad": { version: "1.3.0", integrity: tarballIntegrity() },
+      },
+    }),
   );
   return d;
 }

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as tar from "tar";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { graphCommand, parseOnly } from "../src/commands/graph.js";
 import {
   buildDependencyGraph,
@@ -29,13 +29,21 @@ import { resetReputationCacheForTests } from "../src/reputation.js";
 
 let dir: string;
 let cwd: string;
-let tarballBytes: Buffer;
 
-async function buildTarball(): Promise<Buffer> {
+async function buildTarball(pkg: FakePkg): Promise<Buffer> {
   const work = await mkdtemp(path.join(tmpdir(), "targate-tgz-"));
   try {
     await mkdir(path.join(work, "package"));
-    await writeFile(path.join(work, "package", "package.json"), JSON.stringify({ name: "x", version: "1.0.0" }));
+    await writeFile(
+      path.join(work, "package", "package.json"),
+      JSON.stringify({
+        name: pkg.name,
+        version: pkg.version,
+        scripts: pkg.scripts ?? {},
+        dependencies: pkg.deps ?? {},
+        optionalDependencies: pkg.optionalDeps ?? {},
+      }),
+    );
     const file = path.join(work, "p.tgz");
     await tar.c({ gzip: true, cwd: work, file }, ["package"]);
     return await readFile(file);
@@ -60,7 +68,12 @@ function stubNetwork(pkgs: FakePkg[]): void {
     "fetch",
     vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith(".tgz")) return { ok: true, status: 200, arrayBuffer: async () => tarballBytes };
+      if (url.endsWith(".tgz")) {
+        const name = decodeURIComponent(url.split("/").at(-3) ?? "");
+        const pkg = byName.get(name)!;
+        const bytes = await buildTarball(pkg);
+        return { ok: true, status: 200, arrayBuffer: async () => bytes };
+      }
       if (url.includes("api.osv.dev")) {
         const body = init?.body ? JSON.parse(String(init.body)) : {};
         if (Array.isArray(body.queries)) {
@@ -110,10 +123,6 @@ async function writeLockfile(pkgs: FakePkg[]): Promise<void> {
     JSON.stringify({ name: "demo", lockfileVersion: 3, packages }),
   );
 }
-
-beforeAll(async () => {
-  tarballBytes = await buildTarball();
-});
 
 beforeEach(async () => {
   cwd = process.cwd();

@@ -9,6 +9,7 @@ targate sits at the **install decision point** — the moment a package would ot
 - **Malicious lifecycle scripts** — `preinstall`/`install`/`postinstall`/`prepare`/`prepack`/`postpack` hooks. The command strings and the files they reference are read (never executed); fetch-and-execute patterns (`curl … | bash`, `wget … | sh`, `node -e`) are a **hard block**.
 - **Suspicious install-time behavior** — install-time code that reads `process.env` **and** makes network calls, spawns child processes, or is minified/obfuscated.
 - **Known-malicious packages** — OSV/OpenSSF `MAL-*` and GHSA-malware records (a hard block).
+- **Compromised npm mirrors** — the private tarball is checked against its private metadata and the independently fetched public `name@version` checksum; divergence is a hard block, including on first contact.
 - **Known vulnerabilities** — GHSA/OSV advisories surfaced on the package and version you're about to install.
 - **Typosquatting** — names a short edit-distance away from popular packages, weighted with recency.
 - **Compromised / hijacked releases** — a trusted package shipping a bad *version*: approvals are version-specific, and every run re-checks OSV, so a new release is re-reviewed rather than grandfathered in.
@@ -23,7 +24,7 @@ targate is a **decision aid**, not a malware sandbox or a proof of safety. It de
 
 - **Eliminate all runtime vulnerabilities.** It reviews the install decision, not your application's behaviour once the dependency is running.
 - **Replace a manual security review.** An `allow` means "no high-risk install-time signals," not "audited."
-- **Guarantee a package stays safe.** A package approved today can ship a malicious version tomorrow — which is exactly why approvals are version-pinned and CI re-checks drift.
+- **Guarantee a package stays safe.** A package approved today can ship a malicious new version tomorrow. Same-version byte replacement is detected through lockfile/public/history digests, but a genuinely new version still needs review.
 - **Catch an obfuscated or cleverly hidden payload.** Static detection is heuristic and bypassable (string-splitting, encoding, dynamic dispatch); the content scan is also bounded (skips files > 2 MB, stops after 2000 files/package). A clean static result is not proof of safety.
 - **Cover the whole tree by default.** Only the package you name is analyzed unless you use `--deep` / `targate install`; a clean direct package can still pull a malicious transitive dependency.
 - **Disassemble native binaries.** Pre-built `.xcframework`/`.so`/`.aar` are flagged as unreadable, not inspected.

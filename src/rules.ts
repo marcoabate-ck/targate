@@ -18,6 +18,8 @@ function fetchesAndExecutes(signals: Signals): boolean {
  * or the AI: a known-malicious OSV record, or a lifecycle command that
  * downloads AND executes remote code.
  *
+ * Artifact-identity mismatches are hard blocks too: approvals must never bless
+ * bytes that differ from the reviewed lockfile/public/history evidence.
  * Every other deterministic block is "soft" (heuristic): a strong signal that
  * a human may deliberately clear for a specific package. The classic example
  * is a native-binary installer (esbuild, swc, sharp, playwright…) whose
@@ -27,7 +29,7 @@ function fetchesAndExecutes(signals: Signals): boolean {
  * committed version-pinned approval; hard blocks cannot.
  */
 export function isHardBlock(signals: Signals): boolean {
-  return signals.knownMalicious || fetchesAndExecutes(signals);
+  return signals.artifact.trust === "mutated" || signals.knownMalicious || fetchesAndExecutes(signals);
 }
 
 /**
@@ -39,6 +41,17 @@ export function evaluateRules(signals: Signals): RiskAssessment {
   const reasons: string[] = [];
 
   // ---- BLOCK ----
+  if (signals.artifact.trust === "mutated") {
+    return {
+      risk: "high",
+      decision: "block",
+      summary: `${signals.package}@${signals.version} does not match its trusted artifact identity.`,
+      reasons: signals.artifact.reasons,
+      recommendedAction:
+        "Do not install this artifact. Investigate the registry, lockfile, and artifact history.",
+      source: "rules",
+    };
+  }
   if (signals.knownMalicious) {
     return {
       risk: "high",
@@ -122,6 +135,9 @@ export function evaluateRules(signals: Signals): RiskAssessment {
   if (signals.content.installTimeFindings.length > 0) {
     reasons.push(...signals.content.installTimeFindings);
   }
+  if (signals.artifact.trust === "unverified" && signals.hasNativeCode) {
+    reasons.push("Artifact has native code but no registry, lockfile, public, or historical checksum.");
+  }
 
   if (reasons.length > 0) {
     return {
@@ -178,6 +194,13 @@ export function evaluateRules(signals: Signals): RiskAssessment {
     reasons.push(
       "OSV/OpenSSF lookup was unavailable — a known-malicious record could not be ruled out.",
     );
+  }
+  if (signals.artifact.trust === "unverified") {
+    reasons.push("Artifact bytes have no registry, lockfile, public, or historical checksum.");
+  } else if (signals.artifact.trust === "private-only") {
+    reasons.push("Private artifact has no independently comparable public version.");
+  } else if (signals.artifact.trust === "public-unavailable") {
+    reasons.push("Public-registry comparison was unavailable; mirror equivalence is unknown.");
   }
 
   if (reasons.length > 0) {

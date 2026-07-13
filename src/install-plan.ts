@@ -5,7 +5,7 @@ import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { extractLockfileEntries, lockfileName } from "./lockfile.js";
+import { extractLockfileArtifacts, lockfileName } from "./lockfile.js";
 import type { TreePackage } from "./transitive.js";
 import type { PackageManager } from "./types.js";
 
@@ -24,6 +24,8 @@ export interface InstallPlan {
   manifestContent: string;
   lockfileContent: string;
   packages: TreePackage[];
+  /** Fingerprint of the canonical name/version/URL/integrity artifact list. */
+  artifactFingerprint: string;
   fingerprint: string;
   source: "existing" | "resolved";
   baseManifestFingerprint: string;
@@ -50,16 +52,33 @@ export function packagesFromLockfile(
   root?: PlanPackageSpec,
 ): TreePackage[] {
   const packages: TreePackage[] = [];
-  for (const entry of extractLockfileEntries(pm, content)) {
-    const at = entry.lastIndexOf("@");
-    if (at <= 0) continue;
-    const pkg = { name: entry.slice(0, at), version: entry.slice(at + 1) };
+  for (const artifact of extractLockfileArtifacts(pm, content)) {
+    const pkg: TreePackage = { ...artifact };
     if (root && pkg.name === root.name && pkg.version === root.version) continue;
     packages.push(pkg);
   }
   return packages.sort(
     (a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version),
   );
+}
+
+function artifactFingerprint(packages: TreePackage[]): string {
+  return contentFingerprint(
+    JSON.stringify(
+      packages.map(({ name, version, resolved, integrity }) => ({
+        name,
+        version,
+        resolved: resolved ?? null,
+        integrity: integrity ?? null,
+      })),
+    ),
+  );
+}
+
+function planFingerprint(lockfileContent: string): string {
+  // Artifact URLs and integrity values are bytes inside the lockfile; the
+  // separate artifactFingerprint makes that binding explicit and inspectable.
+  return contentFingerprint(lockfileContent);
 }
 
 export function buildPlanResolveCommand(
@@ -125,12 +144,14 @@ export async function resolveInstallPlan(
   const baseLockfileFingerprint = existingLock ? contentFingerprint(existingLock) : undefined;
 
   if (!opts.root && existingLock && !opts.updateLockfile) {
+    const packages = packagesFromLockfile(opts.packageManager, existingLock);
     return {
       packageManager: opts.packageManager,
       manifestContent,
       lockfileContent: existingLock,
-      packages: packagesFromLockfile(opts.packageManager, existingLock),
-      fingerprint: contentFingerprint(existingLock),
+      packages,
+      artifactFingerprint: artifactFingerprint(packages),
+      fingerprint: planFingerprint(existingLock),
       source: "existing",
       baseManifestFingerprint,
       baseLockfileFingerprint,
@@ -164,13 +185,15 @@ export async function resolveInstallPlan(
     }
     const plannedManifest = await readFile(path.join(staged, "package.json"), "utf8");
     const lockfileContent = await readFile(stagedLockPath, "utf8");
+    const packages = packagesFromLockfile(opts.packageManager, lockfileContent, opts.root);
     return {
       packageManager: opts.packageManager,
       root: opts.root,
       manifestContent: plannedManifest,
       lockfileContent,
-      packages: packagesFromLockfile(opts.packageManager, lockfileContent, opts.root),
-      fingerprint: contentFingerprint(lockfileContent),
+      packages,
+      artifactFingerprint: artifactFingerprint(packages),
+      fingerprint: planFingerprint(lockfileContent),
       source: "resolved",
       baseManifestFingerprint,
       baseLockfileFingerprint,
@@ -211,8 +234,12 @@ export async function verifyInstallPlan(
   const expectedManifest = plan.source === "existing"
     ? plan.baseManifestFingerprint
     : contentFingerprint(plan.manifestContent);
+  if (!existsSync(lockPath)) return false;
+  const currentLock = await readFile(lockPath, "utf8");
+  const currentPackages = packagesFromLockfile(plan.packageManager, currentLock, plan.root);
   return (
-    (await currentFingerprint(lockPath)) === plan.fingerprint &&
+    planFingerprint(currentLock) === plan.fingerprint &&
+    artifactFingerprint(currentPackages) === plan.artifactFingerprint &&
     (await currentFingerprint(manifestPath)) === expectedManifest
   );
 }

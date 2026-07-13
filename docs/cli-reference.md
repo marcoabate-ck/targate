@@ -364,9 +364,9 @@ Payload keys per command (in addition to `schemaVersion` + `command`):
 
 | `command` | Payload keys |
 |---|---|
-| `add` | `metadata`, `signals`, `assessment`, `score`, `deep` (per-package results of a `--deep` run, else `null`), `planFingerprint` (with `--deep`), `install` (`installed` / `skipped` / `blocked` / `failed`, with command and child exit code when applicable) |
+| `add` | `metadata`, `signals`, `assessment`, `score`, `deep` (per-package results of a `--deep` run, else `null`), `planFingerprint` + `artifactFingerprint` (with `--deep`), `install` (`installed` / `skipped` / `blocked` / `failed`, with command and child exit code when applicable), `artifactLedger` after a real install |
 | `approve` | `metadata`, `signals`, `assessment`, `score`, `deep`, `outcome` (`hard-blocked` \| `already-allowed` \| `approvable`), `approval` (the recorded entry, or `null`) |
-| `install` | `packageManager`, `source`, `total`, `results[]`, `decision`, `exitCode`, `planFingerprint`, `install` (`installed` / `skipped` / `blocked` / `failed`, with command and child exit code when applicable) |
+| `install` | `packageManager`, `source`, `total`, `results[]`, `decision`, `exitCode`, `planFingerprint`, `artifactFingerprint`, `install` (`installed` / `skipped` / `blocked` / `failed`, with command and child exit code when applicable), `artifactLedger` after a real install |
 | `ci` | `baseRef`, `changes[]`, `results[]`, `exitCode` |
 | `explain` | `source` (`fresh` \| `last-run`), `originCommand`, `analyzedAt`, `packages[]` (each `{metadata, signals, assessment, score}`) |
 | `diff` | `diff` (a `VersionDiff`: `from`/`to`, per-category changes, `score`, `diffRisk`, `riskReasons`), `failOn`, `exitCode` |
@@ -383,6 +383,7 @@ Key structures worth knowing:
 - **`assessment`** — `{risk, decision, summary, reasons[], recommendedAction, suggestedAlternatives?, source}`; `assessment.decision` is one of `allow`, `allow_with_warnings`, `require_approval`, `block`.
 - **`score`** — `{total (0–100), categories[] (each {name, label, score, max, notes?}), floorReason?}`. Informational: a risk-signal aggregation, never the decision.
 - **`signals.reputation`** — reputational/temporal signals: `versionAgeDays`, `releaseAfterInactivityDays`, `releaseGapAnomaly`, `maintainerCount`, `maintainerChange`, `repositoryMismatch`, `hasProvenance`, `deprecated`, `downloads {status, weeklyDownloads?, trend?}`, `repo {status, archived?}`, and (root-package analyses only) `maintainerIntel {status, maintainers[], truncated, newMaintainerNoTrackRecord[]}`. Lookup `status` values distinguish `ok` from `unavailable`/`rate-limited`/`skipped` — an unknown is never reported as clean.
+- **`signals.artifact`** — identity of the exact tarball inspected: canonical SHA-512 `digest`, registry/tarball URLs, available registry/lockfile/public/historical integrity values, evidence `reasons`, and `trust` (`public-equivalent`, `lockfile-verified`, `history-verified`, `registry-consistent`, `private-only`, `unverified`, `public-unavailable`, or `mutated`). `mutated` is a hard block.
 - **`assessment.deterministic`** — present on AI-sourced assessments: `{decision, risk, reasons}`, the rules engine's own verdict on the same signals (the AI can only make the final decision stricter than this).
 - **`metadata.registryUrl` / `metadata.registrySource`** — which registry served the packument and why (`scope` = a per-scope `.npmrc` rule, `global` = a `registry=` override, `default` = npmjs). See [Private registries](private-registries.md).
 - **`signals.internalScope`** — set when the package matched the policy's `internalScopes`: OSV/downloads/maintainer/GitHub lookups were deliberately skipped and typosquat similarity does not apply.
