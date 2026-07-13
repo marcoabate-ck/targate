@@ -25,7 +25,7 @@ targate is a **decision aid**, not a malware sandbox or a proof of safety. It de
 - **Eliminate all runtime vulnerabilities.** It reviews the install decision, not your application's behaviour once the dependency is running.
 - **Replace a manual security review.** An `allow` means "no high-risk install-time signals," not "audited."
 - **Guarantee a package stays safe.** A package approved today can ship a malicious new version tomorrow. Same-version byte replacement is detected through lockfile/public/history digests, but a genuinely new version still needs review.
-- **Catch an obfuscated or cleverly hidden payload.** Static detection is heuristic and bypassable (string-splitting, encoding, dynamic dispatch); the content scan is also bounded (skips files > 2 MB, stops after 2000 files/package). A clean static result is not proof of safety.
+- **Catch an obfuscated or cleverly hidden payload.** Static detection is heuristic and bypassable (string-splitting, encoding, dynamic dispatch). Traversal and scan time are bounded; crossing a configured budget is visible and approval-required, but a payload that stays within the budget can still evade pattern matching. A clean static result is not proof of safety.
 - **Cover the whole tree by default.** Only the package you name is analyzed unless you use `--deep` / `targate install`; a clean direct package can still pull a malicious transitive dependency.
 - **Disassemble native binaries.** Pre-built `.xcframework`/`.so`/`.aar` are flagged as unreadable, not inspected.
 - **Authenticate approvers.** `approvedBy` comes from `$USER` and is informational — trust comes from reviewing the committed `.targate/approvals.json` diff, not the recorded name.
@@ -34,7 +34,8 @@ targate is a **decision aid**, not a malware sandbox or a proof of safety. It de
 ## Trust boundaries
 
 - **Untrusted, never executed:** package tarball contents and lifecycle scripts. They are checksum-verified, quarantined, and only ever read during analysis.
-- **Repo-controlled, and *does* execute at startup:** `targate.policy.{ts,js,…}` and `.targate/approvals.{ts,js,…}` run via jiti when targate starts — the same class of risk as `eslint.config.js`. In a repo you don't yet trust, set `TARGATE_NO_EXEC_CONFIG=1` so only declarative `.yaml`/`.json` config loads.
+- **Repo-controlled configuration is declarative by default:** `.yaml`/`.json` policy and approval files are parsed, never executed. Legacy `.ts`/`.js` sources are ignored unless a trusted operator explicitly sets `TARGATE_ALLOW_EXEC_CONFIG=1`, which also produces a warning.
+- **Resource exhaustion is bounded, not classified as safe:** slow/oversized responses and pathological archives stop at configured limits and become visible `UNKNOWN` / approval-required results.
 - **The security floor is deterministic.** The rules engine and the hard-block clamp decide first; the AI is advisory and can only make a verdict stricter. See [Architecture](architecture.md#deterministic-vs-probabilistic) and [Decision policy](decisions.md).
 
 ## The full detail

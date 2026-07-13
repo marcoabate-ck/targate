@@ -113,7 +113,10 @@ export async function recordArtifactObservations(
   const artifacts = await loadArtifactLedger(cwd);
   const now = new Date().toISOString();
   for (const observation of observations) {
-    if (observation.artifact.trust === "mutated") continue;
+    if (
+      observation.artifact.trust === "mutated" ||
+      !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(observation.artifact.digest)
+    ) continue;
     const { name, version, artifact } = observation;
     const key = artifactLedgerKey(artifact.registryUrl, name, version);
     const previous = artifacts[key];

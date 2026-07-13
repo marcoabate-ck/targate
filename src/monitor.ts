@@ -12,6 +12,8 @@ import { fetchReputation } from "./reputation.js";
 import { RELEASE_GAP_ANOMALY_DAYS } from "./reputation.js";
 import { compareSemver } from "./semver.js";
 import type { LookupStatus, PackageManager } from "./types.js";
+import { isRecord, isStringArray, isValidIsoTimestamp } from "./persisted-validation.js";
+import type { ResourceLimits } from "./resource-limits.js";
 
 /**
  * `targate monitor` — one-shot risk-evolution check. A package that was safe
@@ -149,6 +151,7 @@ export interface SnapshotOptions {
   concurrency?: number;
   /** Policy internalScopes — these package names are never sent to OSV. */
   internalScopes?: string[];
+  resourceLimits?: ResourceLimits;
 }
 
 /** Build a current snapshot for every target (metadata + OSV + reputation). */
@@ -161,7 +164,7 @@ export async function snapshotTargets(
   let osvMap = new Map<string, OsvResult>();
   const isInternal = (name: string): boolean => isInternalScope(name, opts.internalScopes);
   try {
-    osvMap = await queryOsvBatch(targets.filter((t) => !isInternal(t.name)));
+    osvMap = await queryOsvBatch(targets.filter((t) => !isInternal(t.name)), opts.resourceLimits);
   } catch {
     /* per-target fallback below */
   }
@@ -172,7 +175,7 @@ export async function snapshotTargets(
     opts.concurrency ?? DEFAULT_CONCURRENCY,
     async (t): Promise<MonitorSnapshot | null> => {
       try {
-        const metadata = await fetchPackageMetadata(t.name, t.version);
+        const metadata = await fetchPackageMetadata(t.name, t.version, opts.resourceLimits);
         const osv =
           osvMap.get(`${t.name}@${t.version}`) ??
           (isInternal(t.name) ? osvSkipped() : osvUnavailable());
@@ -182,6 +185,7 @@ export async function snapshotTargets(
               // Packages on a scope-mapped private registry are invisible to
               // the npmjs downloads API.
               skipDownloads: metadata.registrySource === "scope",
+              resourceLimits: opts.resourceLimits,
             });
         const rep = metadata.registryReputation;
         return {
@@ -312,12 +316,58 @@ export async function writeBaseline(snapshots: MonitorSnapshot[], cwd?: string):
 }
 
 /** Read the baseline; null when absent or unusable (caller rebuilds). */
-export async function readBaseline(cwd?: string): Promise<MonitorBaselineFile | null> {
+export async function readBaseline(
+  cwd?: string,
+  warn: (message: string) => void = (message) => console.error(message),
+): Promise<MonitorBaselineFile | null> {
+  const file = baselinePath(cwd);
+  let raw: string;
   try {
-    const parsed = JSON.parse(await readFile(baselinePath(cwd), "utf8")) as MonitorBaselineFile;
-    if (parsed?.schemaVersion !== MONITOR_SCHEMA_VERSION || typeof parsed.snapshots !== "object") return null;
-    return parsed;
+    raw = await readFile(file, "utf8");
   } catch {
     return null;
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    warn(`[targate] ignoring malformed ${file}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+  if (!isRecord(parsed) || parsed.schemaVersion !== MONITOR_SCHEMA_VERSION ||
+      !isValidIsoTimestamp(parsed.updatedAt) || !isRecord(parsed.snapshots)) {
+    warn(`[targate] ignoring malformed ${file}: unsupported schema or invalid baseline`);
+    return null;
+  }
+  const snapshots: Record<string, MonitorSnapshot> = {};
+  for (const [key, value] of Object.entries(parsed.snapshots)) {
+    if (!isValidMonitorSnapshot(value) || key !== `${value.name}@${value.version}`) {
+      warn(`[targate] ignoring invalid monitor snapshot ${file}#${key}`);
+      continue;
+    }
+    snapshots[key] = value;
+  }
+  return { schemaVersion: MONITOR_SCHEMA_VERSION, updatedAt: parsed.updatedAt, snapshots };
+}
+
+function isValidMonitorSnapshot(value: unknown): value is MonitorSnapshot {
+  if (!isRecord(value)) return false;
+  const optionalString = (key: string) => value[key] === undefined || typeof value[key] === "string";
+  const optionalNumber = (key: string) => value[key] === undefined || typeof value[key] === "number";
+  const optionalBoolean = (key: string) => value[key] === undefined || typeof value[key] === "boolean";
+  return (
+    typeof value.name === "string" && typeof value.version === "string" &&
+    typeof value.knownMalicious === "boolean" && isStringArray(value.maliciousIds) &&
+    isStringArray(value.advisoryIds) && typeof value.osvUnavailable === "boolean" &&
+    (value.deprecated === false || typeof value.deprecated === "string") &&
+    typeof value.hasProvenance === "boolean" && isStringArray(value.maintainers) &&
+    optionalString("repositoryUrl") && optionalString("latestVersion") &&
+    optionalString("latestVersionPublishDate") && optionalBoolean("latestHasProvenance") &&
+    ["ok", "unavailable", "skipped"].includes(String(value.downloadsStatus)) &&
+    optionalNumber("weeklyDownloads") &&
+    (value.downloadsTrend === undefined || ["stable", "spike", "drop"].includes(String(value.downloadsTrend))) &&
+    ["ok", "not-github", "not-found", "rate-limited", "unavailable", "skipped"].includes(String(value.repoStatus)) &&
+    optionalBoolean("repoArchived") &&
+    isValidIsoTimestamp(value.capturedAt)
+  );
 }

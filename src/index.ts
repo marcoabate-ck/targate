@@ -9,6 +9,7 @@
  */
 export type { DependencyPolicy, PolicyFile, RegistryPolicy } from "./policy.js";
 export type { AiCachePolicy } from "./ai-cache.js";
+export type { ResourceLimits, ResolvedResourceLimits } from "./resource-limits.js";
 export type { ApprovalRecord, ApprovalsMap } from "./approvals.js";
 export type { ArtifactSignal, ArtifactTrust, Decision, RiskAssessment, RiskLevel, Signals } from "./types.js";
 export type { ScriptPolicy } from "./trust-decision.js";

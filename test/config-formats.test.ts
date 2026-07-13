@@ -1,11 +1,17 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadApprovals, recordApproval } from "../src/approvals.js";
 import { initPolicy, loadPolicy, PolicyError } from "../src/policy.js";
 
 let dir: string;
+
+beforeEach(() => {
+  // Executable formats are migration-only and require explicit consent.
+  vi.stubEnv("TARGATE_ALLOW_EXEC_CONFIG", "1");
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
 
 async function scratch(): Promise<string> {
   dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
@@ -13,6 +19,8 @@ async function scratch(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   if (dir) await rm(dir, { recursive: true, force: true });
 });
 

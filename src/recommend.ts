@@ -7,6 +7,8 @@ import { PackageNotFoundError } from "./registry.js";
 import { computeSecurityScore, type SecurityScore } from "./score.js";
 import { evaluateRules, isHardBlock } from "./rules.js";
 import type { RiskAssessment, Signals } from "./types.js";
+import { fetchWithTimeout, readResponseJson } from "./network.js";
+import { networkBudget, type ResourceLimits } from "./resource-limits.js";
 
 /**
  * `targate recommend "<need>"` — the dependency ADVISOR: instead of gating a
@@ -65,26 +67,28 @@ export class RecommendSearchError extends Error {
 export async function searchCandidates(
   query: string,
   size: number,
+  limits?: ResourceLimits,
 ): Promise<RecommendCandidate[]> {
   const url = `${SEARCH_API}?text=${encodeURIComponent(query)}&size=${size}`;
   let res: Response;
   try {
-    res = await fetch(url, {
+    const budget = networkBudget(limits);
+    res = await fetchWithTimeout(url, {
       headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
-    });
+    }, { ...budget, timeoutMs: limits?.networkTimeoutMs ?? SEARCH_TIMEOUT_MS });
   } catch {
     throw new RecommendSearchError("npm search is unreachable — cannot discover candidates.");
   }
   if (!res.ok) {
     throw new RecommendSearchError(`npm search responded with HTTP ${res.status}.`);
   }
-  const doc = (await res.json()) as {
+  const budget = networkBudget(limits);
+  const doc = await readResponseJson<{
     objects?: {
       package?: { name?: string; version?: string; description?: string };
       downloads?: { weekly?: number };
     }[];
-  };
+  }>(res, budget.maxResponseBytes, "npm search response");
   return (doc.objects ?? [])
     .filter((o) => typeof o.package?.name === "string")
     .map((o) => ({
@@ -243,7 +247,7 @@ export async function recommendPackages(
   // Both discovery sources run concurrently; each contributes up to `limit`
   // names, so the merged set is bounded at 2×limit.
   const [found, aiSuggestions] = await Promise.all([
-    (opts.search ?? searchCandidates)(query, limit),
+    (opts.search ?? searchCandidates)(query, limit, opts.policy?.policy.resourceLimits),
     gatherAiSuggestions(query, limit, opts),
   ]);
   const candidates = mergeCandidates(found.slice(0, limit), aiSuggestions.names);

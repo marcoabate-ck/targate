@@ -64,6 +64,21 @@ describe("parsePolicy", () => {
     expect(parsePolicy("dependencyPolicy: {}").aiCache).toBeUndefined();
   });
 
+  it("validates configurable network, archive, and scan budgets", () => {
+    const parsed = parsePolicy([
+      "dependencyPolicy: {}",
+      "resourceLimits:",
+      "  networkTimeoutMs: 5000",
+      "  maxTarballBytes: 1048576",
+      "  maxScanDuration: 10000",
+    ].join("\n"));
+    expect(parsed.resourceLimits?.maxTarballBytes).toBe(1048576);
+    expect(() => parsePolicy("dependencyPolicy: {}\nresourceLimits:\n  maxFiles: 0\n"))
+      .toThrow(PolicyError);
+    expect(() => parsePolicy("dependencyPolicy: {}\nresourceLimits:\n  surprise: 1\n"))
+      .toThrow(PolicyError);
+  });
+
   it("rejects invalid aiCache values", () => {
     expect(() => parsePolicy("dependencyPolicy: {}\naiCache:\n  scope: global\n")).toThrow(
       PolicyError,
@@ -113,6 +128,20 @@ describe("parsePolicy", () => {
       policy({ requirePublicMirrorVerification: true }),
     );
     expect(result.decision).toBe("require_approval");
+  });
+
+  it("never lets allowKnownPackages clear an incomplete resource-limited analysis", () => {
+    const signals = makeSignals({
+      package: "known-package",
+      analysisDegraded: ["scan-timeout: static analysis exceeded 10ms"],
+    });
+    const result = applyPolicy(
+      makeAssessment({ decision: "require_approval", risk: "medium" }),
+      signals,
+      policy({ allowKnownPackages: ["known-package"] }),
+    );
+    expect(result.decision).toBe("require_approval");
+    expect(result.reasons.join(" ")).toContain("UNKNOWN");
   });
 });
 

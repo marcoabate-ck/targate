@@ -8,6 +8,7 @@ provider / model / reasoning flag / name@version / sha256(signals)
 
 so the same lib checked with a different provider or model is always a fresh call. `signals` contains the canonical SHA-512 digest of the exact tarball, so **different bytes are always a cache miss even when both versions produce identical static findings**. A stale "allow" cannot survive a replaced artifact. Two further guarantees:
 
+- **Entries are runtime-validated.** Invalid timestamps or incomplete/unknown assessment shapes are ignored with a warning containing the cache file and key; persisted JSON is never trusted through a TypeScript cast.
 - **Cached answers are re-clamped on read.** The deterministic BLOCK floor is enforced at decision time, never trusted from disk — a hand-edited or poisoned cache entry cannot bypass it.
 - **CI never uses the cache.** `targate ci` strips cache settings unconditionally; a CI verdict is always a fresh assessment.
 

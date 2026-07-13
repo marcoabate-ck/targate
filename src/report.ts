@@ -118,6 +118,9 @@ export function renderReport(
  */
 export function renderSignalLines(signals: Signals): string[] {
   const lines: string[] = [];
+  for (const reason of signals.analysisDegraded ?? []) {
+    lines.push("  " + yellow(`⚠ analysis incomplete — UNKNOWN: ${reason}`));
+  }
   const artifact = signals.artifact;
   if (artifact) {
     const artifactLine = `${artifact.trust} · ${artifact.digest === "unavailable" ? artifact.digest : artifact.digest.slice(0, 27) + "…"}`;
@@ -179,7 +182,9 @@ export function renderSignalLines(signals: Signals): string[] {
   }
   lines.push(
     "  " +
-      (signals.hasNativeCode
+      (signals.analysisDegraded?.length
+        ? yellow("⚠ native/content inspection incomplete — UNKNOWN")
+        : signals.hasNativeCode
         ? cyan(
             `ℹ native code detected (${[
               signals.nativeSurface.hasIos ? "iOS" : null,
@@ -325,6 +330,9 @@ function renderReputationLines(rep: Signals["reputation"], packageName: string):
  */
 export function residualRisks(signals: Signals): string[] {
   const risks: string[] = [];
+  if (signals.analysisDegraded?.length) {
+    risks.push(`analysis incomplete: ${signals.analysisDegraded.join("; ")}`);
+  }
   if (signals.hasNativeCode) {
     risks.push("native/compiled code cannot be fully vetted by static analysis");
   }

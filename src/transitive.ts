@@ -164,7 +164,9 @@ export async function analyzeTransitiveDeps(
   const queryable = packages.filter((p) => !isInternalScope(p.name, internalScopes));
   let osvMap = new Map<string, OsvResult>();
   try {
-    osvMap = await (opts.osvBatch ?? queryOsvBatch)(queryable);
+    osvMap = opts.osvBatch
+      ? await opts.osvBatch(queryable)
+      : await queryOsvBatch(queryable, opts.policy?.policy.resourceLimits);
   } catch {
     /* per-package fallback */
   }

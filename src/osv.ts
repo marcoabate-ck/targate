@@ -1,5 +1,7 @@
 import { mapLimit } from "./concurrency.js";
 import type { MaliciousRecord } from "./types.js";
+import { fetchWithTimeout, readResponseJson } from "./network.js";
+import { networkBudget, type ResourceLimits } from "./resource-limits.js";
 
 const OSV_API = "https://api.osv.dev/v1/query";
 const OSV_BATCH_API = "https://api.osv.dev/v1/querybatch";
@@ -71,21 +73,22 @@ export function isMaliciousRecord(vuln: {
  * from the malicious-packages database; anything else is a vulnerability
  * advisory.
  */
-export async function queryOsv(name: string, version: string): Promise<OsvResult> {
-  const res = await fetch(OSV_API, {
+export async function queryOsv(name: string, version: string, limits?: ResourceLimits): Promise<OsvResult> {
+  const budget = networkBudget(limits);
+  const res = await fetchWithTimeout(OSV_API, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       package: { name, ecosystem: "npm" },
       version,
     }),
-  });
+  }, budget);
   if (!res.ok) {
     throw new Error(`OSV API responded with ${res.status}`);
   }
-  const data = (await res.json()) as {
+  const data = await readResponseJson<{
     vulns?: Array<{ id: string; summary?: string; details?: string }>;
-  };
+  }>(res, budget.maxResponseBytes, "OSV response");
 
   const maliciousRecords: MaliciousRecord[] = [];
   const advisories: MaliciousRecord[] = [];
@@ -120,15 +123,17 @@ export async function queryOsv(name: string, version: string): Promise<OsvResult
  */
 export async function queryOsvBatch(
   packages: { name: string; version: string }[],
+  limits?: ResourceLimits,
 ): Promise<Map<string, OsvResult>> {
   const out = new Map<string, OsvResult>();
   if (packages.length === 0) return out;
+  const budget = networkBudget(limits);
 
   // 1. Batch query -> vuln IDs per package (aligned by index within a chunk).
   const idsByKey = new Map<string, string[]>();
   for (let i = 0; i < packages.length; i += OSV_BATCH_CHUNK) {
     const chunk = packages.slice(i, i + OSV_BATCH_CHUNK);
-    const res = await fetch(OSV_BATCH_API, {
+    const res = await fetchWithTimeout(OSV_BATCH_API, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -137,11 +142,11 @@ export async function queryOsvBatch(
           version: p.version,
         })),
       }),
-    });
+    }, budget);
     if (!res.ok) throw new Error(`OSV batch API responded with ${res.status}`);
-    const data = (await res.json()) as {
+    const data = await readResponseJson<{
       results?: Array<{ vulns?: Array<{ id: string }> }>;
-    };
+    }>(res, budget.maxResponseBytes, "OSV batch response");
     const results = data.results ?? [];
     chunk.forEach((p, idx) => {
       idsByKey.set(osvKey(p.name, p.version), (results[idx]?.vulns ?? []).map((v) => v.id));
@@ -156,9 +161,11 @@ export async function queryOsvBatch(
   const detail = new Map<string, { malicious: boolean; summary?: string } | "error">();
   await mapLimit([...needDetail], OSV_DETAIL_CONCURRENCY, async (id) => {
     try {
-      const res = await fetch(`${OSV_VULN_API}/${encodeURIComponent(id)}`);
+      const res = await fetchWithTimeout(`${OSV_VULN_API}/${encodeURIComponent(id)}`, {}, budget);
       if (!res.ok) throw new Error(`OSV vuln API responded with ${res.status}`);
-      const vuln = (await res.json()) as { id: string; summary?: string; details?: string };
+      const vuln = await readResponseJson<{ id: string; summary?: string; details?: string }>(
+        res, budget.maxResponseBytes, "OSV vulnerability response",
+      );
       detail.set(id, { malicious: isMaliciousRecord(vuln), summary: vuln.summary });
     } catch {
       detail.set(id, "error");

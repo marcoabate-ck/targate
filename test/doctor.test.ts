@@ -20,6 +20,8 @@ const ENV_KEYS = [
   "GITHUB_TOKEN",
   "GH_TOKEN",
   "CI",
+  "TARGATE_ALLOW_EXEC_CONFIG",
+  "TARGATE_NO_EXEC_CONFIG",
 ];
 
 let dir: string;
@@ -170,6 +172,19 @@ describe("individual checks", () => {
     const r = await check("ci-mode").run(makeCtx());
     expect(r.status).toBe("info");
     expect(r.message).toContain("CI environment detected");
+  });
+
+  it("reports executable config files without executing them", async () => {
+    await writeFile(path.join(dir, "targate.policy.js"), "throw new Error('must not run')\n");
+    const result = await check("exec-config").run(makeCtx());
+    expect(result.status).toBe("warn");
+    expect(result.message).toContain("ignored");
+
+    const optedIn = await check("exec-config").run(
+      makeCtx({ env: { ...process.env, TARGATE_ALLOW_EXEC_CONFIG: "1" } }),
+    );
+    expect(optedIn.status).toBe("warn");
+    expect(optedIn.message).toContain("will execute");
   });
 });
 

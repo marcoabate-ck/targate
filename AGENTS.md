@@ -14,6 +14,7 @@ targate add <package>[@version] --yes
 - Add `--deep` for production/runtime dependencies to also analyze the full transitive tree: `targate add <pkg> --yes --deep`.
 - Add `--json` when you need to parse the verdict programmatically (prints `{ schemaVersion, command, metadata, signals, assessment, score, deep, install }`; the decision is `assessment.decision`, while `install.status` is the actual install outcome; new keys may be added within a schemaVersion — ignore unknown keys).
 - Inspect `signals.artifact.trust` in JSON when artifact provenance matters. `mutated` is a non-overridable hard block; `unverified`, `private-only`, and `public-unavailable` are explicit weaker-trust states, never proof of authenticity.
+- If `signals.analysisDegraded` is present, treat every listed item as **UNKNOWN**, not clean. Resource-limit results require human approval; do not raise limits or reinterpret placeholder `false` fields to make the install pass.
 - Add `--no-cache` to force a fresh analysis, ignoring any cached verdict — e.g. when re-checking a package you suspect changed. Different tarball bytes always invalidate automatically because the SHA-512 artifact digest is part of the cache key.
 
 To install **all** dependencies of a project (e.g. after cloning), run `targate install` instead. It reviews the exact committed lockfile and installs it immutably with scripts disabled by default. Use `--update-lockfile` only when you explicitly want targate to stage, review, and apply a lockfile update. It refuses (exit 2) if any package is blocked or needs approval. Same exit-code contract as below.
@@ -40,6 +41,7 @@ These analyze and report but never install and never record anything — use the
 - **Do not run `targate approve` to get past a gate.** `targate approve <pkg>` records a human approval without installing — it is a **human** affordance for clearing a `require_approval` / soft block. When targate exits 2, surface the reasons and let a person decide; don't approve on their behalf.
 - **Never manufacture trust.** Do not edit `.targate/approvals.json`, `.targate/artifacts.json`, `.targate/allowed-signers`, the team policy, or `.npmrc` to change what passes the gate, and never run `targate approve --sign` — a signature asserts a **human** identity with that person's SSH key. Artifact-identity mismatches cannot be cleared with `targate approve`.
 - **Do not disable analysis** (`--no-ai` only changes the reasoning layer; it does not weaken the deterministic security floor — but there is no flag that turns the gate off, and you should not try to find one).
+- **Do not enable executable repository config.** Never set `TARGATE_ALLOW_EXEC_CONFIG=1` on the user's behalf. YAML/JSON is the safe default; running legacy JS/TS policy is a human trust decision.
 - **Do not choose targate's AI provider.** Run `targate` with no `--provider` flag: it auto-detects a configured model from the environment, or falls back to its built-in deterministic rules engine. It works fully offline.
 
 ## In CI

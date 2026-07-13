@@ -6,6 +6,8 @@ import type {
   ReputationSignals,
   RepoStatusSignal,
 } from "./types.js";
+import { fetchWithTimeout, readResponseJson } from "./network.js";
+import { networkBudget, type ResourceLimits } from "./resource-limits.js";
 
 /**
  * External reputation lookups: npm downloads (adoption + spike/drop trend)
@@ -72,38 +74,41 @@ export async function fetchReputation(
     /** The npmjs downloads API cannot know packages served by another
      *  registry — skip the lookup instead of reporting a bogus "unknown". */
     skipDownloads?: boolean;
+    resourceLimits?: ResourceLimits;
   },
 ): Promise<ReputationLookup> {
   const [downloads, repo] = await Promise.all([
     opts?.skipDownloads
       ? Promise.resolve<DownloadsSignal>({ status: "skipped" })
-      : fetchDownloads(name),
-    fetchRepoStatus(repositoryUrl, opts?.githubToken),
+      : fetchDownloads(name, opts?.resourceLimits),
+    fetchRepoStatus(repositoryUrl, opts?.githubToken, opts?.resourceLimits),
   ]);
   return { downloads, repo };
 }
 
-async function fetchDownloads(name: string): Promise<DownloadsSignal> {
+async function fetchDownloads(name: string, limits?: ResourceLimits): Promise<DownloadsSignal> {
   let memo = downloadsMemo.get(name);
   if (!memo) {
-    memo = fetchDownloadsUncached(name);
+    memo = fetchDownloadsUncached(name, limits);
     downloadsMemo.set(name, memo);
   }
   return memo;
 }
 
-async function fetchDownloadsUncached(name: string): Promise<DownloadsSignal> {
+async function fetchDownloadsUncached(name: string, limits?: ResourceLimits): Promise<DownloadsSignal> {
   try {
-    const res = await fetch(
+    const budget = networkBudget(limits);
+    const res = await fetchWithTimeout(
       // The downloads API accepts "@scope/pkg" with a literal slash, like the registry.
       `${DOWNLOADS_API}/${encodeURIComponent(name).replace("%40", "@").replace("%2F", "/")}`,
-      { headers: { accept: "application/json" }, signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) },
+      { headers: { accept: "application/json" } },
+      { ...budget, timeoutMs: limits?.networkTimeoutMs ?? LOOKUP_TIMEOUT_MS },
     );
     if (!res.ok) return { status: "unavailable" };
-    const body = (await res.json()) as {
+    const body = await readResponseJson<{
       downloads?: { day: string; downloads: number }[];
       error?: string;
-    };
+    }>(res, budget.maxResponseBytes, "npm downloads response");
     // A very new package yields an error body — adoption is UNKNOWN, not zero.
     if (!Array.isArray(body.downloads)) return { status: "unavailable" };
     return { status: "ok", ...classifyDownloadTrend(body.downloads) };
@@ -168,6 +173,7 @@ export function parseGitHubRepo(url: string): { owner: string; repo: string } | 
 async function fetchRepoStatus(
   repositoryUrl: string | undefined,
   githubToken?: string,
+  limits?: ResourceLimits,
 ): Promise<RepoStatusSignal> {
   if (!repositoryUrl) return { status: "skipped" };
   const parsed = parseGitHubRepo(repositoryUrl);
@@ -176,7 +182,7 @@ async function fetchRepoStatus(
   const key = `${parsed.owner}/${parsed.repo}`.toLowerCase();
   let memo = repoMemo.get(key);
   if (!memo) {
-    memo = fetchRepoStatusUncached(parsed.owner, parsed.repo, githubToken);
+    memo = fetchRepoStatusUncached(parsed.owner, parsed.repo, githubToken, limits);
     repoMemo.set(key, memo);
   }
   return memo;
@@ -186,11 +192,13 @@ async function fetchRepoStatusUncached(
   owner: string,
   repo: string,
   githubToken?: string,
+  limits?: ResourceLimits,
 ): Promise<RepoStatusSignal> {
   if (githubRateLimited) return { status: "rate-limited" };
   const token = githubToken ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
   try {
-    const res = await fetch(`${GITHUB_API}/${owner}/${repo}`, {
+    const budget = networkBudget(limits);
+    const res = await fetchWithTimeout(`${GITHUB_API}/${owner}/${repo}`, {
       headers: {
         accept: "application/vnd.github+json",
         "x-github-api-version": "2022-11-28",
@@ -198,8 +206,7 @@ async function fetchRepoStatusUncached(
         "user-agent": "targate",
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
-      signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
-    });
+    }, { ...budget, timeoutMs: limits?.networkTimeoutMs ?? LOOKUP_TIMEOUT_MS });
     if (res.status === 404) return { status: "not-found" };
     if (
       (res.status === 403 || res.status === 429) &&
@@ -209,7 +216,9 @@ async function fetchRepoStatusUncached(
       return { status: "rate-limited" };
     }
     if (!res.ok) return { status: "unavailable" };
-    const body = (await res.json()) as { archived?: boolean };
+    const body = await readResponseJson<{ archived?: boolean }>(
+      res, budget.maxResponseBytes, "GitHub repository response",
+    );
     return { status: "ok", archived: Boolean(body.archived) };
   } catch {
     return { status: "unavailable" };

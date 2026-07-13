@@ -30,8 +30,8 @@ flowchart TD
 |---|---|
 | **CLI** | Parses the command (`add`, `approve`, `install`, `sandbox`, `ci`, `policy`, `agents`), flags, and provider selection. |
 | **Package resolver** | Fetches registry metadata: version, repository, maintainers, publish dates, scripts, dependencies. |
-| **Tarball fetcher** | Downloads the tarball, computes canonical SHA-512, and verifies every available registry, lockfile, public-mirror, and historical checksum before anything can execute. A mismatch becomes a deterministic hard block. |
-| **Quarantine extractor** | Extracts into an isolated temp dir with strict path checking. Contents are only ever *read* — lifecycle scripts are never executed. |
+| **Tarball fetcher** | Streams the tarball under timeout/byte budgets, computes canonical SHA-512, and verifies every available registry, lockfile, public-mirror, and historical checksum before anything can execute. A mismatch becomes a deterministic hard block. |
+| **Quarantine extractor** | Extracts into an isolated temp dir with compressed/expanded/file-count/per-file limits, ignores archive links, and verifies canonical real-path containment. Contents are only ever *read* — lifecycle scripts are never executed. |
 | **Static analyzer** | Detects lifecycle scripts and inspects their command strings; scans contents for `process.env` / `child_process` / network / `eval` / obfuscation; maps the React Native native surface; checks for typosquatting. |
 | **OSV / OpenSSF lookup** | Queries for known-malicious records (`MAL-*`, GHSA malware) and vulnerability advisories. |
 | **Reputation lookups** | Registry-derived signals (version age, maintainer change, provenance, deprecation, repo mismatch) plus optional npm-downloads and GitHub-archived lookups. Fail-open: an unreachable or rate-limited lookup yields an explicit **UNKNOWN**, never "clean". `--no-reputation` skips the external calls. |
@@ -41,6 +41,8 @@ flowchart TD
 | **AI reviewer** | Optional. Reasons over the same signals for a contextual verdict — strictly advisory and clamped (below). |
 | **Team policy** | Applied on top of the assessment; escalation-only, with the one documented exception that an allow-list entry can clear a *soft* block. See [Policy reference](policy-reference.md). |
 | **Installer / Blocker** | Runs the real package manager for an allow, `--ignore-scripts` for require-approval, or nothing at all for a block. |
+
+All network clients share bounded fetch/read helpers. If download, extraction, or static inspection exceeds a configured budget, the pipeline emits `analysisDegraded`, renders the missing evidence as `UNKNOWN`, and sets a deterministic `require_approval` floor before AI or team policy runs.
 
 ## Deterministic vs. probabilistic
 

@@ -143,20 +143,26 @@ export async function loadApprovals(cwd: string = process.cwd()): Promise<Approv
     if (noExec && isExecConfigFile(file)) {
       // Skipping only loses approvals (packages ask again) — the safe direction.
       console.error(
-        `[targate] TARGATE_NO_EXEC_CONFIG is set — ignoring .targate/${name} (executable config disabled).`,
+        `[targate] ignoring .targate/${name}: executable config is disabled by default; use YAML/JSON or set TARGATE_ALLOW_EXEC_CONFIG=1.`,
       );
       continue;
     }
     try {
       const doc = await loadConfigFile(file);
-      if (isApprovalsMap(doc)) {
-        for (const [key, record] of Object.entries(doc)) {
-          if (isApprovalApplicable(record)) merged[key] = record as ApprovalRecord;
-        }
+      if (!isApprovalsMap(doc)) {
+        console.error(`[targate] ignoring malformed ${file}: expected an approvals mapping`);
+        continue;
       }
-    } catch {
+      for (const [key, record] of Object.entries(doc)) {
+        if (isApprovalApplicable(record)) merged[key] = record as ApprovalRecord;
+        else console.error(`[targate] ignoring invalid approval ${file}#${key}`);
+      }
+    } catch (err) {
       // A broken approvals source must never crash the analysis — it only
       // means the affected packages will ask for approval again.
+      console.error(
+        `[targate] ignoring malformed ${file}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
   return merged;
@@ -196,9 +202,11 @@ export async function recordApproval(
     try {
       const doc = JSON.parse(await readFile(file, "utf8"));
       if (isApprovalsMap(doc)) {
-        existing = Object.fromEntries(
-          Object.entries(doc).filter(([, value]) => isApprovalApplicable(value)),
-        ) as ApprovalsMap;
+        existing = Object.fromEntries(Object.entries(doc).filter(([key, value]) => {
+          const valid = isApprovalApplicable(value);
+          if (!valid) console.error(`[targate] ignoring invalid approval ${file}#${key}`);
+          return valid;
+        })) as ApprovalsMap;
       }
     } catch {
       /* unreadable json — rewrite it */

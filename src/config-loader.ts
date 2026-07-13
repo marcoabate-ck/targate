@@ -8,17 +8,12 @@ export const CONFIG_EXTENSIONS = [".ts", ".js", ".mjs", ".cjs", ".yaml", ".yml",
 /** Config formats that are EXECUTED (via jiti) rather than parsed. */
 export const EXEC_CONFIG_EXTENSIONS = [".ts", ".js", ".mjs", ".cjs"] as const;
 
-/**
- * When TARGATE_NO_EXEC_CONFIG is set, .ts/.js/.mjs/.cjs policy and approvals
- * sources are skipped entirely — only declarative yaml/json is loaded. This
- * exists because executable config runs repo-controlled code on your machine
- * at targate startup (the same class of risk as jest/eslint JS configs, but
- * targate's whole point is "no code runs before you decide to trust it").
- * Set it before running targate inside a repo you do not yet trust.
- */
+/** Executable repository configuration is opt-in. The legacy NO variable is
+ * retained as a fail-safe override during migration. */
 export function execConfigDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const value = env.TARGATE_NO_EXEC_CONFIG;
-  return Boolean(value) && value !== "0" && value !== "false";
+  const denied = env.TARGATE_NO_EXEC_CONFIG;
+  if (denied && denied !== "0" && denied !== "false") return true;
+  return env.TARGATE_ALLOW_EXEC_CONFIG !== "1";
 }
 
 /** True when the file's extension means loading it would execute code. */
@@ -52,9 +47,12 @@ export async function loadConfigFile(file: string): Promise<unknown> {
       // executable config never runs while the opt-out is set.
       if (execConfigDisabled()) {
         throw new Error(
-          `TARGATE_NO_EXEC_CONFIG is set — refusing to execute ${path.basename(file)}. Use a .yaml/.json config instead.`,
+          `refusing to execute ${path.basename(file)} by default. Use declarative YAML/JSON, or explicitly set TARGATE_ALLOW_EXEC_CONFIG=1.`,
         );
       }
+      console.error(
+        `[targate] WARNING: executing repository-controlled config ${file} because TARGATE_ALLOW_EXEC_CONFIG=1. Prefer YAML/JSON.`,
+      );
       const { createJiti } = await import("jiti");
       const jiti = createJiti(pathToFileURL(file).href, {
         // Config files change between runs — never serve a stale cached copy.

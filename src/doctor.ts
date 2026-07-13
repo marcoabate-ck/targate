@@ -12,6 +12,8 @@ import { loadPolicy, PolicyError } from "./policy.js";
 import { resolveProvider, type ProviderSelection } from "./providers/index.js";
 import { authHeaderForUrl, DEFAULT_REGISTRY, loadNpmrc } from "./npmrc.js";
 import type { Signals } from "./types.js";
+import { fetchWithTimeout, readResponseJson } from "./network.js";
+import { DEFAULT_RESOURCE_LIMITS } from "./resource-limits.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -185,8 +187,9 @@ export const DOCTOR_CHECKS: DoctorCheck[] = [
     async run(ctx) {
       const started = Date.now();
       try {
-        const res = await fetch(REGISTRY_PING, {
-          signal: AbortSignal.timeout(ctx.networkTimeoutMs),
+        const res = await fetchWithTimeout(REGISTRY_PING, {}, {
+          timeoutMs: ctx.networkTimeoutMs,
+          maxResponseBytes: DEFAULT_RESOURCE_LIMITS.maxResponseBytes,
         });
         return res.ok
           ? { status: "pass", message: `registry.npmjs.org reachable (${Date.now() - started}ms)` }
@@ -236,15 +239,14 @@ export const DOCTOR_CHECKS: DoctorCheck[] = [
     async run(ctx) {
       const started = Date.now();
       try {
-        const res = await fetch(OSV_QUERY, {
+        const res = await fetchWithTimeout(OSV_QUERY, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             package: { name: "left-pad", ecosystem: "npm" },
             version: "1.3.0",
           }),
-          signal: AbortSignal.timeout(ctx.networkTimeoutMs),
-        });
+        }, { timeoutMs: ctx.networkTimeoutMs, maxResponseBytes: DEFAULT_RESOURCE_LIMITS.maxResponseBytes });
         return res.ok
           ? { status: "pass", message: `api.osv.dev reachable (${Date.now() - started}ms)` }
           : { status: "warn", message: `api.osv.dev responded with HTTP ${res.status}` };
@@ -303,21 +305,24 @@ export const DOCTOR_CHECKS: DoctorCheck[] = [
     async run(ctx) {
       const token = ctx.env.GITHUB_TOKEN ?? ctx.env.GH_TOKEN;
       try {
-        const res = await fetch(GITHUB_RATE_LIMIT, {
+        const res = await fetchWithTimeout(GITHUB_RATE_LIMIT, {
           headers: {
             accept: "application/vnd.github+json",
             "user-agent": "targate",
             ...(token ? { authorization: `Bearer ${token}` } : {}),
           },
-          signal: AbortSignal.timeout(ctx.networkTimeoutMs),
-        });
+        }, { timeoutMs: ctx.networkTimeoutMs, maxResponseBytes: DEFAULT_RESOURCE_LIMITS.maxResponseBytes });
         if (res.status === 401 && token) {
           return { status: "fail", message: "GITHUB_TOKEN rejected (HTTP 401) — fix or unset it" };
         }
         if (!res.ok) {
           return { status: "warn", message: `api.github.com responded with HTTP ${res.status}` };
         }
-        const body = (await res.json()) as { rate?: { remaining?: number; limit?: number } };
+        const body = await readResponseJson<{ rate?: { remaining?: number; limit?: number } }>(
+          res,
+          DEFAULT_RESOURCE_LIMITS.maxResponseBytes,
+          "GitHub rate-limit response",
+        );
         const rate = body.rate;
         if (token) {
           return {
@@ -358,12 +363,21 @@ export const DOCTOR_CHECKS: DoctorCheck[] = [
     id: "exec-config",
     label: "Executable config",
     async run(ctx) {
-      return execConfigDisabled(ctx.env)
-        ? {
-            status: "info",
-            message: "TARGATE_NO_EXEC_CONFIG set — .ts/.js policy & approvals sources are ignored",
-          }
-        : { status: "pass", message: "executable config enabled (default)" };
+      const candidates = [
+        "targate.policy.ts", "targate.policy.js", "targate.policy.mjs", "targate.policy.cjs",
+        path.join(".targate", "approvals.ts"), path.join(".targate", "approvals.js"),
+        path.join(".targate", "approvals.mjs"), path.join(".targate", "approvals.cjs"),
+      ].filter((name) => existsSync(path.join(ctx.cwd, name)));
+      const enabled = !execConfigDisabled(ctx.env);
+      if (candidates.length > 0) {
+        return {
+          status: "warn",
+          message: `${candidates.join(", ")} ${enabled ? "will execute because TARGATE_ALLOW_EXEC_CONFIG=1" : "ignored (declarative config is the default)"}`,
+        };
+      }
+      return enabled
+        ? { status: "warn", message: "TARGATE_ALLOW_EXEC_CONFIG=1 — repository config code may execute" }
+        : { status: "pass", message: "declarative YAML/JSON only (executable config disabled by default)" };
     },
   },
   {

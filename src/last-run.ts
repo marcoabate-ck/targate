@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { SecurityScore } from "./score.js";
 import type { PackageMetadata, RiskAssessment, Signals } from "./types.js";
+import { isRecord, isStringArray, isValidIsoTimestamp, isValidRiskAssessment, isValidSignals } from "./persisted-validation.js";
 
 /**
  * The last analysis run, persisted so `targate explain --last` can explain it
@@ -85,13 +86,45 @@ export async function readLastRun(cwd?: string): Promise<LastRunFile> {
   }
   const record = parsed as LastRunFile;
   if (
+    !isRecord(record) ||
     record?.schemaVersion !== LAST_RUN_SCHEMA_VERSION ||
+    (record.command !== "add" && record.command !== "approve") ||
+    !isValidIsoTimestamp(record.timestamp) ||
     !Array.isArray(record.packages) ||
-    record.packages.length === 0
+    record.packages.length === 0 ||
+    record.packages.some((pkg) => !isValidLastRunPackage(pkg))
   ) {
     throw new LastRunError(
       `${file} was written by a different targate version — re-run the analysis (\`targate explain <pkg>\` analyzes fresh)`,
     );
   }
   return record;
+}
+
+function isValidLastRunPackage(value: unknown): value is LastRunPackage {
+  if (!isRecord(value) || !isRecord(value.metadata) || !isRecord(value.score)) return false;
+  const metadata = value.metadata;
+  const score = value.score;
+  return (
+    typeof metadata.name === "string" &&
+    typeof metadata.version === "string" &&
+    isStringArray(metadata.maintainers) &&
+    typeof metadata.tarballUrl === "string" &&
+    isRecord(metadata.scripts) && Object.values(metadata.scripts).every((v) => typeof v === "string") &&
+    typeof metadata.dependencyCount === "number" &&
+    isStringArray(metadata.directDependencies) &&
+    isRecord(metadata.registryReputation) &&
+    typeof metadata.registryReputation.hasProvenance === "boolean" &&
+    isValidSignals(value.signals) &&
+    isValidRiskAssessment(value.assessment) &&
+    typeof score.total === "number" &&
+    Array.isArray(score.categories) &&
+    score.categories.every(
+      (category) => isRecord(category) && typeof category.name === "string" &&
+        typeof category.label === "string" && typeof category.score === "number" &&
+        typeof category.max === "number" &&
+        (category.notes === undefined || isStringArray(category.notes)),
+    ) &&
+    (score.floorReason === undefined || typeof score.floorReason === "string")
+  );
 }
