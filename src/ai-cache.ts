@@ -4,6 +4,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { RiskAssessment, Signals } from "./types.js";
+import { isRecord, isValidIsoTimestamp, isValidRiskAssessment } from "./persisted-validation.js";
 
 /**
  * Cache for AI risk assessments — repeated reviews of the same package
@@ -113,16 +114,36 @@ function isFresh(entry: CacheEntry, ttlHours: number, now: number): boolean {
   return Number.isFinite(age) && age >= 0 && age <= ttlHours * 3_600_000;
 }
 
-async function readCacheFile(file: string): Promise<CacheFile> {
+async function readCacheFile(
+  file: string,
+  warn: (message: string) => void = (message) => console.error(message),
+): Promise<CacheFile> {
+  let parsed: unknown;
   try {
-    const doc = JSON.parse(await readFile(file, "utf8")) as CacheFile;
-    if (typeof doc === "object" && doc !== null && typeof doc.entries === "object") {
-      return { entries: doc.entries ?? {} };
+    parsed = JSON.parse(await readFile(file, "utf8"));
+  } catch (err) {
+    if (existsSync(file)) {
+      warn(`[targate] ignoring malformed ${file}: ${err instanceof Error ? err.message : String(err)}`);
     }
-  } catch {
-    /* missing or corrupt cache — treated as empty */
+    return { entries: {} };
   }
-  return { entries: {} };
+  if (!isRecord(parsed) || !isRecord(parsed.entries)) {
+    warn(`[targate] ignoring malformed ${file}: expected an entries mapping`);
+    return { entries: {} };
+  }
+  const entries: Record<string, CacheEntry> = {};
+  for (const [key, value] of Object.entries(parsed.entries)) {
+    if (
+      !isRecord(value) ||
+      !isValidIsoTimestamp(value.cachedAt) ||
+      !isValidRiskAssessment(value.assessment)
+    ) {
+      warn(`[targate] ignoring invalid AI cache entry ${file}#${key}`);
+      continue;
+    }
+    entries[key] = value as unknown as CacheEntry;
+  }
+  return { entries };
 }
 
 export interface CachedAssessment {

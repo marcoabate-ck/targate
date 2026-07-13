@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as tar from "tar";
 import { authHeaderForUrl, getNpmrc } from "./npmrc.js";
 import type { ArtifactSignal, ArtifactTrust } from "./types.js";
+import { fetchWithTimeout, readResponseBuffer } from "./network.js";
+import {
+  ResourceLimitError,
+  resolveResourceLimits,
+  type ResourceLimits,
+} from "./resource-limits.js";
 
 export interface Quarantine {
   /** Root temp dir (contains the tarball and the extracted tree). */
@@ -40,6 +46,7 @@ export interface QuarantineOptions {
   lockfileTrusted?: boolean;
   historicalIntegrity?: string;
   publicArtifact?: PublicArtifactEvidence;
+  resourceLimits?: ResourceLimits;
 }
 
 const SRI_ALGORITHMS = ["sha512", "sha384", "sha256", "sha1"] as const;
@@ -182,7 +189,18 @@ export async function quarantineTarball(
   // when the tarball URL matches one (npm does the same). Public tarballs
   // resolve no header and the request stays anonymous.
   const auth = authHeaderForUrl(tarballUrl, getNpmrc());
-  const res = await fetch(tarballUrl, auth ? { headers: { authorization: auth } } : undefined);
+  const limits = resolveResourceLimits(options.resourceLimits);
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      tarballUrl,
+      auth ? { headers: { authorization: auth } } : {},
+      { timeoutMs: limits.networkTimeoutMs, maxResponseBytes: limits.maxTarballBytes },
+    );
+  } catch (err) {
+    await rm(root, { recursive: true, force: true });
+    throw err;
+  }
   if (!res.ok) {
     await rm(root, { recursive: true, force: true });
     throw new Error(
@@ -192,19 +210,81 @@ export async function quarantineTarball(
           : ""),
     );
   }
-  const bytes = Buffer.from(await res.arrayBuffer());
+  let bytes: Buffer;
+  try {
+    bytes = await readResponseBuffer(res, limits.maxTarballBytes, "package tarball");
+  } catch (err) {
+    await rm(root, { recursive: true, force: true });
+    if (err instanceof ResourceLimitError && err.kind === "response-size") {
+      throw new ResourceLimitError("tarball-size", err.message);
+    }
+    throw err;
+  }
 
   const artifact = verifyArtifactIdentity(bytes, tarballUrl, options);
 
   await writeFile(tarballPath, bytes);
 
-  await tar.x({ file: tarballPath, cwd: root, strict: true }).catch(async (err) => {
+  let archiveFailure: ResourceLimitError | undefined;
+  let archiveFiles = 0;
+  let archiveBytes = 0;
+  await tar.x({
+    file: tarballPath,
+    cwd: root,
+    strict: true,
+    preservePaths: false,
+    filter: (entryPath, entry) => {
+      if (archiveFailure) return false;
+      const portable = entryPath.replace(/\\/g, "/");
+      const destination = path.resolve(root, portable);
+      if (
+        portable.startsWith("/") ||
+        portable.split("/").includes("..") ||
+        !isInside(root, destination)
+      ) {
+        archiveFailure = new ResourceLimitError("unsafe-path", `archive entry escapes quarantine: ${entryPath}`);
+        return false;
+      }
+      const entryType = "type" in entry ? entry.type : undefined;
+      if (
+        entryType === "SymbolicLink" ||
+        entryType === "Link" ||
+        ("isSymbolicLink" in entry && entry.isSymbolicLink())
+      ) return false;
+      archiveFiles++;
+      if (archiveFiles > limits.maxFiles) {
+        archiveFailure = new ResourceLimitError("file-count", `archive exceeds ${limits.maxFiles} entries`);
+        return false;
+      }
+      const size = Number(entry.size ?? 0);
+      if (!Number.isFinite(size) || size < 0 || size > limits.maxFileBytes) {
+        archiveFailure = new ResourceLimitError("file-size", `archive entry ${entryPath} exceeds ${limits.maxFileBytes} bytes`);
+        return false;
+      }
+      archiveBytes += size;
+      if (archiveBytes > limits.maxExtractedBytes) {
+        archiveFailure = new ResourceLimitError("extracted-size", `archive exceeds ${limits.maxExtractedBytes} extracted bytes`);
+        return false;
+      }
+      return true;
+    },
+  }).catch(async (err) => {
     await rm(root, { recursive: true, force: true });
     throw err;
   });
+  if (archiveFailure) {
+    await rm(root, { recursive: true, force: true });
+    throw archiveFailure;
+  }
 
   // npm tarballs contain a top-level "package/" directory
   const packageDir = path.join(root, "package");
+  try {
+    await verifyExtractedTree(packageDir, root, limits);
+  } catch (err) {
+    await rm(root, { recursive: true, force: true });
+    throw err;
+  }
 
   return {
     root,
@@ -212,4 +292,48 @@ export async function quarantineTarball(
     artifact,
     cleanup: () => rm(root, { recursive: true, force: true }),
   };
+}
+
+function isInside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+async function verifyExtractedTree(
+  packageDir: string,
+  root: string,
+  limits: ReturnType<typeof resolveResourceLimits>,
+): Promise<void> {
+  const canonicalRoot = await realpath(root);
+  let files = 0;
+  let bytes = 0;
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const full = path.join(dir, entry.name);
+      const info = await lstat(full);
+      if (info.isSymbolicLink()) {
+        throw new ResourceLimitError("unsafe-path", `symbolic link remained after extraction: ${full}`);
+      }
+      const canonical = await realpath(full);
+      if (!isInside(canonicalRoot, canonical)) {
+        throw new ResourceLimitError("unsafe-path", `extracted path escapes quarantine: ${full}`);
+      }
+      files++;
+      if (files > limits.maxFiles) {
+        throw new ResourceLimitError("file-count", `extracted tree exceeds ${limits.maxFiles} files`);
+      }
+      if (info.isDirectory()) {
+        await walk(full);
+      } else if (info.isFile()) {
+        if (info.size > limits.maxFileBytes) {
+          throw new ResourceLimitError("file-size", `${full} exceeds ${limits.maxFileBytes} bytes`);
+        }
+        bytes += info.size;
+        if (bytes > limits.maxExtractedBytes) {
+          throw new ResourceLimitError("extracted-size", `extracted tree exceeds ${limits.maxExtractedBytes} bytes`);
+        }
+      }
+    }
+  };
+  await walk(packageDir);
 }

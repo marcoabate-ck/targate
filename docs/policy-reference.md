@@ -6,13 +6,13 @@ Scaffold one with `targate policy init [--format yaml|json|js|ts]`. This page is
 
 ## File location & formats
 
-The policy lives in the project root under the basename `targate.policy`. Supported formats, in **lookup order — first existing file wins**:
+The policy lives in the project root under the basename `targate.policy`. Declarative formats are the default. Executable formats participate in the lookup order only after explicit opt-in:
 
 ```text
 targate.policy.ts   →  .js  →  .mjs  →  .cjs  →  .yaml  →  .yml  →  .json
 ```
 
-- `.ts` / `.js` / `.mjs` / `.cjs` are **executed** through [jiti](https://github.com/unjs/jiti) (default export). Because this runs repo-controlled code at targate startup, set **`TARGATE_NO_EXEC_CONFIG=1`** in a repo you don't yet trust — executable policy/approvals are then skipped (with a visible warning) and only `.yaml`/`.json` load. See [Security model](security.md#scope-and-limitations).
+- `.ts` / `.js` / `.mjs` / `.cjs` are ignored by default. In a trusted repository, migration-only support can be enabled with **`TARGATE_ALLOW_EXEC_CONFIG=1`**; targate emits a strong warning before executing them through [jiti](https://github.com/unjs/jiti). `TARGATE_NO_EXEC_CONFIG=1` remains a fail-safe override.
 - `.yaml` / `.yml` / `.json` are **parsed, never executed** — always safe.
 - Every format goes through the same schema validation.
 
@@ -23,6 +23,17 @@ interface PolicyFile {
   dependencyPolicy: DependencyPolicy;   // required
   aiCache?: AiCachePolicy;              // optional — see ai-cache.md
   registries?: Record<string, { mirrorOf: string }>;
+  resourceLimits?: ResourceLimits;
+}
+
+interface ResourceLimits {
+  networkTimeoutMs?: number;
+  maxResponseBytes?: number;
+  maxTarballBytes?: number;
+  maxExtractedBytes?: number;
+  maxFiles?: number;
+  maxFileBytes?: number;
+  maxScanDuration?: number;
 }
 
 interface DependencyPolicy {
@@ -78,6 +89,22 @@ Controls reuse of AI assessments between runs (never used in CI). Full detail in
 | `ttlHours` | number > 0 | `24` | How long a cached assessment stays fresh. |
 | `exclude` | string[] | `[]` | Package names never served from cache. |
 
+### `resourceLimits` fields
+
+Every value is a positive integer. Durations are milliseconds; sizes are bytes. Defaults are deliberately generous enough for normal npm packages but finite.
+
+| Field | Default | Effect |
+|---|---:|---|
+| `networkTimeoutMs` | `15000` | Whole-response timeout for untrusted network requests, including body streaming. |
+| `maxResponseBytes` | `16777216` | Maximum body size for registry, OSV, npm search/downloads, maintainer, and GitHub JSON responses. |
+| `maxTarballBytes` | `67108864` | Maximum compressed tarball download. |
+| `maxExtractedBytes` | `268435456` | Maximum total uncompressed bytes extracted for one package. |
+| `maxFiles` | `20000` | Maximum archive entries and extracted filesystem objects; also bounds static content traversal. |
+| `maxFileBytes` | `33554432` | Maximum size of one extracted/scanned file. |
+| `maxScanDuration` | `20000` | Maximum static-analysis duration for one package. |
+
+Crossing a package-analysis limit is not a clean result: targate renders the missing evidence as `UNKNOWN` and deterministically requires approval. Network-only reputation/OSV failures retain their documented degraded-state policy.
+
 ## Examples
 
 ```yaml
@@ -99,6 +126,13 @@ aiCache:
 registries:
   https://packages.example.com:
     mirrorOf: https://registry.npmjs.org
+resourceLimits:
+  networkTimeoutMs: 15000
+  maxTarballBytes: 67108864
+  maxExtractedBytes: 268435456
+  maxFiles: 20000
+  maxFileBytes: 33554432
+  maxScanDuration: 20000
 ```
 
 ```ts
@@ -145,11 +179,11 @@ The order in which effects are resolved. Higher entries win over lower ones.
 6. Remaining policy rules     — age / native-code / lifecycle-script / missing-repository escalations.
 ```
 
-Within the policy stage specifically, `applyPolicy` resolves in this order: known-malicious short-circuit → `blockPackages` → `allowKnownPackages` → age → native code → lifecycle scripts → missing repository. `blockPackages` is checked **before** `allowKnownPackages`, so a name on both lists stays blocked.
+Within the policy stage specifically, `applyPolicy` resolves in this order: known-malicious short-circuit → `blockPackages` → incomplete-analysis floor → `allowKnownPackages` → age → native code → lifecycle scripts → mirror availability → missing repository. `blockPackages` is checked **before** `allowKnownPackages`, so a name on both lists stays blocked; missing analysis evidence is also never converted to allow-list trust.
 
 ### Allowed vs. disallowed overrides
 
-- **Allowed:** `allowKnownPackages` clearing a **soft/heuristic** block (e.g. esbuild's install script that reads env + hits the network to fetch a platform binary) — a deliberate, committed decision to trust that package. Prefer a version-pinned `.targate/approvals.json` entry when you want to trust one exact version rather than all future ones.
+- **Allowed:** `allowKnownPackages` clearing a **soft/heuristic** block (e.g. esbuild's install script that reads env + hits the network to fetch a platform binary) — a deliberate, committed decision to trust that package. It cannot clear an incomplete/resource-limited analysis because missing evidence is not a heuristic finding. Prefer a version-pinned `.targate/approvals.json` entry when you want to trust one exact version rather than all future ones.
 - **Disallowed:** nothing clears a **hard** block. A known-malicious record or a `curl … | bash`-style download-and-execute stays blocked even if the package is on `allowKnownPackages`; the report notes the allow list was ignored. See [Hard vs soft blocks](decisions.md#hard-vs-soft-blocks).
 
 ## Validation & errors
@@ -162,6 +196,7 @@ The policy is schema-validated on load (a `PolicyError` aborts the run with a cl
 - `allowKnownPackages` and `blockPackages` must be lists of strings;
 - `aiCache.enabled` boolean, `aiCache.scope` one of `"user"`/`"project"`, `aiCache.ttlHours` a positive number, `aiCache.exclude` a list of strings.
 - every `registries` key and `mirrorOf` value must be an absolute URL.
+- every `resourceLimits` field must be a recognized positive integer.
 
 Invalid YAML/JSON is reported as an `Invalid YAML: …` error rather than silently ignored.
 
@@ -169,7 +204,7 @@ Invalid YAML/JSON is reported as an `Invalid YAML: …` error rather than silent
 
 - **Local:** all fields apply; `aiCache` speeds up re-reviews.
 - **CI (the `CI` env var is set):** the `aiCache` is **not** used — CI always recomputes so a stale cached assessment can't mask a change. Policy escalations still apply. `targate approve` refuses to run in CI entirely; approvals reach CI only through the reviewed, committed `.targate/approvals.json`. Pair with `--fail-on-osv-error` so an unreachable OSV lookup fails closed. See [CI integration](ci.md).
-- **Untrusted repos:** set `TARGATE_NO_EXEC_CONFIG=1` so an executable `targate.policy.{ts,js,…}` is skipped and only declarative `.yaml`/`.json` loads.
+- **Untrusted repos:** no action is needed; executable `targate.policy.{ts,js,…}` is skipped by default and only declarative `.yaml`/`.json` loads. Do not set `TARGATE_ALLOW_EXEC_CONFIG=1` until the repository code has been reviewed.
 
 ## Related
 

@@ -57,6 +57,7 @@ export async function monitorCommand(opts: MonitorCommandOptions): Promise<numbe
   const policy = await loadPolicy();
   const { snapshots, errors } = await snapshotTargets(targets, {
     internalScopes: policy?.policy.dependencyPolicy.internalScopes,
+    resourceLimits: policy?.policy.resourceLimits,
     failOnOsvError: opts.failOnOsvError,
     noReputation: opts.noReputation,
     concurrency: opts.concurrency,

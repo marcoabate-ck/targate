@@ -120,6 +120,8 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
         return note(dim(`  ✓ reputation lookups done (npm downloads, GitHub)`));
       case "reputation-degraded":
         return note(yellow(`  ⚠ reputation lookups degraded — ${detail} (signals UNKNOWN)`));
+      case "resource-limit":
+        return note(yellow(`  ⚠ analysis stopped at a safety limit — ${detail} (result UNKNOWN)`));
       case "signals":
         return note(dim(`  ✓ package contents inspected (scripts, native surface, RN hardening)`));
       case "assessment":
@@ -134,7 +136,9 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   try {
     // --deep resolves the immutable plan before analysis so the root tarball,
     // not only its transitives, is checked against the reviewed lockfile.
-    const preloadedMetadata = opts.deep ? await fetchPackageMetadata(name, version) : undefined;
+    const preloadedMetadata = opts.deep
+      ? await fetchPackageMetadata(name, version, policy?.policy.resourceLimits)
+      : undefined;
     if (preloadedMetadata) {
       installPlan = await resolveTransitiveInstallPlan(
         preloadedMetadata.name,

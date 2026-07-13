@@ -1,4 +1,6 @@
 import type { LookupStatus, PackageMetadata } from "./types.js";
+import { fetchWithTimeout, readResponseJson } from "./network.js";
+import { networkBudget, type ResourceLimits } from "./resource-limits.js";
 
 /**
  * Maintainer intelligence via the public npm search API. For each maintainer
@@ -54,11 +56,11 @@ export function resetMaintainerIntelCacheForTests(): void {
   portfolioMemo.clear();
 }
 
-export async function fetchMaintainerPortfolio(name: string): Promise<MaintainerPortfolio> {
+export async function fetchMaintainerPortfolio(name: string, limits?: ResourceLimits): Promise<MaintainerPortfolio> {
   const key = name.toLowerCase();
   let memo = portfolioMemo.get(key);
   if (!memo) {
-    memo = fetchMaintainerPortfolioUncached(name);
+    memo = fetchMaintainerPortfolioUncached(name, limits);
     portfolioMemo.set(key, memo);
   }
   return memo;
@@ -69,15 +71,17 @@ interface SearchObject {
   downloads?: { weekly?: number };
 }
 
-async function fetchMaintainerPortfolioUncached(name: string): Promise<MaintainerPortfolio> {
+async function fetchMaintainerPortfolioUncached(name: string, limits?: ResourceLimits): Promise<MaintainerPortfolio> {
   try {
     const url = `${SEARCH_API}?text=maintainer:${encodeURIComponent(name)}&size=5`;
-    const res = await fetch(url, {
+    const budget = networkBudget(limits);
+    const res = await fetchWithTimeout(url, {
       headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
-    });
+    }, { ...budget, timeoutMs: limits?.networkTimeoutMs ?? LOOKUP_TIMEOUT_MS });
     if (!res.ok) return { name, status: "unavailable" };
-    const body = (await res.json()) as { objects?: SearchObject[]; total?: number };
+    const body = await readResponseJson<{ objects?: SearchObject[]; total?: number }>(
+      res, budget.maxResponseBytes, "npm maintainer response",
+    );
     if (!Array.isArray(body.objects) || typeof body.total !== "number") {
       return { name, status: "unavailable" };
     }
@@ -98,10 +102,10 @@ async function fetchMaintainerPortfolioUncached(name: string): Promise<Maintaine
 }
 
 /** Look up the portfolios of a package's maintainers and derive the intel. */
-export async function fetchMaintainerIntel(metadata: PackageMetadata): Promise<MaintainerIntel> {
+export async function fetchMaintainerIntel(metadata: PackageMetadata, limits?: ResourceLimits): Promise<MaintainerIntel> {
   const all = metadata.maintainers;
   const consulted = all.slice(0, MAX_MAINTAINERS);
-  const portfolios = await Promise.all(consulted.map((m) => fetchMaintainerPortfolio(m)));
+  const portfolios = await Promise.all(consulted.map((m) => fetchMaintainerPortfolio(m, limits)));
 
   const status: LookupStatus = portfolios.some((p) => p.status === "unavailable")
     ? "unavailable"

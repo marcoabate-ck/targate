@@ -1,6 +1,6 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { buildSignals } from "./analyze/index.js";
+import { buildDegradedSignals, buildSignals } from "./analyze/index.js";
 import { historicalArtifactDigest } from "./artifact-ledger.js";
 import { assessRisk, type AssessOptions } from "./ai.js";
 import { isInternalScope } from "./npmrc.js";
@@ -15,6 +15,7 @@ import { computeSecurityScore, type SecurityScore } from "./score.js";
 import { applyOsvFailurePolicy } from "./rules.js";
 import type { PackageMetadata, RiskAssessment, Signals } from "./types.js";
 import type { LockedPackageArtifact } from "./lockfile.js";
+import { ResourceLimitError, resolveResourceLimits, withScanBudget } from "./resource-limits.js";
 
 /**
  * The single per-package analysis pipeline, shared by `targate add`, `targate ci`
@@ -34,6 +35,7 @@ export type AnalysisStage =
   | "internal-scope"
   | "reputation"
   | "reputation-degraded"
+  | "resource-limit"
   | "signals"
   | "assessment"
   | "policy";
@@ -171,7 +173,9 @@ export async function buildPackageSignals(
     "failOnOsvError" | "osv" | "noReputation" | "maintainerIntel" | "onStage" | "policy" | "lockedArtifact" | "lockfileTrusted" | "metadata" | "cwd"
   >,
 ): Promise<PackageSignals> {
-  const metadata = opts.metadata ?? await fetchPackageMetadata(name, version);
+  const resourcePolicy = opts.policy?.policy.resourceLimits;
+  const limits = resolveResourceLimits(resourcePolicy);
+  const metadata = opts.metadata ?? await fetchPackageMetadata(name, version, resourcePolicy);
   opts.onStage?.("metadata", `${metadata.name}@${metadata.version}`);
 
   // Policy internalScopes: this package's NAME is private. Every lookup that
@@ -200,7 +204,7 @@ export async function buildPackageSignals(
     ? undefined
     : artifactMirrorFor(metadata.registryUrl ?? "", metadata.registrySource, opts.policy?.policy);
   const publicArtifactPromise = mirror
-    ? fetchArtifactEvidence(metadata.name, metadata.version, mirror)
+    ? fetchArtifactEvidence(metadata.name, metadata.version, mirror, resourcePolicy)
     : Promise.resolve({ status: "skipped" as const });
   const historicalIntegrityPromise = historicalArtifactDigest(
     metadata.registryUrl ?? "unknown",
@@ -220,9 +224,10 @@ export async function buildPackageSignals(
           const [base, maintainerIntel] = await Promise.all([
             fetchReputation(metadata.name, metadata.repositoryUrl, {
               skipDownloads: privateRegistry,
+              resourceLimits: resourcePolicy,
             }),
             opts.maintainerIntel && !privateRegistry
-              ? fetchMaintainerIntel(metadata)
+              ? fetchMaintainerIntel(metadata, resourcePolicy)
               : Promise.resolve(undefined),
           ]);
           return { ...base, maintainerIntel };
@@ -232,18 +237,47 @@ export async function buildPackageSignals(
     publicArtifactPromise,
     historicalIntegrityPromise,
   ]);
-  const quarantine = await quarantineTarball(metadata.tarballUrl, {
-    packageName: metadata.name,
-    version: metadata.version,
-    registryUrl: metadata.registryUrl ?? "unknown",
-    registry: { integrity: metadata.integrity, shasum: metadata.shasum },
-    lockfile: opts.lockedArtifact?.integrity
-      ? { integrity: opts.lockedArtifact.integrity }
-      : undefined,
-    lockfileTrusted: opts.lockfileTrusted,
-    historicalIntegrity,
-    publicArtifact,
-  });
+  const obtainOsv = async (): Promise<OsvResult> => {
+    if (internal) return osvSkipped();
+    if (opts.osv) {
+      opts.onStage?.(opts.osv.unavailable ? "osv-failed" : "osv");
+      return opts.osv;
+    }
+    try {
+      const result = await queryOsv(metadata.name, metadata.version, resourcePolicy);
+      opts.onStage?.("osv");
+      return result;
+    } catch {
+      opts.onStage?.("osv-failed");
+      return osvUnavailable();
+    }
+  };
+
+  let quarantine;
+  try {
+    quarantine = await quarantineTarball(metadata.tarballUrl, {
+      packageName: metadata.name,
+      version: metadata.version,
+      registryUrl: metadata.registryUrl ?? "unknown",
+      registry: { integrity: metadata.integrity, shasum: metadata.shasum },
+      lockfile: opts.lockedArtifact?.integrity
+        ? { integrity: opts.lockedArtifact.integrity }
+        : undefined,
+      lockfileTrusted: opts.lockfileTrusted,
+      historicalIntegrity,
+      publicArtifact,
+      resourceLimits: resourcePolicy,
+    });
+  } catch (err) {
+    if (!(err instanceof ResourceLimitError)) throw err;
+    const reason = `${err.kind}: ${err.message}`;
+    opts.onStage?.("resource-limit", reason);
+    const [osv, reputation] = await Promise.all([obtainOsv(), reputationPromise]);
+    return {
+      metadata,
+      signals: buildDegradedSignals(metadata, osv, reason, reputation, { internalScope: internal }),
+    };
+  }
   opts.onStage?.("quarantine");
 
   try {
@@ -252,21 +286,7 @@ export async function buildPackageSignals(
       quarantine.packageDir,
       quarantine.artifact,
     );
-    let osv: OsvResult;
-    if (internal) {
-      osv = osvSkipped(); // never send an internal package name to OSV
-    } else if (opts.osv) {
-      osv = opts.osv;
-      opts.onStage?.(osv.unavailable ? "osv-failed" : "osv");
-    } else {
-      try {
-        osv = await queryOsv(metadata.name, metadata.version);
-        opts.onStage?.("osv");
-      } catch {
-        osv = osvUnavailable();
-        opts.onStage?.("osv-failed");
-      }
-    }
+    const osv = await obtainOsv();
 
     const reputation = await reputationPromise;
     if (!opts.noReputation && !internal) {
@@ -284,10 +304,25 @@ export async function buildPackageSignals(
       );
     }
 
-    const signals = await buildSignals(boundMetadata, quarantine.packageDir, osv, reputation, {
-      internalScope: internal,
-      artifact: quarantine.artifact,
-    });
+    let signals: Signals;
+    try {
+      signals = await withScanBudget(
+        buildSignals(boundMetadata, quarantine.packageDir, osv, reputation, {
+          internalScope: internal,
+          artifact: quarantine.artifact,
+          resourceLimits: limits,
+        }),
+        limits.maxScanDuration,
+      );
+    } catch (err) {
+      if (!(err instanceof ResourceLimitError)) throw err;
+      const reason = `${err.kind}: ${err.message}`;
+      opts.onStage?.("resource-limit", reason);
+      signals = buildDegradedSignals(boundMetadata, osv, reason, reputation, {
+        internalScope: internal,
+        artifact: quarantine.artifact,
+      });
+    }
     opts.onStage?.("signals");
     return { metadata: boundMetadata, signals };
   } finally {

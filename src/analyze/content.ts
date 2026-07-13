@@ -2,11 +2,9 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ContentFindings } from "../types.js";
 import { referencedScriptFiles } from "./scripts.js";
+import { resolveResourceLimits, type ResolvedResourceLimits } from "../resource-limits.js";
 
 const CODE_EXTENSIONS = new Set([".js", ".cjs", ".mjs", ".ts", ".sh"]);
-const MAX_FILE_SIZE = 2 * 1024 * 1024; // skip files > 2MB
-const MAX_FILES = 2000;
-
 interface FileScan {
   relPath: string;
   processEnv: boolean;
@@ -39,8 +37,8 @@ function scanSource(relPath: string, source: string): FileScan {
   };
 }
 
-async function collectFiles(dir: string, base: string, acc: string[]): Promise<void> {
-  if (acc.length >= MAX_FILES) return;
+async function collectFiles(dir: string, base: string, acc: string[], maxFiles: number): Promise<void> {
+  if (acc.length >= maxFiles) return;
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -48,11 +46,11 @@ async function collectFiles(dir: string, base: string, acc: string[]): Promise<v
     return;
   }
   for (const entry of entries) {
-    if (acc.length >= MAX_FILES) return;
+    if (acc.length >= maxFiles) return;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === "node_modules") continue;
-      await collectFiles(full, base, acc);
+      await collectFiles(full, base, acc, maxFiles);
     } else if (entry.isFile() && CODE_EXTENSIONS.has(path.extname(entry.name))) {
       acc.push(full);
     }
@@ -67,9 +65,10 @@ async function collectFiles(dir: string, base: string, acc: string[]): Promise<v
 export async function analyzeContent(
   packageDir: string,
   lifecycleScripts: Record<string, string>,
+  limits: ResolvedResourceLimits = resolveResourceLimits(),
 ): Promise<ContentFindings> {
   const files: string[] = [];
-  await collectFiles(packageDir, packageDir, files);
+  await collectFiles(packageDir, packageDir, files, limits.maxFiles);
 
   const installTimeFiles = new Set<string>();
   for (const command of Object.values(lifecycleScripts)) {
@@ -95,7 +94,9 @@ export async function analyzeContent(
     } catch {
       continue;
     }
-    if (info.size > MAX_FILE_SIZE) continue;
+    // Extraction already rejects files above maxFileBytes. Keep this guard for
+    // callers that analyze a directory not produced by quarantine.
+    if (info.size > limits.maxFileBytes) continue;
 
     const source = await readFile(file, "utf8").catch(() => "");
     if (!source) continue;

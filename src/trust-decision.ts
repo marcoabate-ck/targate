@@ -1,4 +1,5 @@
 import { DECISION_SEVERITY, type Decision, type RiskAssessment } from "./types.js";
+import { isValidIsoTimestamp } from "./persisted-validation.js";
 
 export type ScriptPolicy = "allow" | "deny";
 export type ApprovalMode = "normal" | "no-scripts";
@@ -16,11 +17,6 @@ export interface PackageTrustResult {
   approved: boolean;
   scriptPolicy: ScriptPolicy;
   reasons: string[];
-}
-
-function isValidIsoTimestamp(value: unknown): value is string {
-  if (typeof value !== "string" || value.length === 0) return false;
-  return /^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value));
 }
 
 /** Runtime boundary for persisted approvals. Invalid/unknown modes fail safe. */

@@ -27,7 +27,7 @@ The recorded mode is **binding at install time**: a `no-scripts` approval makes 
 
 Either path above records the approval (name@version, mode, who, when) in `.targate/approvals.json`. **Commit the file**: the rest of the team — and CI — treat that exact version as already reviewed. A new version requires a new approval.
 
-Approvals can also be hand-curated in `.targate/approvals.{ts,js,mjs,cjs,yaml,yml,json}` — all existing files are read and **merged**, with the tool-managed `approvals.json` winning on conflicts (a fresh interactive approval must always take effect). Automatic recording only ever writes `approvals.json`; the other formats are read-only sources. For typed files:
+Approvals can also be hand-curated declaratively in `.targate/approvals.{yaml,yml,json}`. Existing declarative files are **merged**, with the tool-managed `approvals.json` winning on conflicts (a fresh interactive approval must always take effect). Automatic recording only ever writes `approvals.json`; the other formats are read-only sources. Legacy typed/JavaScript sources are ignored by default and require the same explicit `TARGATE_ALLOW_EXEC_CONFIG=1` migration opt-in as policy files. For a trusted legacy typed file:
 
 ```ts
 // .targate/approvals.ts
@@ -37,6 +37,8 @@ export default defineApprovals({
   "core-js@3.49.0": { mode: "no-scripts", approvedAt: "2026-07-07T00:00:00Z", approvedBy: "marco" },
 });
 ```
+
+Every entry is validated at runtime: `mode` must be exactly `normal` or `no-scripts`, `approvedAt` must be a valid ISO timestamp, and `approvedBy`, when present, must be a string. Invalid records are ignored with a warning naming the file and key; an unknown mode never defaults to scripts-enabled approval.
 
 ## pnpm `approve-builds` integration
 
@@ -55,7 +57,7 @@ Every successful real `targate add` / `targate install` records the SHA-512 dige
 
 ## Team policy — `targate.policy.*`
 
-`targate policy init [--format yaml|json|js|ts]` scaffolds the policy file. Supported formats, first match wins: `targate.policy.{ts,js,mjs,cjs,yaml,yml,json}`. For the complete field-by-field schema, defaults, precedence, and validation rules, see the [Policy reference](policy-reference.md); this section is the workflow-level summary.
+`targate policy init [--format yaml|json|js|ts]` scaffolds the policy file (YAML by default). Declarative YAML/JSON loads by default; executable JS/TS is migration-only and opt-in. For the complete field-by-field schema, defaults, precedence, resource limits, and validation rules, see the [Policy reference](policy-reference.md); this section is the workflow-level summary.
 
 ```yaml
 # targate.policy.yaml
@@ -85,7 +87,7 @@ const policy: PolicyFile = {
 export default policy;
 ```
 
-`.ts`/`.js` files are executed through [jiti](https://github.com/unjs/jiti) (default export; the type import is erased at runtime, so the file loads even where `targate` isn't installed as a dependency), and every format goes through the same schema validation. Because executable config runs repo-controlled code at targate startup, set **`TARGATE_NO_EXEC_CONFIG=1`** before running targate in a repo you don't yet trust — executable policy/approvals sources are then skipped with a warning and only `.yaml`/`.json` loads (see [Security model](security.md#scope-and-limitations)). The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages. Its power is bounded by the [hard/soft block](decisions.md#hard-vs-soft-blocks) distinction:
+`.yaml`/`.json` files are declarative and load by default. Legacy `.ts`/`.js` files are ignored unless a trusted operator sets **`TARGATE_ALLOW_EXEC_CONFIG=1`**; only then are they executed through [jiti](https://github.com/unjs/jiti), with a strong warning. Every loaded format goes through the same schema validation. Prefer the generated YAML policy, especially in repositories agents may clone. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages. Its power is bounded by the [hard/soft block](decisions.md#hard-vs-soft-blocks) distinction:
 
 - a **hard block** (known-malicious record, or a `curl … | bash`-style download-and-execute) can never be overridden — the package stays blocked, and the report notes the allow list was ignored;
 - a **soft/heuristic block** (e.g. an install script that reads env + hits the network, like esbuild) **is** cleared to `allow` by an allow-list entry — a deliberate, committed decision to trust that package. Prefer a version-pinned `.targate/approvals.json` entry (recorded automatically when you approve interactively) when you want to trust one exact version rather than all future ones.

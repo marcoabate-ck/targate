@@ -102,6 +102,9 @@ export function computeSecurityScore(signals: Signals): SecurityScore {
 
   // 3. Package contents — 15
   const content = new Category("content", "Package contents");
+  if (signals.analysisDegraded?.length) {
+    content.deduct(10, "static analysis incomplete — package contents unknown");
+  }
   for (const finding of signals.content.installTimeFindings) {
     content.deduct(5, finding);
   }

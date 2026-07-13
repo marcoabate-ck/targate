@@ -246,6 +246,9 @@ export interface Signals {
    *  lookups). Informational: consumed by the score and the AI, never by
    *  evaluateRules. */
   reputation: ReputationSignals;
+  /** Reasons static/network analysis could not complete within its safety
+   * budgets. Presence is always rendered as UNKNOWN and requires approval. */
+  analysisDegraded?: string[];
 }
 
 /** The rules engine's own verdict, captured alongside an AI assessment so the

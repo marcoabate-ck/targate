@@ -1,0 +1,112 @@
+import { ResourceLimitError } from "./resource-limits.js";
+
+export interface FetchBudget {
+  timeoutMs: number;
+  maxResponseBytes: number;
+}
+
+/** Shared timeout wrapper. The signal remains attached while the body streams. */
+export async function fetchWithTimeout(
+  input: string | URL,
+  init: RequestInit = {},
+  budget: FetchBudget,
+): Promise<Response> {
+  const timeout = AbortSignal.timeout(budget.timeoutMs);
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+  try {
+    return await Promise.race([
+      fetch(input, { ...init, signal }),
+      new Promise<never>((_, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new ResourceLimitError(
+            "network-timeout",
+            `network request exceeded ${budget.timeoutMs}ms (${String(input)})`,
+          )),
+          { once: true },
+        );
+      }),
+    ]);
+  } catch (err) {
+    if (err instanceof ResourceLimitError) throw err;
+    if (signal.aborted || (err instanceof Error && /timeout|aborted/i.test(err.message))) {
+      throw new ResourceLimitError(
+        "network-timeout",
+        `network request exceeded ${budget.timeoutMs}ms (${String(input)})`,
+      );
+    }
+    throw err;
+  }
+}
+
+/** Stream a response body while enforcing both declared and actual size. */
+export async function readResponseBuffer(
+  response: Response,
+  maxBytes: number,
+  label = "response",
+): Promise<Buffer> {
+  const declared = Number(response.headers?.get?.("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new ResourceLimitError(
+      "response-size",
+      `${label} declares ${declared} bytes, above the ${maxBytes}-byte limit`,
+    );
+  }
+
+  // Test doubles and older fetch implementations may expose only arrayBuffer.
+  if (!response.body) {
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > maxBytes) {
+      throw new ResourceLimitError(
+        "response-size",
+        `${label} exceeded the ${maxBytes}-byte limit`,
+      );
+    }
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      total += chunk.length;
+      if (total > maxBytes) {
+        await reader.cancel("response size limit exceeded").catch(() => {});
+        throw new ResourceLimitError(
+          "response-size",
+          `${label} exceeded the ${maxBytes}-byte limit`,
+        );
+      }
+      chunks.push(chunk);
+    }
+  } catch (err) {
+    if (err instanceof ResourceLimitError) throw err;
+    if (err instanceof Error && /timeout|aborted/i.test(err.message)) {
+      throw new ResourceLimitError("network-timeout", `${label} timed out while streaming`);
+    }
+    throw err;
+  }
+  return Buffer.concat(chunks, total);
+}
+
+export async function readResponseJson<T>(
+  response: Response,
+  maxBytes: number,
+  label = "JSON response",
+): Promise<T> {
+  // Preserve compatibility with small test doubles that implement json()
+  // but no byte-bearing body. Real fetch responses always take the bounded path.
+  if (!response.body && typeof response.arrayBuffer !== "function") {
+    return (await response.json()) as T;
+  }
+  const bytes = await readResponseBuffer(response, maxBytes, label);
+  try {
+    return JSON.parse(bytes.toString("utf8")) as T;
+  } catch (err) {
+    throw new Error(`${label} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}

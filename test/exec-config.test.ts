@@ -7,10 +7,8 @@ import { execConfigDisabled, loadConfigFile } from "../src/config-loader.js";
 import { findPolicyFile } from "../src/policy.js";
 
 /**
- * TARGATE_NO_EXEC_CONFIG (security analysis finding 1): policy and approvals
- * files in executable formats (.ts/.js/.mjs/.cjs) run repo-controlled code at
- * targate startup. With the env var set, only declarative yaml/json sources
- * load — nothing from the repo executes.
+ * Executable policy/approval files are disabled by default. They run only
+ * after the operator explicitly sets TARGATE_ALLOW_EXEC_CONFIG=1.
  */
 
 let dir: string;
@@ -22,22 +20,21 @@ afterEach(async () => {
 });
 
 describe("execConfigDisabled", () => {
-  it("is off by default and respects explicit false values", () => {
-    expect(execConfigDisabled({})).toBe(false);
-    expect(execConfigDisabled({ TARGATE_NO_EXEC_CONFIG: "false" })).toBe(false);
-    expect(execConfigDisabled({ TARGATE_NO_EXEC_CONFIG: "0" })).toBe(false);
+  it("is on by default and requires an exact opt-in", () => {
+    expect(execConfigDisabled({})).toBe(true);
+    expect(execConfigDisabled({ TARGATE_ALLOW_EXEC_CONFIG: "true" })).toBe(true);
+    expect(execConfigDisabled({ TARGATE_ALLOW_EXEC_CONFIG: "1" })).toBe(false);
+    expect(execConfigDisabled({ TARGATE_ALLOW_EXEC_CONFIG: "1", TARGATE_NO_EXEC_CONFIG: "1" })).toBe(true);
     expect(execConfigDisabled({ TARGATE_NO_EXEC_CONFIG: "1" })).toBe(true);
-    expect(execConfigDisabled({ TARGATE_NO_EXEC_CONFIG: "true" })).toBe(true);
   });
 });
 
-describe("TARGATE_NO_EXEC_CONFIG", () => {
-  it("loadConfigFile refuses to execute a .js config (defense in depth)", async () => {
+describe("TARGATE_ALLOW_EXEC_CONFIG", () => {
+  it("loadConfigFile refuses to execute a .js config by default", async () => {
     dir = await mkdtemp(path.join(tmpdir(), "targate-execcfg-"));
     const file = path.join(dir, "targate.policy.js");
     await writeFile(file, "module.exports = { dependencyPolicy: {} };\n");
-    vi.stubEnv("TARGATE_NO_EXEC_CONFIG", "1");
-    await expect(loadConfigFile(file)).rejects.toThrow(/TARGATE_NO_EXEC_CONFIG/);
+    await expect(loadConfigFile(file)).rejects.toThrow(/TARGATE_ALLOW_EXEC_CONFIG=1/);
   });
 
   it("findPolicyFile skips an executable policy and falls through to yaml", async () => {
@@ -46,13 +43,12 @@ describe("TARGATE_NO_EXEC_CONFIG", () => {
     await writeFile(path.join(dir, "targate.policy.yaml"), "dependencyPolicy: {}\n");
     const warn = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    vi.stubEnv("TARGATE_NO_EXEC_CONFIG", "1");
     expect(findPolicyFile(dir)).toBe(path.join(dir, "targate.policy.yaml"));
     // The skip is visible on stderr, never silent.
     expect(warn.mock.calls.some((c) => String(c[0]).includes("targate.policy.js"))).toBe(true);
 
-    // Without the env var the executable file is (deliberately) first choice.
-    vi.stubEnv("TARGATE_NO_EXEC_CONFIG", "");
+    // Explicit opt-in restores executable config during migration.
+    vi.stubEnv("TARGATE_ALLOW_EXEC_CONFIG", "1");
     expect(findPolicyFile(dir)).toBe(path.join(dir, "targate.policy.js"));
   });
 
@@ -69,11 +65,20 @@ describe("TARGATE_NO_EXEC_CONFIG", () => {
     );
     vi.spyOn(console, "error").mockImplementation(() => {});
 
-    vi.stubEnv("TARGATE_NO_EXEC_CONFIG", "1");
     const approvals = await loadApprovals(dir);
     // The js-sourced approval is gone (safe direction: the package asks again);
     // the declarative json still loads.
     expect(approvals["evil@1.0.0"]).toBeUndefined();
     expect(approvals["left-pad@1.3.0"]?.mode).toBe("no-scripts");
+  });
+
+  it("executes only after opt-in and emits a strong warning", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "targate-execcfg-"));
+    const file = path.join(dir, "targate.policy.js");
+    await writeFile(file, "module.exports = { dependencyPolicy: {} };\n");
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("TARGATE_ALLOW_EXEC_CONFIG", "1");
+    await expect(loadConfigFile(file)).resolves.toMatchObject({ dependencyPolicy: {} });
+    expect(warn.mock.calls.some((call) => String(call[0]).includes("WARNING"))).toBe(true);
   });
 });

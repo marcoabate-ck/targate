@@ -6,6 +6,7 @@ import { parse, stringify } from "yaml";
 import type { AiCachePolicy } from "./ai-cache.js";
 import { execConfigDisabled, isExecConfigFile, loadConfigFile } from "./config-loader.js";
 import { DEFAULT_REGISTRY } from "./npmrc.js";
+import type { ResourceLimits } from "./resource-limits.js";
 import { isHardBlock } from "./rules.js";
 import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
 
@@ -55,6 +56,8 @@ export interface PolicyFile {
   aiCache?: AiCachePolicy;
   /** Private registries explicitly declared as mirrors of another registry. */
   registries?: Record<string, RegistryPolicy>;
+  /** Budgets for untrusted network responses, archives, and static scans. */
+  resourceLimits?: ResourceLimits;
 }
 
 export interface RegistryPolicy {
@@ -120,7 +123,41 @@ export function validatePolicyObject(doc: unknown, sourceName = POLICY_BASENAME)
     dependencyPolicy: policy as DependencyPolicy,
     aiCache: validateAiCache(doc),
     registries: validateRegistries(doc),
+    resourceLimits: validateResourceLimits(doc),
   };
+}
+
+const RESOURCE_LIMIT_KEYS = [
+  "networkTimeoutMs",
+  "maxResponseBytes",
+  "maxTarballBytes",
+  "maxExtractedBytes",
+  "maxFiles",
+  "maxFileBytes",
+  "maxScanDuration",
+] as const;
+
+function validateResourceLimits(doc: object): ResourceLimits | undefined {
+  if (!("resourceLimits" in doc)) return undefined;
+  const raw = (doc as { resourceLimits: unknown }).resourceLimits;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new PolicyError(`"resourceLimits" must be a mapping`);
+  }
+  const limits = raw as Record<string, unknown>;
+  for (const key of Object.keys(limits)) {
+    if (!(RESOURCE_LIMIT_KEYS as readonly string[]).includes(key)) {
+      throw new PolicyError(`unknown resource limit "resourceLimits.${key}"`);
+    }
+  }
+  for (const key of RESOURCE_LIMIT_KEYS) {
+    if (key in limits) {
+      const value = limits[key];
+      if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+        throw new PolicyError(`"resourceLimits.${key}" must be a positive integer`);
+      }
+    }
+  }
+  return limits as ResourceLimits;
 }
 
 function validateRegistries(doc: object): Record<string, RegistryPolicy> | undefined {
@@ -212,7 +249,7 @@ export function findPolicyFile(cwd: string = process.cwd()): string | null {
       // stderr, so --json stdout stays clean; the skip must be visible because
       // it can remove strictness the repo's policy would otherwise add.
       console.error(
-        `[targate] TARGATE_NO_EXEC_CONFIG is set — ignoring ${name} (executable config disabled). Use a .yaml/.json policy in untrusted repos.`,
+        `[targate] ignoring ${name}: executable config is disabled by default. Use YAML/JSON or set TARGATE_ALLOW_EXEC_CONFIG=1.`,
       );
       continue;
     }
@@ -301,6 +338,16 @@ export function applyPolicy(
 
   if (p.blockPackages?.includes(signals.package)) {
     return escalate(result, "block", `"${signals.package}" is on the team block list.`);
+  }
+
+  // An allow-list entry vouches for a known package; it cannot manufacture
+  // evidence that a budgeted analysis never obtained.
+  if (signals.analysisDegraded?.length) {
+    return escalate(
+      result,
+      "require_approval",
+      "Package analysis is incomplete (UNKNOWN); allowKnownPackages cannot clear missing evidence.",
+    );
   }
 
   if (p.allowKnownPackages?.includes(signals.package)) {

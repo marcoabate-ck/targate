@@ -2,6 +2,8 @@ import { authHeaderForUrl, DEFAULT_REGISTRY, getNpmrc, resolveRegistry } from ".
 import type { PublicArtifactEvidence } from "./quarantine.js";
 import { highestSemver } from "./semver.js";
 import type { PackageMetadata, RegistryReputation } from "./types.js";
+import { fetchWithTimeout, readResponseJson } from "./network.js";
+import { networkBudget, type ResourceLimits } from "./resource-limits.js";
 
 export class PackageNotFoundError extends Error {
   constructor(name: string, registryUrl: string = DEFAULT_REGISTRY) {
@@ -23,17 +25,21 @@ export async function fetchArtifactEvidence(
   name: string,
   version: string,
   registryUrl: string = DEFAULT_REGISTRY,
+  limits?: ResourceLimits,
 ): Promise<PublicArtifactEvidence> {
   const base = registryUrl.replace(/\/+$/, "");
+  const budget = networkBudget(limits);
   try {
-    const res = await fetch(`${base}/${encodeURIComponent(name).replace("%40", "@")}`, {
+    const res = await fetchWithTimeout(`${base}/${encodeURIComponent(name).replace("%40", "@")}`, {
       headers: { accept: "application/json" },
-    });
+    }, budget);
     if (res.status === 404) return { status: "not-found", registryUrl: base };
     if (!res.ok) {
       return { status: "unavailable", registryUrl: base, reason: `HTTP ${res.status}` };
     }
-    const doc = (await res.json()) as { versions?: Record<string, { dist?: Record<string, unknown> }> };
+    const doc = await readResponseJson<{ versions?: Record<string, { dist?: Record<string, unknown> }> }>(
+      res, budget.maxResponseBytes, "registry artifact metadata",
+    );
     const dist = doc.versions?.[version]?.dist;
     if (!dist) return { status: "not-found", registryUrl: base };
     const integrity = typeof dist.integrity === "string" ? dist.integrity : undefined;
@@ -77,15 +83,17 @@ export function parsePackageSpec(spec: string): {
 export async function fetchPackageMetadata(
   name: string,
   requestedVersion?: string,
+  limits?: ResourceLimits,
 ): Promise<PackageMetadata> {
   // Private-registry support: the packument comes from whichever registry
   // .npmrc maps this package to (per-scope rule > global override > npmjs),
   // authenticated with npm's own nerf-darted credentials when configured.
   const registry = resolveRegistry(name, getNpmrc());
   const auth = authHeaderForUrl(`${registry.url}/`, getNpmrc());
-  const res = await fetch(`${registry.url}/${encodeURIComponent(name).replace("%40", "@")}`, {
+  const budget = networkBudget(limits);
+  const res = await fetchWithTimeout(`${registry.url}/${encodeURIComponent(name).replace("%40", "@")}`, {
     headers: { accept: "application/json", ...(auth ? { authorization: auth } : {}) },
-  });
+  }, budget);
   if (res.status === 404) throw new PackageNotFoundError(name, registry.url);
   if (res.status === 401 || res.status === 403) {
     throw new Error(
@@ -95,11 +103,11 @@ export async function fetchPackageMetadata(
   if (!res.ok) {
     throw new Error(`npm registry responded with ${res.status} for ${name}`);
   }
-  const doc = (await res.json()) as {
+  const doc = await readResponseJson<{
     "dist-tags"?: Record<string, string>;
     versions?: Record<string, any>;
     time?: Record<string, string>;
-  };
+  }>(res, budget.maxResponseBytes, "npm registry metadata");
 
   // Without an explicit version or a `latest` dist-tag (rare, but registry
   // key order is NOT guaranteed to be publish order), fall back to the

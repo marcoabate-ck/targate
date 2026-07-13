@@ -244,7 +244,11 @@ export async function buildDependencyGraph(opts: BuildGraphOptions = {}): Promis
   let pm: PackageManager | undefined;
 
   if (opts.spec) {
-    const metadata = await fetchPackageMetadata(opts.spec.name, opts.spec.version);
+    const metadata = await fetchPackageMetadata(
+      opts.spec.name,
+      opts.spec.version,
+      opts.policy?.policy.resourceLimits,
+    );
     const tree = await resolveTransitiveTree(metadata.name, metadata.version);
     packages = [{ name: metadata.name, version: metadata.version }, ...tree];
     roots = []; // the package itself is the root node
@@ -275,7 +279,10 @@ export async function buildDependencyGraph(opts: BuildGraphOptions = {}): Promis
   // 2. One batched OSV query (internal scopes excluded — their names stay private).
   let osvMap = new Map<string, OsvResult>();
   try {
-    osvMap = await queryOsvBatch(packages.filter((p) => !isInternalScope(p.name, internalScopes)));
+    osvMap = await queryOsvBatch(
+      packages.filter((p) => !isInternalScope(p.name, internalScopes)),
+      opts.policy?.policy.resourceLimits,
+    );
   } catch {
     /* per-package fallback inside the pipeline */
   }

@@ -65,6 +65,18 @@ export function evaluateRules(signals: Signals): RiskAssessment {
     };
   }
 
+  if (signals.analysisDegraded?.length) {
+    return {
+      risk: "medium",
+      decision: "require_approval",
+      summary: `${signals.package}@${signals.version} could not be fully analyzed within configured safety limits.`,
+      reasons: signals.analysisDegraded.map((reason) => `[unknown] ${reason}`),
+      recommendedAction:
+        "Review the package manually or deliberately raise the relevant resource limit; do not treat this result as clean.",
+      source: "rules",
+    };
+  }
+
   const scriptTouchesEnvAndNetwork =
     signals.hasLifecycleScripts &&
     signals.content.installTimeFindings.some((f) => f.includes("process.env")) &&
