@@ -99,7 +99,7 @@ Every value is a positive integer. Durations are milliseconds; sizes are bytes. 
 | `maxResponseBytes` | `16777216` | Maximum body size for registry, OSV, npm search/downloads, maintainer, and GitHub JSON responses. |
 | `maxTarballBytes` | `67108864` | Maximum compressed tarball download. |
 | `maxExtractedBytes` | `268435456` | Maximum total uncompressed bytes extracted for one package. |
-| `maxFiles` | `20000` | Maximum archive entries and extracted filesystem objects; also bounds static content traversal. |
+| `maxFiles` | `20000` | Maximum archive entries and extracted filesystem objects; also bounds the shared file index consumed by every static analyzer. |
 | `maxFileBytes` | `33554432` | Maximum size of one extracted/scanned file. |
 | `maxScanDuration` | `20000` | Maximum static-analysis duration for one package. |
 

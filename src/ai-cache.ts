@@ -151,6 +151,15 @@ export interface CachedAssessment {
   cachedAt: string;
 }
 
+export interface AssessmentCacheLookup {
+  key: string;
+  packageName: string;
+}
+
+export interface AssessmentCacheWrite extends AssessmentCacheLookup {
+  assessment: RiskAssessment;
+}
+
 /** Fresh cached assessment for the key, or null (miss, expired, excluded, disabled). */
 export async function readCachedAssessment(
   key: string,
@@ -165,6 +174,27 @@ export async function readCachedAssessment(
   const entry = entries[key];
   if (!entry || !isFresh(entry, settings.ttlHours, Date.now())) return null;
   return { assessment: entry.assessment, cachedAt: entry.cachedAt };
+}
+
+/** Read many cache keys with one file read/parse (critical for large trees). */
+export async function readCachedAssessments(
+  lookups: AssessmentCacheLookup[],
+  settings: AiCacheSettings,
+  cwd: string = process.cwd(),
+): Promise<Map<string, CachedAssessment>> {
+  const hits = new Map<string, CachedAssessment>();
+  if (!settings.enabled || settings.refresh || lookups.length === 0) return hits;
+  const eligible = lookups.filter((lookup) => !settings.exclude.includes(lookup.packageName));
+  if (eligible.length === 0) return hits;
+  const { entries } = await readCacheFile(cacheFilePath(settings, cwd));
+  const now = Date.now();
+  for (const lookup of eligible) {
+    const entry = entries[lookup.key];
+    if (entry && isFresh(entry, settings.ttlHours, now)) {
+      hits.set(lookup.key, { assessment: entry.assessment, cachedAt: entry.cachedAt });
+    }
+  }
+  return hits;
 }
 
 /**
@@ -202,7 +232,19 @@ export async function writeCachedAssessment(
   packageName: string,
   cwd: string = process.cwd(),
 ): Promise<void> {
-  if (!settings.enabled || settings.exclude.includes(packageName)) return;
+  return writeCachedAssessments([{ key, assessment, packageName }], settings, cwd);
+}
+
+/** Persist a batch with one atomic read-modify-write instead of one per package. */
+export async function writeCachedAssessments(
+  writes: AssessmentCacheWrite[],
+  settings: AiCacheSettings,
+  cwd: string = process.cwd(),
+): Promise<void> {
+  const eligible = writes.filter(
+    (write) => settings.enabled && !settings.exclude.includes(write.packageName),
+  );
+  if (eligible.length === 0) return;
   const file = cacheFilePath(settings, cwd);
   return enqueueWrite(file, async () => {
     try {
@@ -212,7 +254,10 @@ export async function writeCachedAssessment(
       for (const [k, entry] of Object.entries(doc.entries)) {
         if (isFresh(entry, settings.ttlHours, now)) entries[k] = entry;
       }
-      entries[key] = { assessment, cachedAt: new Date(now).toISOString() };
+      const cachedAt = new Date(now).toISOString();
+      for (const write of eligible) {
+        entries[write.key] = { assessment: write.assessment, cachedAt };
+      }
       await mkdir(path.dirname(file), { recursive: true });
       const tmp = `${file}.${randomUUID()}.tmp`;
       await writeFile(tmp, JSON.stringify({ entries }, null, 2) + "\n");

@@ -11,6 +11,7 @@ so the same lib checked with a different provider or model is always a fresh cal
 - **Entries are runtime-validated.** Invalid timestamps or incomplete/unknown assessment shapes are ignored with a warning containing the cache file and key; persisted JSON is never trusted through a TypeScript cast.
 - **Cached answers are re-clamped on read.** The deterministic BLOCK floor is enforced at decision time, never trusted from disk — a hand-edited or poisoned cache entry cannot bypass it.
 - **CI never uses the cache.** `targate ci` strips cache settings unconditionally; a CI verdict is always a fresh assessment.
+- **Large trees use bulk cache I/O.** Batched analysis loads all candidate keys with one file read and commits fresh batch results with one atomic write. A fully warm tree therefore makes zero model calls without rereading the cache once per package.
 
 Only successful AI responses are cached — rules-engine fallbacks are free to recompute and errors are never remembered. Configured through the `aiCache` section of the [team policy](team-workflow.md#team-policy--targatepolicy):
 

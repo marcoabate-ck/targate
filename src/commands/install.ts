@@ -1,13 +1,10 @@
-import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
-import path from "node:path";
 import { recordArtifactObservations } from "../artifact-ledger.js";
 import {
-  buildApprovalContext,
   isCiEnvironment,
-  loadApprovals,
-  recordApproval,
 } from "../approvals.js";
+import { recordNoScriptsApprovals } from "../approval-orchestration.js";
+import { prepareAnalysisSession } from "../command-analysis.js";
 import {
   vetInstall,
   type InstallReport,
@@ -20,13 +17,10 @@ import {
   runCommand,
 } from "../installer.js";
 import { printJson } from "../json-output.js";
-import { loadPolicy, policyFileDigest } from "../policy.js";
-import { applySignedApprovalsPolicy } from "../signing.js";
 import { createTreeProgress } from "../progress.js";
 import { bold, cyan, dim, green, red, yellow } from "../report.js";
 import { multiSelect } from "../select.js";
 import type { PackageManager } from "../types.js";
-import { recordBuildApproval } from "../pnpm-builds.js";
 import {
   applyInstallPlan,
   resolveInstallPlan,
@@ -87,16 +81,12 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
 
   note(dim(`\nPre-install review of the full dependency tree (${pm}) ...`));
 
-  const policy = await loadPolicy();
-  const approvals = await applySignedApprovalsPolicy(
-    await loadApprovals(),
-    policy?.policy.dependencyPolicy.requireSignedApprovals,
-  );
-  const assess: AssessOptions = {
-    ...opts.assess,
-    cache: resolveCacheSettings(policy?.policy.aiCache, { refresh: opts.noCache }),
-    cwd: process.cwd(),
-  };
+  const session = await prepareAnalysisSession(opts.assess, {
+    noCache: opts.noCache,
+    approvals: "policy",
+  });
+  const { policy, assess } = session;
+  const approvals = session.approvals!;
 
   // Live feedback during the walk: spinner + done/total + ETA on a TTY,
   // milestone lines otherwise, nothing in --json.
@@ -192,21 +182,7 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
       );
       if (picked && picked.length > 0) {
         const chosen = picked.map((i) => approvable[i]);
-        const policyHash = policy ? await policyFileDigest(policy.file) : undefined;
-        for (const r of chosen) {
-          await recordApproval(r.name, r.version, "no-scripts", process.cwd(), {
-            context: buildApprovalContext({
-              assessment: r.assessment,
-              policyFile: policy ? path.basename(policy.file) : undefined,
-              policyHash,
-            }),
-          });
-          r.approved = true;
-          r.approvalMode = "no-scripts";
-          r.scriptPolicy = "deny";
-          r.unresolved = false;
-          if (pm === "pnpm") await recordBuildApproval(r.name, "ignored");
-        }
+        await recordNoScriptsApprovals(chosen, { policy, packageManager: pm });
         note(
           green(
             `  ✓ approved ${chosen.length} package(s) (no-scripts) — recorded in .targate/approvals.json`,

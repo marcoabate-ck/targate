@@ -2,7 +2,10 @@ import {
   cacheKey,
   type CachedAssessment,
   readCachedAssessment,
+  readCachedAssessments,
   writeCachedAssessment,
+  writeCachedAssessments,
+  type AssessmentCacheWrite,
   type AiCacheSettings,
 } from "./ai-cache.js";
 import { DEFAULT_CONCURRENCY, mapLimit } from "./concurrency.js";
@@ -116,24 +119,28 @@ export async function assessManyWithCache(
 
   // 1. Serve cache hits; collect the misses.
   const misses: { index: number; signals: Signals }[] = [];
-  await Promise.all(
-    signalsList.map(async (signals, index) => {
-      if (opts.cache) {
-        const hit = await readCachedAssessment(keyFor(signals), opts.cache, signals.package, opts.cwd);
-        if (hit) {
-          results[index] = shapeCacheHit(provider, hit, signals);
-          bump();
-          return;
-        }
-      }
+  const cached = opts.cache
+    ? await readCachedAssessments(
+        signalsList.map((signals) => ({ key: keyFor(signals), packageName: signals.package })),
+        opts.cache,
+        opts.cwd,
+      )
+    : new Map<string, CachedAssessment>();
+  signalsList.forEach((signals, index) => {
+    const hit = cached.get(keyFor(signals));
+    if (hit) {
+      results[index] = shapeCacheHit(provider, hit, signals);
+      bump();
+    } else {
       misses.push({ index, signals });
-    }),
-  );
+    }
+  });
 
   // 2. Batch the misses; concurrency bounds how many batches are in flight.
   const batches: { index: number; signals: Signals }[][] = [];
   for (let i = 0; i < misses.length; i += batchSize) batches.push(misses.slice(i, i + batchSize));
 
+  const cacheWrites: AssessmentCacheWrite[] = [];
   await mapLimit(batches, concurrency, async (batch) => {
     let byId = new Map<string, RiskAssessment>();
     try {
@@ -147,7 +154,7 @@ export async function assessManyWithCache(
         const raw = byId.get(`${signals.package}@${signals.version}`);
         if (raw) {
           if (opts.cache) {
-            await writeCachedAssessment(keyFor(signals), raw, opts.cache, signals.package, opts.cwd);
+            cacheWrites.push({ key: keyFor(signals), assessment: raw, packageName: signals.package });
           }
           results[index] = clampDecision(raw, signals);
         } else {
@@ -158,6 +165,10 @@ export async function assessManyWithCache(
       }),
     );
   });
+
+  if (opts.cache && cacheWrites.length > 0) {
+    await writeCachedAssessments(cacheWrites, opts.cache, opts.cwd);
+  }
 
   return results as RiskAssessment[];
 }

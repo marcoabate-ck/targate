@@ -7,6 +7,7 @@ import { analyzeRnHardening } from "./rn-hardening.js";
 import { extractLifecycleScripts, inspectScriptCommand } from "./scripts.js";
 import { checkNameSimilarity } from "./similarity.js";
 import type { ResolvedResourceLimits } from "../resource-limits.js";
+import { assertCompleteFileIndex, buildPackageFileIndex } from "./file-index.js";
 
 export const RECENT_PUBLISH_DAYS = 30;
 
@@ -83,11 +84,15 @@ export async function buildSignals(
   } = {},
 ): Promise<Signals> {
   const lifecycleScripts = extractLifecycleScripts(metadata.scripts);
-  const nativeSurface = await analyzeNativeSurface(packageDir);
-  const content = await analyzeContent(packageDir, lifecycleScripts, options.resourceLimits);
+  const index = await buildPackageFileIndex(packageDir, options.resourceLimits);
+  assertCompleteFileIndex(index);
+  const [nativeSurface, content] = await Promise.all([
+    analyzeNativeSurface(index),
+    analyzeContent(index, lifecycleScripts, options.resourceLimits),
+  ]);
   const native = hasNativeCode(nativeSurface);
   const rnHardening = await analyzeRnHardening(
-    packageDir,
+    index,
     nativeSurface.androidPermissions,
     native,
   );

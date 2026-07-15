@@ -10,6 +10,7 @@ Detailed specifications for [`targate`](../README.md). Start with the root READM
 ## Concepts
 
 - [Architecture](architecture.md) — the pipeline as a map, and the line between deterministic and probabilistic.
+- [Performance benchmarks](../benchmarks/README.md) — repeatable cold/warm targets for 10–1000 packages.
 - [How it works](how-it-works.md) — the pre-install analysis pipeline, step by step.
 - [Decision policy](decisions.md) — how a verdict is chosen, and the hard-vs-soft-block distinction.
 - [Threat model](threat-model.md) — what targate helps catch and what it does not guarantee.

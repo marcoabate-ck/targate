@@ -1,5 +1,4 @@
 import path from "node:path";
-import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
 import {
   buildApprovalContext,
@@ -8,20 +7,23 @@ import {
   type ApprovalRecord,
 } from "../approvals.js";
 import { confirm, detectPackageManager } from "../installer.js";
+import {
+  analyzeDependencyTree,
+  analyzeRootPackage,
+  createAnalysisStageReporter,
+  persistAnalysisRun,
+  prepareAnalysisSession,
+} from "../command-analysis.js";
 import { printJson } from "../json-output.js";
-import { writeLastRun } from "../last-run.js";
-import { analyzePackage, type AnalysisStage } from "../pipeline.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
-import { loadPolicy, policyFileDigest } from "../policy.js";
+import { policyFileDigest } from "../policy.js";
 import { describeProvider } from "../providers/index.js";
 import { approvalSigner } from "../signing.js";
-import { createTreeProgress } from "../progress.js";
 import { isHardBlock } from "../rules.js";
 import { PackageNotFoundError, parsePackageSpec } from "../registry.js";
-import { bold, dim, green, red, renderReport, yellow } from "../report.js";
+import { bold, dim, green, red, renderReport } from "../report.js";
 import {
   aggregateWithTransitive,
-  analyzeTransitiveDeps,
   resolveTransitiveTree,
   type TransitiveResult,
 } from "../transitive.js";
@@ -106,27 +108,14 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
 
   note(dim(`\nReviewing ${bold(name)}${version ? `@${version}` : ""} for approval ...`));
 
-  const policy = await loadPolicy();
-  const assess: AssessOptions = {
-    ...opts.assess,
-    cache: resolveCacheSettings(policy?.policy.aiCache, { refresh: opts.noCache }),
-    cwd: process.cwd(),
-  };
-
-  const onStage = (stage: AnalysisStage, detail?: string): void => {
-    if (stage === "assessment") note(dim(`  ✓ risk assessment complete (${detail})`));
-    if (stage === "policy") note(dim(`  ✓ team policy applied (${detail})`));
-    if (stage === "reputation-degraded")
-      note(yellow(`  ⚠ reputation lookups degraded — ${detail} (signals UNKNOWN)`));
-    if (stage === "internal-scope") note(dim(`  ℹ internal scope — ${detail}`));
-  };
+  const session = await prepareAnalysisSession(opts.assess, { noCache: opts.noCache });
+  const { policy, assess } = session;
+  const onStage = createAnalysisStageReporter(note, { failOnOsvError: opts.failOnOsvError });
 
   let analysis;
   try {
-    analysis = await analyzePackage(name, version, {
-      assess,
+    analysis = await analyzeRootPackage({ name, version }, session, {
       failOnOsvError: opts.failOnOsvError,
-      policy,
       noReputation: opts.noReputation,
       maintainerIntel: true,
       onStage,
@@ -148,18 +137,11 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     const tree = await resolveTransitiveTree(metadata.name, metadata.version);
     if (tree.length > 0) {
       note(dim(`  … analyzing ${tree.length} transitive dependencies (--deep)`));
-      const progress = createTreeProgress({ json: opts.json });
-      try {
-        deepResults = await analyzeTransitiveDeps(tree, {
-          assess,
+      deepResults = await analyzeDependencyTree(tree, session, {
+          json: opts.json,
           failOnOsvError: opts.failOnOsvError,
-          policy,
           noReputation: opts.noReputation,
-          onProgress: (phase, done, total) => progress.update(phase, done, total),
         });
-      } finally {
-        progress.done();
-      }
     }
     assessment = aggregateWithTransitive(assessment, deepResults ?? []);
   }
@@ -168,7 +150,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
   const outcome = approveOutcome(assessment.decision, hardBlock);
 
   // Record the run for `targate explain --last`. Best-effort, never gates.
-  await writeLastRun("approve", [{ metadata, signals, assessment, score }]);
+  await persistAnalysisRun("approve", analysis, assessment, session.cwd);
 
   // Recording requires EXPLICIT human intent: either an interactive
   // confirmation or the --yes flag. --json alone never records — a machine

@@ -15,6 +15,11 @@ export type { ArtifactSignal, ArtifactTrust, Decision, RiskAssessment, RiskLevel
 export type { ScriptPolicy } from "./trust-decision.js";
 export type { InstallPlan, PlanPackageSpec } from "./install-plan.js";
 export type { LockedPackageArtifact } from "./lockfile.js";
+export {
+  assertCompleteFileIndex,
+  buildPackageFileIndex,
+} from "./analyze/file-index.js";
+export type { IndexedFile, PackageFileIndex } from "./analyze/file-index.js";
 
 import type { PolicyFile } from "./policy.js";
 import type { ApprovalsMap } from "./approvals.js";

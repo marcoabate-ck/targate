@@ -233,10 +233,6 @@ export async function buildPackageSignals(
           return { ...base, maintainerIntel };
         })();
 
-  const [publicArtifact, historicalIntegrity] = await Promise.all([
-    publicArtifactPromise,
-    historicalIntegrityPromise,
-  ]);
   const obtainOsv = async (): Promise<OsvResult> => {
     if (internal) return osvSkipped();
     if (opts.osv) {
@@ -253,6 +249,11 @@ export async function buildPackageSignals(
     }
   };
 
+  // Start every independent I/O branch as soon as exact metadata is known.
+  // Quarantine resolves public/history evidence only when it needs to verify
+  // the downloaded bytes, so those network/disk operations overlap too.
+  const osvPromise = obtainOsv();
+
   let quarantine;
   try {
     quarantine = await quarantineTarball(metadata.tarballUrl, {
@@ -264,15 +265,15 @@ export async function buildPackageSignals(
         ? { integrity: opts.lockedArtifact.integrity }
         : undefined,
       lockfileTrusted: opts.lockfileTrusted,
-      historicalIntegrity,
-      publicArtifact,
+      historicalIntegrity: historicalIntegrityPromise,
+      publicArtifact: publicArtifactPromise,
       resourceLimits: resourcePolicy,
     });
   } catch (err) {
     if (!(err instanceof ResourceLimitError)) throw err;
     const reason = `${err.kind}: ${err.message}`;
     opts.onStage?.("resource-limit", reason);
-    const [osv, reputation] = await Promise.all([obtainOsv(), reputationPromise]);
+    const [osv, reputation] = await Promise.all([osvPromise, reputationPromise]);
     return {
       metadata,
       signals: buildDegradedSignals(metadata, osv, reason, reputation, { internalScope: internal }),
@@ -286,9 +287,7 @@ export async function buildPackageSignals(
       quarantine.packageDir,
       quarantine.artifact,
     );
-    const osv = await obtainOsv();
-
-    const reputation = await reputationPromise;
+    const [osv, reputation] = await Promise.all([osvPromise, reputationPromise]);
     if (!opts.noReputation && !internal) {
       const degraded = [
         reputation.downloads.status === "unavailable" ? "download stats unavailable" : null,
