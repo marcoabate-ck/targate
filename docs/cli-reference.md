@@ -2,134 +2,27 @@
 
 ## Commands
 
-```
-targate add <package>[@version]         Analyze a package, then gate the install
-(targate <package> without a subcommand is a shorthand for targate add)
-targate approve <package>[@version]     Analyze and record a committable approval WITHOUT installing
-targate install                         Vet the whole dependency tree, then gate a full install
-targate sandbox <package>[@version]     Trial install in a disposable Docker container
-targate ci [--base-ref <ref>]           Analyze dependencies changed vs a git ref (for PRs)
-targate ci init                         Scaffold .github/workflows/targate.yml
-targate diff <pkg>@<v1> [<pkg>[@<v2>]]  What changed between two versions (second spec/
-                                    version omitted → latest; bare <pkg> → installed vs latest)
-targate monitor [--all]                 Re-check monitored packages against a stored
-                                    baseline and report risk that increased over time
-targate explain <package>[@version]     Explain why a package would be allowed or blocked
-                                    (analyzes fresh; installs nothing, records nothing)
-targate explain --last                  Explain the most recent add/approve run
-                                    (reads .targate/last-run.json — no network)
-targate graph [<package>[@version]]     The dependency tree as an interactive risk
-                                    graph — self-contained HTML by default; also
-                                    svg, dot, mermaid, json. --why <pkg> prints
-                                    every chain that pulls a package in.
-targate recommend "<need>"              Suggest packages for a need, safest first
-                                    (npm-search + AI-suggested candidates → full
-                                    deterministic analysis → ranked by security
-                                    score; --no-ai for search-only discovery)
-targate history [<package>[@version]]   Trust history: every recorded approval — who,
-                                    when, verdict, policy, AI provider. --verify
-                                    checks SSH signatures against the committed
-                                    .targate/allowed-signers file
-targate doctor [--ping]                 Check the environment: Node, package manager,
-                                    registry, OSV, AI provider, GitHub, policy,
-                                    cache dirs, CI mode. Exits 1 on any failure.
-targate policy init [--format <fmt>]    Scaffold the team policy (yaml | json | js | ts)
-                                    --preset default | strict | react-native | ci |
-                                    ai-agent starts from a ready-made policy pack
-targate cache info                      Show the AI response cache location + size
-targate cache clear [--scope <s>]       Delete the AI response cache (user | project)
-targate agents init [--format <list>]   Scaffold agent-instruction files (skill, agents,
-                                    cursor, windsurf, copilot, cline, or all)
-```
+<!-- targate:cli-reference:start -->
+| Command | Summary | Supported options | Examples |
+|---|---|---|---|
+| `targate add <package>[@version]` | Analyze one package, then gate its installation. | `--package-manager <pm>`<br>`--json`<br>`--dry-run`<br>`--yes`<br>`--no-cache`<br>`--deep`<br>`--concurrency <n>`<br>`--no-ai-batch`<br>`--no-ai`<br>`--provider <name>`<br>`--model <name>`<br>`--base-url <url>`<br>`--api-key <key>`<br>`--reasoning`<br>`--fail-on-osv-error`<br>`--no-reputation` | `targate add lodash`<br>`targate add left-pad@1.3.0 --dry-run`<br>`targate add esbuild --yes --deep` |
+| `targate approve <package>[@version]` | Record a committable human approval without installing. | `--json`<br>`--yes`<br>`--allow-scripts`<br>`--sign`<br>`--no-cache`<br>`--deep`<br>`--no-ai`<br>`--provider <name>`<br>`--model <name>`<br>`--base-url <url>`<br>`--api-key <key>`<br>`--reasoning`<br>`--fail-on-osv-error`<br>`--no-reputation` | `targate approve esbuild@0.27.3`<br>`targate approve esbuild@0.27.3 --sign` |
+| `targate install` | Vet the complete dependency tree, then gate a full install. | `--package-manager <pm>`<br>`--json`<br>`--dry-run`<br>`--yes`<br>`--no-cache`<br>`--update-lockfile`<br>`--frozen-lockfile`<br>`--allow-scripts`<br>`--concurrency <n>`<br>`--no-ai-batch`<br>`--no-ai`<br>`--provider <name>`<br>`--model <name>`<br>`--base-url <url>`<br>`--api-key <key>`<br>`--reasoning`<br>`--fail-on-osv-error`<br>`--no-reputation` | `targate install`<br>`targate install --update-lockfile --dry-run` |
+| `targate sandbox <package>[@version]` | Trial-install a package in a disposable Docker container. | `--image <image>`<br>`--timeout <seconds>`<br>`--network <mode>`<br>`--no-capture`<br>`--json` | `targate sandbox suspicious-package`<br>`targate sandbox esbuild --network none` |
+| `targate ci [init]` | Gate dependency changes against a Git ref or scaffold CI. | `--base-ref <ref>`<br>`--json`<br>`--no-ai`<br>`--provider <name>`<br>`--model <name>`<br>`--base-url <url>`<br>`--api-key <key>`<br>`--reasoning`<br>`--fail-on-osv-error`<br>`--no-reputation` | `targate ci --base-ref origin/main --fail-on-osv-error`<br>`targate ci init` |
+| `targate policy init` | Scaffold a declarative team policy from a preset. | `--format <format>`<br>`--preset <name>` | `targate policy init`<br>`targate policy init --preset ai-agent` |
+| `targate doctor` | Diagnose the local security and provider environment. | `--json`<br>`--ping`<br>`--no-ai`<br>`--provider <name>`<br>`--model <name>`<br>`--base-url <url>`<br>`--api-key <key>`<br>`--reasoning` | `targate doctor`<br>`targate doctor --ping` |
+| `targate diff <pkg>@<v1> [<pkg>[@<v2>]]` | Compare package versions and rate the upgrade risk. | `--package-manager <pm>`<br>`--json`<br>`--fail-on <level>`<br>`--no-ai`<br>`--provider <name>`<br>`--model <name>`<br>`--base-url <url>`<br>`--api-key <key>`<br>`--reasoning`<br>`--fail-on-osv-error`<br>`--no-reputation` | `targate diff lodash@4.17.20 lodash@4.17.21`<br>`targate diff lodash --fail-on medium` |
+| `targate monitor` | Re-check trusted packages and report increased risk. | `--package-manager <pm>`<br>`--json`<br>`--all`<br>`--no-update`<br>`--concurrency <n>`<br>`--no-ai`<br>`--provider <name>`<br>`--model <name>`<br>`--base-url <url>`<br>`--api-key <key>`<br>`--reasoning`<br>`--fail-on-osv-error`<br>`--no-reputation` | `targate monitor`<br>`targate monitor --all --no-update` |
+| `targate graph [<package>[@version]]` | Render a dependency risk graph or explain why a package is present. | `--format <format>`<br>`--output <path>`<br>`--only <filters>`<br>`--why <package>`<br>`--open`<br>`--json`<br>`--package-manager <pm>`<br>`--no-reputation`<br>`--fail-on-osv-error`<br>`--concurrency <n>` | `targate graph`<br>`targate graph --only high-risk,scripts`<br>`targate graph --why minimist` |
+| `targate recommend "<need>"` | Recommend analyzed packages for a need, safest first. | `--limit <n>`<br>`--json`<br>`--no-ai`<br>`--provider <name>`<br>`--model <name>`<br>`--base-url <url>`<br>`--api-key <key>`<br>`--reasoning`<br>`--fail-on-osv-error`<br>`--no-reputation` | `targate recommend "date formatting"`<br>`targate recommend "immutable state" --limit 8 --json` |
+| `targate history [<package>[@version]]` | Show recorded trust decisions and optionally verify signatures. | `--json`<br>`--verify` | `targate history`<br>`targate history esbuild --verify` |
+| `targate explain <package>[@version] \| --last` | Explain a fresh or previously recorded decision without installing. | `--last`<br>`--json`<br>`--no-cache`<br>`--no-ai`<br>`--provider <name>`<br>`--model <name>`<br>`--base-url <url>`<br>`--api-key <key>`<br>`--reasoning`<br>`--fail-on-osv-error`<br>`--no-reputation` | `targate explain left-pad@1.3.0`<br>`targate explain --last` |
+| `targate cache <info\|clear>` | Inspect or clear the AI assessment cache. | `--scope <scope>`<br>`--json` | `targate cache info`<br>`targate cache clear --scope project` |
+| `targate agents init` | Scaffold instructions that make coding agents use targate. | `--format <format>` | `targate agents init`<br>`targate agents init --format all` |
+<!-- targate:cli-reference:end -->
 
-| Command | What it gates | Docs |
-|---|---|---|
-| `add` | one new package (+ `--deep` for its tree) | [Transitive & install](transitive-and-install.md) |
-| `approve` | records a committable approval without installing | [Team workflow](team-workflow.md#approving-a-package--targate-approve) |
-| `install` | a full-project install (the whole tree at once) | [Transitive & install](transitive-and-install.md#full-tree-install--targate-install) |
-| `sandbox` | a disposable Docker trial install | [Sandbox](sandbox.md) |
-| `ci` | dependencies a change adds/updates, in a PR | [CI integration](ci.md) |
-| `diff` | nothing — compares two versions of a package | [below](#targate-diff) |
-| `monitor` | nothing — flags risk that rose since a baseline | [below](#targate-monitor) |
-| `explain` | nothing — explains a verdict (fresh or last run) | [below](#targate-explain) |
-| `history` | nothing — lists the trust history (and verifies signatures) | [Team workflow](team-workflow.md#trust-history--targate-history) |
-| `recommend` | nothing — suggests packages for a need, safest first | [below](#targate-recommend) |
-| `graph` | nothing — draws the tree as an interactive risk graph | [Dependency graph](dependency-graph.md) |
-| `doctor` | nothing — diagnoses the environment | [below](#targate-doctor) |
-| `policy init` | scaffolds the team policy file (`--preset` for policy packs) | [Team workflow](team-workflow.md#team-policy--targatepolicy) |
-| `cache` | inspect / clear the AI response cache | [AI response cache](ai-cache.md#invalidating-the-cache) |
-| `agents init` | scaffolds agent-instruction files | [AI coding agents](agents.md) |
-
-## Options (add & ci)
-
-```
---package-manager <pm>  Force pnpm | npm | yarn (default: auto-detect from lockfile)
---json                  Machine-readable output (metadata + signals + assessment)
---dry-run               Analyze and report only — never prompt, never install
-                        (to approve without installing, use `targate approve`)
---yes                   Skip confirmation for allow/allow-with-warnings
-                        (approve: skip the lifecycle-scripts prompt)
---no-ai                 Skip the AI reasoning layer, use rules only
---no-cache              Ignore cached AI assessments for this run (recompute);
-                        fresh results still refresh the cache
---provider <name>       anthropic | deepseek | openai | ollama | custom
---model <name>          Override the model for the selected provider
---base-url <url>        API base URL (required for --provider custom)
---api-key <key>         API key (prefer env vars over this flag)
---reasoning             Enable model reasoning where the provider supports it
-                        (see ai-providers.md#reasoning-support---reasoning)
---deep                  (add, approve) Also analyze the full transitive dependency
-                        tree; the strictest verdict in the tree gates it
---concurrency <n>       (add --deep, install) Packages analyzed in parallel
-                        (default: 16). Lower it if a cloud AI provider rate-limits you.
---no-ai-batch           (add --deep, install) Assess each package in its own AI
-                        request instead of batching several per request (stricter
-                        per-package isolation; slower/costlier)
---no-reputation         Skip the external reputation lookups (npm downloads API,
-                        GitHub repo status). Registry-derived reputation signals
-                        (version age, maintainer change, deprecation, provenance)
-                        are still computed. Set GITHUB_TOKEN (or GH_TOKEN) to raise
-                        the GitHub rate limit from 60 req/h; without it, large
-                        --deep runs report the archived status as UNKNOWN once the
-                        quota is exhausted — never as "fine".
---allow-scripts         (approve) Record the approval as scripts-allowed (default:
-                        no-scripts) — (install) run lifecycle scripts
---update-lockfile       (install) Explicitly re-resolve and review a lockfile
-                        update; immutable installation is the default
---base-ref <ref>        (ci) Git ref to diff against (default: origin/main)
-```
-
-## Options (approve & history)
-
-```
---sign                  (approve) Cryptographically sign the approval entry with
-                        your SSH key (TARGATE_SIGNING_KEY, git user.signingkey,
-                        or ~/.ssh/id_*). The signature covers the whole entry —
-                        version, mode, date, context — in the "targate-approval"
-                        namespace, and verifies against the committed
-                        .targate/allowed-signers file. A signing failure aborts
-                        the recording; nothing is written unsigned.
---verify                (history) Verify each entry's signature. Exit 2 when any
-                        signature is invalid or verification errored; unsigned
-                        entries are reported but do not fail (use the policy's
-                        requireSignedApprovals to enforce signatures).
-```
-
-## Options (policy init)
-
-```
---format <fmt>          yaml (default) | json | js | ts
---preset <name>         Policy pack to start from: default | strict |
-                        react-native | ci | ai-agent (default: default)
-```
-
-## Options (sandbox)
-
-```
---image <image>         Docker image (default: node:20-alpine)
---timeout <seconds>     Kill the sandbox after N seconds (default: 300)
---network <mode>        open (default, full egress) | none (offline trial)
-```
+Package installation requires the explicit `targate add <package>` command. Bare package names and unknown commands fail before analysis; they are never interpreted as packages. `targate <command> --help` renders the command-specific options from the same registry as this table, and flags belonging to another command are rejected.
 
 ## Command details
 

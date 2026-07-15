@@ -70,7 +70,7 @@ const STAGE_ICON: Record<string, string> = {
   block: "✗",
 };
 
-/** The original `targate <package>` flow: analyze, decide, gate the install. */
+/** `targate add <package>`: analyze, decide, then gate the install. */
 export async function checkCommand(opts: CheckOptions): Promise<number> {
   const { name, version } = parsePackageSpec(opts.spec);
 
