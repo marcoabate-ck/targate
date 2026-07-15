@@ -10,11 +10,14 @@ For the step-by-step behaviour of each stage see [How it works](how-it-works.md)
 flowchart TD
   CLI["CLI (targate add / approve / install / ci)"] --> RES[Package resolver — npm registry metadata]
   RES --> FET[Tarball fetcher — checksum-verified vs manifest]
+  RES --> OSV["OSV / OpenSSF lookup — malicious records + advisories"]
+  RES --> REP[Reputation + maintainer intelligence]
   FET --> QUA["Quarantine extractor — isolated temp dir, strict paths, scripts never run"]
-  QUA --> STAT["Static analyzer — lifecycle scripts, contents, native surface, typosquat"]
-  QUA --> OSV["OSV / OpenSSF lookup — malicious records + advisories"]
+  QUA --> IDX["Bounded package file index — one filesystem traversal"]
+  IDX --> STAT["Static analyzers — lifecycle scripts, contents, native surface, RN hardening"]
   STAT --> SIG[Signals]
   OSV --> SIG
+  REP --> SIG
   SIG --> RULES["Rules engine — deterministic verdict + hard-block floor"]
   RULES --> AI["AI reviewer — advisory, can only make it stricter"]
   AI --> POL["Team policy — escalation-only, allow-list can clear soft blocks"]
@@ -32,7 +35,8 @@ flowchart TD
 | **Package resolver** | Fetches registry metadata: version, repository, maintainers, publish dates, scripts, dependencies. |
 | **Tarball fetcher** | Streams the tarball under timeout/byte budgets, computes canonical SHA-512, and verifies every available registry, lockfile, public-mirror, and historical checksum before anything can execute. A mismatch becomes a deterministic hard block. |
 | **Quarantine extractor** | Extracts into an isolated temp dir with compressed/expanded/file-count/per-file limits, ignores archive links, and verifies canonical real-path containment. Contents are only ever *read* — lifecycle scripts are never executed. |
-| **Static analyzer** | Detects lifecycle scripts and inspects their command strings; scans contents for `process.env` / `child_process` / network / `eval` / obfuscation; maps the React Native native surface; checks for typosquatting. |
+| **Package file index** | Traverses the extracted tree once under shared file/byte limits and indexes path, basename, extension, and size. Content, native-surface, and RN-hardening analyzers consume the same index. A truncated index becomes explicit `UNKNOWN`, never a partial clean result. |
+| **Static analyzers** | Detect lifecycle scripts and inspect their command strings; scan contents for `process.env` / `child_process` / network / `eval` / obfuscation; map the React Native native surface; check for typosquatting. |
 | **OSV / OpenSSF lookup** | Queries for known-malicious records (`MAL-*`, GHSA malware) and vulnerability advisories. |
 | **Reputation lookups** | Registry-derived signals (version age, maintainer change, provenance, deprecation, repo mismatch) plus optional npm-downloads and GitHub-archived lookups. Fail-open: an unreachable or rate-limited lookup yields an explicit **UNKNOWN**, never "clean". `--no-reputation` skips the external calls. |
 | **Signals** | The structured, machine-readable set of facts every downstream stage consumes (also the shape emitted by `--json`). |
@@ -43,6 +47,12 @@ flowchart TD
 | **Installer / Blocker** | Runs the real package manager for an allow, `--ignore-scripts` for require-approval, or nothing at all for a block. |
 
 All network clients share bounded fetch/read helpers. If download, extraction, or static inspection exceeds a configured budget, the pipeline emits `analysisDegraded`, renders the missing evidence as `UNKNOWN`, and sets a deterministic `require_approval` floor before AI or team policy runs.
+
+After exact metadata resolution, independent work starts concurrently: the tarball download, OSV, reputation, maintainer intelligence, public-registry evidence, and the historical artifact lookup. Verification still joins all required evidence before the artifact can be trusted. Full-tree AI cache lookups and writes are bulk operations, so a warm run reads the cache once and makes no model calls.
+
+CLI commands share an analysis session for policy/cache loading, signed-approval loading, stage rendering, root analysis, and last-run persistence. Human rendering is separated by domain under `src/report/`, while `src/report.ts` remains the compatibility barrel.
+
+Repeatable 10/100/500/1000-package performance targets and metrics are documented in the [benchmark guide](../benchmarks/README.md).
 
 ## Deterministic vs. probabilistic
 

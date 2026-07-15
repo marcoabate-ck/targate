@@ -1,6 +1,6 @@
-import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { NativeSurface } from "../types.js";
+import { readIndexedFile, resolveFileIndex, type PackageFileIndex } from "./file-index.js";
 
 const BINARY_EXTENSIONS = new Set([
   ".so",
@@ -14,32 +14,13 @@ const BINARY_EXTENSIONS = new Set([
   ".bin",
 ]);
 
-async function walk(dir: string, base: string, acc: string[]): Promise<void> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "node_modules") continue;
-      await walk(full, base, acc);
-    } else {
-      acc.push(path.relative(base, full));
-    }
-  }
-}
-
 /**
  * Detect the React Native native surface of an extracted package:
  * iOS/Android sources, Podspecs, Gradle files, CMake, binaries and
  * Android permissions requested in manifests.
  */
-export async function analyzeNativeSurface(packageDir: string): Promise<NativeSurface> {
-  const files: string[] = [];
-  await walk(packageDir, packageDir, files);
+export async function analyzeNativeSurface(packageInput: string | PackageFileIndex): Promise<NativeSurface> {
+  const index = await resolveFileIndex(packageInput);
 
   const surface: NativeSurface = {
     hasIos: false,
@@ -52,11 +33,12 @@ export async function analyzeNativeSurface(packageDir: string): Promise<NativeSu
     androidPermissions: [],
   };
 
-  const manifests: string[] = [];
+  const manifests = [];
 
-  for (const rel of files) {
+  for (const file of index.files) {
+    const rel = file.relPath;
     const segments = rel.split(path.sep);
-    const basename = path.basename(rel);
+    const basename = file.basename;
 
     if (segments[0] === "ios" || /\.(m|mm|swift|h)$/.test(basename)) {
       if (segments[0] === "ios") surface.hasIos = true;
@@ -72,13 +54,11 @@ export async function analyzeNativeSurface(packageDir: string): Promise<NativeSu
     if (BINARY_EXTENSIONS.has(path.extname(basename))) {
       surface.binaryArtifacts.push(rel);
     }
-    if (basename === "AndroidManifest.xml") manifests.push(rel);
+    if (basename === "AndroidManifest.xml") manifests.push(file);
   }
 
   for (const manifest of manifests) {
-    const content = await readFile(path.join(packageDir, manifest), "utf8").catch(
-      () => "",
-    );
+    const content = await readIndexedFile(manifest);
     const permissions = [
       ...content.matchAll(/<uses-permission[^>]*android:name="([^"]+)"/g),
     ].map((m) => m[1]);

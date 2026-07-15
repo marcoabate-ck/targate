@@ -1,12 +1,14 @@
-import { resolveCacheSettings } from "../ai-cache.js";
 import type { AssessOptions } from "../ai.js";
 import { getApproval, loadApprovals } from "../approvals.js";
+import {
+  analyzeRootPackage,
+  createAnalysisStageReporter,
+  prepareAnalysisSession,
+} from "../command-analysis.js";
 import { printJson } from "../json-output.js";
 import { LastRunError, readLastRun, type LastRunPackage } from "../last-run.js";
-import { analyzePackage, type AnalysisStage } from "../pipeline.js";
-import { loadPolicy } from "../policy.js";
 import { PackageNotFoundError, parsePackageSpec } from "../registry.js";
-import { bold, dim, red, renderExplanation, yellow } from "../report.js";
+import { bold, dim, red, renderExplanation } from "../report.js";
 
 export interface ExplainOptions {
   /** package[@version] — mutually exclusive with `last`. */
@@ -53,27 +55,20 @@ export async function explainCommand(opts: ExplainOptions): Promise<number> {
     const { name, version } = parsePackageSpec(opts.spec!);
     note(dim(`\nAnalyzing ${bold(name)}${version ? `@${version}` : ""} to explain the verdict ...`));
 
-    const policy = await loadPolicy();
-    const assess: AssessOptions = {
-      ...opts.assess,
-      cache: resolveCacheSettings(policy?.policy.aiCache, { refresh: opts.noCache }),
-      cwd: process.cwd(),
-    };
-    const onStage = (stage: AnalysisStage, detail?: string): void => {
-      if (stage === "assessment") note(dim(`  ✓ risk assessment complete (${detail})`));
-      if (stage === "reputation-degraded")
-        note(yellow(`  ⚠ reputation lookups degraded — ${detail} (signals UNKNOWN)`));
-    };
+    const session = await prepareAnalysisSession(opts.assess, { noCache: opts.noCache });
+    const onStage = createAnalysisStageReporter(note, { failOnOsvError: opts.failOnOsvError });
 
     try {
-      const { metadata, signals, assessment, score } = await analyzePackage(name, version, {
-        assess,
+      const { metadata, signals, assessment, score } = await analyzeRootPackage(
+        { name, version },
+        session,
+        {
         failOnOsvError: opts.failOnOsvError,
-        policy,
         noReputation: opts.noReputation,
         maintainerIntel: true,
         onStage,
-      });
+        },
+      );
       packages = [{ metadata, signals, assessment, score }];
     } catch (err) {
       if (err instanceof PackageNotFoundError) {

@@ -1,8 +1,8 @@
-import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ContentFindings } from "../types.js";
 import { referencedScriptFiles } from "./scripts.js";
 import { resolveResourceLimits, type ResolvedResourceLimits } from "../resource-limits.js";
+import { readIndexedFile, resolveFileIndex, type PackageFileIndex } from "./file-index.js";
 
 const CODE_EXTENSIONS = new Set([".js", ".cjs", ".mjs", ".ts", ".sh"]);
 interface FileScan {
@@ -37,38 +37,18 @@ function scanSource(relPath: string, source: string): FileScan {
   };
 }
 
-async function collectFiles(dir: string, base: string, acc: string[], maxFiles: number): Promise<void> {
-  if (acc.length >= maxFiles) return;
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    if (acc.length >= maxFiles) return;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "node_modules") continue;
-      await collectFiles(full, base, acc, maxFiles);
-    } else if (entry.isFile() && CODE_EXTENSIONS.has(path.extname(entry.name))) {
-      acc.push(full);
-    }
-  }
-}
-
 /**
  * Scan the extracted package for suspicious code patterns without executing
  * anything. Install-time files (referenced by lifecycle scripts) get
  * dedicated findings since code running at install time is the riskiest.
  */
 export async function analyzeContent(
-  packageDir: string,
+  packageInput: string | PackageFileIndex,
   lifecycleScripts: Record<string, string>,
   limits: ResolvedResourceLimits = resolveResourceLimits(),
 ): Promise<ContentFindings> {
-  const files: string[] = [];
-  await collectFiles(packageDir, packageDir, files, limits.maxFiles);
+  const index = await resolveFileIndex(packageInput, limits);
+  const files = index.files.filter((file) => CODE_EXTENSIONS.has(file.extension));
 
   const installTimeFiles = new Set<string>();
   for (const command of Object.values(lifecycleScripts)) {
@@ -88,20 +68,10 @@ export async function analyzeContent(
   };
 
   for (const file of files) {
-    let info;
-    try {
-      info = await stat(file);
-    } catch {
-      continue;
-    }
-    // Extraction already rejects files above maxFileBytes. Keep this guard for
-    // callers that analyze a directory not produced by quarantine.
-    if (info.size > limits.maxFileBytes) continue;
-
-    const source = await readFile(file, "utf8").catch(() => "");
+    const source = await readIndexedFile(file);
     if (!source) continue;
 
-    const relPath = path.relative(packageDir, file);
+    const relPath = file.relPath;
     const scan = scanSource(relPath, source);
 
     findings.hasProcessEnvAccess ||= scan.processEnv;

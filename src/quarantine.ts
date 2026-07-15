@@ -44,10 +44,20 @@ export interface QuarantineOptions {
   lockfile?: TarballChecksums;
   /** True only for a pre-existing reviewed/committed lockfile, not a fresh resolution. */
   lockfileTrusted?: boolean;
-  historicalIntegrity?: string;
-  publicArtifact?: PublicArtifactEvidence;
+  /** May resolve concurrently with the tarball download. */
+  historicalIntegrity?: string | Promise<string | undefined>;
+  /** May resolve concurrently with the tarball download. */
+  publicArtifact?: PublicArtifactEvidence | Promise<PublicArtifactEvidence>;
   resourceLimits?: ResourceLimits;
 }
+
+type ResolvedQuarantineOptions = Omit<
+  QuarantineOptions,
+  "historicalIntegrity" | "publicArtifact"
+> & {
+  historicalIntegrity?: string;
+  publicArtifact?: PublicArtifactEvidence;
+};
 
 const SRI_ALGORITHMS = ["sha512", "sha384", "sha256", "sha1"] as const;
 
@@ -113,7 +123,7 @@ function verifyEvidence(
 export function verifyArtifactIdentity(
   bytes: Buffer,
   tarballUrl: string,
-  options: QuarantineOptions,
+  options: ResolvedQuarantineOptions,
 ): ArtifactSignal {
   const digest = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
   const reasons: string[] = [];
@@ -182,6 +192,12 @@ export async function quarantineTarball(
   tarballUrl: string,
   options: QuarantineOptions,
 ): Promise<Quarantine> {
+  // Independent registry/history evidence resolves while the tarball is in
+  // flight. Verification still waits for both exact bytes and evidence.
+  const evidencePromise = Promise.all([
+    Promise.resolve(options.historicalIntegrity),
+    Promise.resolve(options.publicArtifact),
+  ]);
   const root = await mkdtemp(path.join(tmpdir(), "targate-"));
   const tarballPath = path.join(root, "package.tgz");
 
@@ -221,7 +237,12 @@ export async function quarantineTarball(
     throw err;
   }
 
-  const artifact = verifyArtifactIdentity(bytes, tarballUrl, options);
+  const [historicalIntegrity, publicArtifact] = await evidencePromise;
+  const artifact = verifyArtifactIdentity(bytes, tarballUrl, {
+    ...options,
+    historicalIntegrity,
+    publicArtifact,
+  });
 
   await writeFile(tarballPath, bytes);
 

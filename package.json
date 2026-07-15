@@ -19,6 +19,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "benchmark": "node --import tsx benchmarks/milestone5.ts",
     "dev": "tsx src/cli.ts",
     "docs:check": "node --import tsx scripts/check-docs.ts",
     "test": "vitest run",

@@ -14,7 +14,15 @@ import {
   type MonitorSnapshot,
 } from "../monitor.js";
 import { resolveProjectTree } from "../full-install.js";
-import { bold, cyan, dim, green, red, yellow } from "../report.js";
+import {
+  bold,
+  cyan,
+  dim,
+  green,
+  monitorSeverityRank,
+  red,
+  renderMonitorEvent,
+} from "../report.js";
 import type { PackageManager } from "../types.js";
 
 export interface MonitorCommandOptions {
@@ -29,9 +37,6 @@ export interface MonitorCommandOptions {
   concurrency?: number;
   assess: AssessOptions; // unused (no AI) — accepted for CLI uniformity
 }
-
-const SEVERITY_ICON = { critical: "✗", warn: "⚠", info: "ℹ" } as const;
-const SEVERITY_PAINT = { critical: red, warn: yellow, info: cyan } as const;
 
 /** `targate monitor` — re-check monitored packages against a stored baseline. */
 export async function monitorCommand(opts: MonitorCommandOptions): Promise<number> {
@@ -111,12 +116,10 @@ export async function monitorCommand(opts: MonitorCommandOptions): Promise<numbe
     note(green(`  ✓ baseline created for ${snapshots.length} package(s) → ${baselineFile}`));
   }
   const sorted = [...events].sort(
-    (a, b) => rank(b.severity) - rank(a.severity) || a.package.localeCompare(b.package),
+    (a, b) => monitorSeverityRank(b.severity) - monitorSeverityRank(a.severity) || a.package.localeCompare(b.package),
   );
   for (const e of sorted) {
-    const paint = SEVERITY_PAINT[e.severity];
-    const known = e.alreadyKnown ? dim(" (already known)") : "";
-    console.log(paint(`  ${SEVERITY_ICON[e.severity]} ${e.package}: ${e.detail}`) + known);
+    console.log(renderMonitorEvent(e));
   }
   for (const err of errors) console.log(dim(`  · ${err.package}: could not check (${err.message})`));
 
@@ -134,10 +137,6 @@ export async function monitorCommand(opts: MonitorCommandOptions): Promise<numbe
   }
   if (updated && baselineExisted) console.log(dim(`Baseline updated → ${baselineFile}`));
   return exitCode;
-}
-
-function rank(s: MonitorEvent["severity"]): number {
-  return s === "critical" ? 2 : s === "warn" ? 1 : 0;
 }
 
 function isAlreadyKnown(kind: MonitorEvent["kind"], prior: MonitorSnapshot): boolean {

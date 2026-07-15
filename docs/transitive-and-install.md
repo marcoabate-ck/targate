@@ -12,7 +12,7 @@ By default targate analyzes only the package you named. With `--deep` it asks th
 
 The final decision is the **strictest verdict across the whole tree**: a blocked transitive dependency blocks the install exactly like a blocked root; a `require_approval` anywhere in the tree escalates the run. Flagged packages are listed in the reasons (`--json` includes the full per-package results under `deep`).
 
-Cost: a deep run downloads and analyzes N tarballs. To keep a cold run fast, the whole tree is processed in parallel (`--concurrency`, default 16), OSV is queried for the entire tree in **one batched request** instead of one per package, and — with an AI provider configured — several packages are assessed per model request (batched; see [AI providers](ai-providers.md#batched-assessment-on-large-trees)). The [AI response cache](ai-cache.md) makes repeated and shared dependencies cheaper still. If npm cannot resolve the tree, the run fails loudly rather than silently degrading to top-level-only coverage.
+Cost: a deep run downloads and analyzes N tarballs. To keep a cold run fast, the whole tree is processed in parallel (`--concurrency`, default 16), OSV is queried for the entire tree in **one batched request** instead of one per package, and — with an AI provider configured — several packages are assessed per model request (batched; see [AI providers](ai-providers.md#batched-assessment-on-large-trees)). The [AI response cache](ai-cache.md) makes repeated and shared dependencies cheaper still: full-tree cache hits are loaded in one read and fresh batch results land in one atomic write. If npm cannot resolve the tree, the run fails loudly rather than silently degrading to top-level-only coverage.
 
 Tuning flags (also apply to `targate install`):
 

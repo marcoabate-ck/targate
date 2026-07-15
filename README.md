@@ -127,6 +127,7 @@ pnpm dev add <pkg>   # run from source (tsx), e.g. pnpm dev add react-native-mmk
 pnpm test            # vitest suite, including end-to-end CI and full-install fixture checks
 pnpm typecheck
 pnpm docs:check      # generated CLI docs, examples, and local links
+pnpm benchmark       # repeatable cold/warm 10–1000 package performance targets
 ```
 
 Or link the built binary for local use: `pnpm link --global` → `targate add <package>`.

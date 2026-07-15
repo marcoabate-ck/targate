@@ -1,5 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { readIndexedFile, resolveFileIndex, type PackageFileIndex } from "./file-index.js";
 import path from "node:path";
 
 /** Phase-3 deep React Native checks (workshop proposal §9). */
@@ -138,35 +137,16 @@ export function buildCompatNotes(inputs: CompatInputs): string[] {
   return notes;
 }
 
-async function walk(dir: string, base: string, acc: string[]): Promise<void> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "node_modules") continue;
-      await walk(full, base, acc);
-    } else {
-      acc.push(path.relative(base, full));
-    }
-  }
-}
-
 /**
  * Run the phase-3 React Native hardening review over an extracted package.
  * Everything is static — nothing is compiled or executed.
  */
 export async function analyzeRnHardening(
-  packageDir: string,
+  packageInput: string | PackageFileIndex,
   androidPermissions: string[],
   hasNativeCode: boolean,
 ): Promise<RnHardening> {
-  const files: string[] = [];
-  await walk(packageDir, packageDir, files);
+  const index = await resolveFileIndex(packageInput);
 
   const result: RnHardening = {
     podspecFindings: [],
@@ -179,19 +159,19 @@ export async function analyzeRnHardening(
 
   let usesJsi = false;
 
-  for (const rel of files) {
-    const basename = path.basename(rel);
-    const full = path.join(packageDir, rel);
+  for (const file of index.files) {
+    const rel = file.relPath;
+    const basename = file.basename;
 
     if (basename.endsWith(".podspec")) {
-      result.podspecFindings.push(...reviewPodspec(rel, await readFile(full, "utf8").catch(() => "")));
+      result.podspecFindings.push(...reviewPodspec(rel, await readIndexedFile(file)));
     }
     if (basename === "build.gradle" || basename === "build.gradle.kts" || basename === "settings.gradle") {
-      result.gradleFindings.push(...reviewGradle(rel, await readFile(full, "utf8").catch(() => "")));
+      result.gradleFindings.push(...reviewGradle(rel, await readIndexedFile(file)));
     }
     if (basename === "react-native.config.js") {
       result.autolinkingFindings.push(
-        ...reviewAutolinkingConfig(await readFile(full, "utf8").catch(() => "")),
+        ...reviewAutolinkingConfig(await readIndexedFile(file)),
       );
     }
     if (/\.(framework|xcframework)(\/|$)/.test(rel)) {
@@ -201,22 +181,25 @@ export async function analyzeRnHardening(
       }
     }
     if (/\.(h|hpp|cpp|mm)$/.test(basename) && !usesJsi) {
-      const content = await readFile(full, "utf8").catch(() => "");
+      const content = await readIndexedFile(file);
       if (/jsi\/jsi\.h|facebook::jsi/.test(content)) usesJsi = true;
     }
   }
 
   let packageJson: CompatInputs["packageJson"] = {};
   try {
-    packageJson = JSON.parse(await readFile(path.join(packageDir, "package.json"), "utf8"));
+    const manifest = index.byBasename.get("package.json")?.find(
+      (file) => path.dirname(file.relPath) === ".",
+    );
+    if (manifest) packageJson = JSON.parse(await readIndexedFile(manifest));
   } catch {
     /* tolerate broken package.json — other analyzers already flag it */
   }
 
   result.compatNotes = buildCompatNotes({
     packageJson,
-    hasExpoModuleConfig: existsSync(path.join(packageDir, "expo-module.config.json")),
-    hasAppPlugin: existsSync(path.join(packageDir, "app.plugin.js")),
+    hasExpoModuleConfig: index.byBasename.has("expo-module.config.json"),
+    hasAppPlugin: index.byBasename.has("app.plugin.js"),
     usesJsi,
     hasNativeCode,
   });
