@@ -6,3 +6,4 @@ dist/
 # Local targate state — approvals.json is committed by design, these are not.
 .targate/ai-cache.json
 .targate/last-run.json
+.targate/monitor-baseline.json

@@ -41,6 +41,31 @@ describe("cli routing and validation", () => {
     expect(stdout).toContain("gate every dependency before it runs");
   });
 
+  it("prints command-specific help", async () => {
+    const { code, stdout } = await runCli("add", "--help");
+    expect(code).toBe(0);
+    expect(stdout).toContain("Usage:\n  targate add <package>");
+    expect(stdout).toContain("--deep");
+    expect(stdout).not.toContain("--network");
+  });
+
+  it("rejects package shorthand and suggests the intended command safely", async () => {
+    const typo = await runCli("instal");
+    expect(typo.code).toBe(1);
+    expect(typo.stderr).toContain("Unknown command: instal");
+    expect(typo.stderr).toContain("targate install");
+
+    const packageName = await runCli("left-pad");
+    expect(packageName.code).toBe(1);
+    expect(packageName.stderr).toContain("Unknown command: left-pad");
+  });
+
+  it("rejects an option that belongs to another command", async () => {
+    const { code, stderr } = await runCli("doctor", "--deep");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Unknown option '--deep'");
+  });
+
   it("rejects an unknown provider before doing any work", async () => {
     const { code, stderr } = await runCli("add", "left-pad", "--provider", "bogus");
     expect(code).toBe(1);

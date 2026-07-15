@@ -57,22 +57,27 @@ targate resolves the package from npm, extracts the tarball into quarantine (scr
 
 ## Commands at a glance
 
+<!-- targate:commands:start -->
 | Command | What it does |
 |---|---|
-| `targate add <pkg>` | Analyze one package, then gate the install (`--deep` for its whole tree) |
-| `targate approve <pkg>` | Record a committable approval **without** installing |
-| `targate install` | Vet the **entire** dependency tree, then gate a full install |
-| `targate sandbox <pkg>` | Trial-install in a disposable Docker container, observing its network activity |
-| `targate ci` | Analyze the dependencies a PR adds/updates; fail the build on a bad one |
-| `targate diff <pkg>@a <pkg>@b` | Show what changed between two versions and rate the upgrade risk |
-| `targate monitor` | Re-check approved/installed packages against a baseline; flag risk that rose over time |
-| `targate history [<pkg>]` | Trust history: who approved what, when, under which policy/AI — `--verify` checks signatures |
-| `targate recommend "<need>"` | Suggest packages for a need (npm search + AI-proposed names), safest first — scored, ranked, with reasons |
-| `targate graph [<pkg>]` | The dependency tree as an interactive risk graph (HTML/SVG/dot/mermaid); `--why <pkg>` explains how a package got in |
-| `targate explain <pkg>` | Explain why a package would be allowed or blocked (`--last` re-explains the previous run) |
-| `targate doctor` | Check the environment: Node, registry, OSV, AI provider, GitHub, policy, cache dirs |
-| `targate policy init` | Scaffold the team policy file (`--preset strict`, `react-native`, `ci`, `ai-agent`) |
-| `targate agents init` | Scaffold instruction files so AI coding agents gate installs through targate |
+| `targate add <package>[@version]` | Analyze one package, then gate its installation. |
+| `targate approve <package>[@version]` | Record a committable human approval without installing. |
+| `targate install` | Vet the complete dependency tree, then gate a full install. |
+| `targate sandbox <package>[@version]` | Trial-install a package in a disposable Docker container. |
+| `targate ci [init]` | Gate dependency changes against a Git ref or scaffold CI. |
+| `targate policy init` | Scaffold a declarative team policy from a preset. |
+| `targate doctor` | Diagnose the local security and provider environment. |
+| `targate diff <pkg>@<v1> [<pkg>[@<v2>]]` | Compare package versions and rate the upgrade risk. |
+| `targate monitor` | Re-check trusted packages and report increased risk. |
+| `targate graph [<package>[@version]]` | Render a dependency risk graph or explain why a package is present. |
+| `targate recommend "<need>"` | Recommend analyzed packages for a need, safest first. |
+| `targate history [<package>[@version]]` | Show recorded trust decisions and optionally verify signatures. |
+| `targate explain <package>[@version] \| --last` | Explain a fresh or previously recorded decision without installing. |
+| `targate cache <info\|clear>` | Inspect or clear the AI assessment cache. |
+| `targate agents init` | Scaffold instructions that make coding agents use targate. |
+<!-- targate:commands:end -->
+
+Package installation is intentionally explicit: use `targate add <package>`. Bare package names and unknown commands fail without starting an analysis. Run `targate <command> --help` for the options accepted by that command.
 
 Exit codes: `0` ok · `1` error · `2` blocked (or suspicious sandbox / failed CI check). Full flags and options: [docs/cli-reference.md](docs/cli-reference.md).
 
@@ -119,8 +124,9 @@ Full specifications live in [`docs/`](docs/README.md):
 pnpm install
 pnpm build
 pnpm dev add <pkg>   # run from source (tsx), e.g. pnpm dev add react-native-mmkv --dry-run
-pnpm test            # vitest suite (537 tests, incl. end-to-end CI and full-install checks on fixture repos)
+pnpm test            # vitest suite, including end-to-end CI and full-install fixture checks
 pnpm typecheck
+pnpm docs:check      # generated CLI docs, examples, and local links
 ```
 
 Or link the built binary for local use: `pnpm link --global` → `targate add <package>`.

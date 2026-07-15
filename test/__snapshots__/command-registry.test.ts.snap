@@ -1,0 +1,411 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > add help 1`] = `
+"Analyze one package, then gate its installation.
+
+Usage:
+  targate add <package>[@version]
+
+Options:
+  --package-manager <pm>       Force pnpm, npm, or yarn (default: auto-detect).
+  --json                       Print machine-readable JSON.
+  --dry-run                    Analyze and report only; never prompt or install.
+  --yes                        Skip confirmation only for decisions that may be automated.
+  --no-cache                   Ignore cached AI assessments for this run.
+  --deep                       Analyze the full transitive dependency tree.
+  --concurrency <n>            Maximum parallel package analyses (default: 16).
+  --no-ai-batch                Use one AI request per package instead of batching.
+  --no-ai                      Skip AI reasoning and use deterministic rules only.
+  --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
+  --model <name>               Override the selected provider model.
+  --base-url <url>             Set the API base URL (required for a custom provider).
+  --api-key <key>              Set an API key (environment variables are preferred).
+  --reasoning                  Enable model reasoning where supported.
+  --fail-on-osv-error          Require approval when OSV is unreachable.
+  --no-reputation              Skip external reputation lookups.
+  --help                       Show help for this command.
+
+Examples:
+  targate add lodash
+  targate add left-pad@1.3.0 --dry-run
+  targate add esbuild --yes --deep"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > agents help 1`] = `
+"Scaffold instructions that make coding agents use targate.
+
+Usage:
+  targate agents init
+
+Options:
+  --format <format>            Select the output or scaffold format.
+  --help                       Show help for this command.
+
+Examples:
+  targate agents init
+  targate agents init --format all"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > approve help 1`] = `
+"Record a committable human approval without installing.
+
+Usage:
+  targate approve <package>[@version]
+
+Options:
+  --json                       Print machine-readable JSON.
+  --yes                        Skip confirmation only for decisions that may be automated.
+  --allow-scripts              Allow lifecycle scripts where the command supports it.
+  --sign                       Sign an approval with the human operator's SSH key.
+  --no-cache                   Ignore cached AI assessments for this run.
+  --deep                       Analyze the full transitive dependency tree.
+  --no-ai                      Skip AI reasoning and use deterministic rules only.
+  --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
+  --model <name>               Override the selected provider model.
+  --base-url <url>             Set the API base URL (required for a custom provider).
+  --api-key <key>              Set an API key (environment variables are preferred).
+  --reasoning                  Enable model reasoning where supported.
+  --fail-on-osv-error          Require approval when OSV is unreachable.
+  --no-reputation              Skip external reputation lookups.
+  --help                       Show help for this command.
+
+Examples:
+  targate approve esbuild@0.27.3
+  targate approve esbuild@0.27.3 --sign"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > cache help 1`] = `
+"Inspect or clear the AI assessment cache.
+
+Usage:
+  targate cache <info|clear>
+
+Options:
+  --scope <scope>              Cache scope: user or project.
+  --json                       Print machine-readable JSON.
+  --help                       Show help for this command.
+
+Examples:
+  targate cache info
+  targate cache clear --scope project"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > ci help 1`] = `
+"Gate dependency changes against a Git ref or scaffold CI.
+
+Usage:
+  targate ci [init]
+
+Options:
+  --base-ref <ref>             Git ref to compare against (default: origin/main).
+  --json                       Print machine-readable JSON.
+  --no-ai                      Skip AI reasoning and use deterministic rules only.
+  --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
+  --model <name>               Override the selected provider model.
+  --base-url <url>             Set the API base URL (required for a custom provider).
+  --api-key <key>              Set an API key (environment variables are preferred).
+  --reasoning                  Enable model reasoning where supported.
+  --fail-on-osv-error          Require approval when OSV is unreachable.
+  --no-reputation              Skip external reputation lookups.
+  --help                       Show help for this command.
+
+Examples:
+  targate ci --base-ref origin/main --fail-on-osv-error
+  targate ci init"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > diff help 1`] = `
+"Compare package versions and rate the upgrade risk.
+
+Usage:
+  targate diff <pkg>@<v1> [<pkg>[@<v2>]]
+
+Options:
+  --package-manager <pm>       Force pnpm, npm, or yarn (default: auto-detect).
+  --json                       Print machine-readable JSON.
+  --fail-on <level>            Exit 2 at low, medium, or high diff risk (default: high).
+  --no-ai                      Skip AI reasoning and use deterministic rules only.
+  --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
+  --model <name>               Override the selected provider model.
+  --base-url <url>             Set the API base URL (required for a custom provider).
+  --api-key <key>              Set an API key (environment variables are preferred).
+  --reasoning                  Enable model reasoning where supported.
+  --fail-on-osv-error          Require approval when OSV is unreachable.
+  --no-reputation              Skip external reputation lookups.
+  --help                       Show help for this command.
+
+Examples:
+  targate diff lodash@4.17.20 lodash@4.17.21
+  targate diff lodash --fail-on medium"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > doctor help 1`] = `
+"Diagnose the local security and provider environment.
+
+Usage:
+  targate doctor
+
+Options:
+  --json                       Print machine-readable JSON.
+  --ping                       Send a real provider completion during diagnostics.
+  --no-ai                      Skip AI reasoning and use deterministic rules only.
+  --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
+  --model <name>               Override the selected provider model.
+  --base-url <url>             Set the API base URL (required for a custom provider).
+  --api-key <key>              Set an API key (environment variables are preferred).
+  --reasoning                  Enable model reasoning where supported.
+  --help                       Show help for this command.
+
+Examples:
+  targate doctor
+  targate doctor --ping"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > explain help 1`] = `
+"Explain a fresh or previously recorded decision without installing.
+
+Usage:
+  targate explain <package>[@version] | --last
+
+Options:
+  --last                       Explain the most recent add or approve run offline.
+  --json                       Print machine-readable JSON.
+  --no-cache                   Ignore cached AI assessments for this run.
+  --no-ai                      Skip AI reasoning and use deterministic rules only.
+  --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
+  --model <name>               Override the selected provider model.
+  --base-url <url>             Set the API base URL (required for a custom provider).
+  --api-key <key>              Set an API key (environment variables are preferred).
+  --reasoning                  Enable model reasoning where supported.
+  --fail-on-osv-error          Require approval when OSV is unreachable.
+  --no-reputation              Skip external reputation lookups.
+  --help                       Show help for this command.
+
+Examples:
+  targate explain left-pad@1.3.0
+  targate explain --last"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > global help 1`] = `
+"targate — gate every dependency before it runs (AI-gated pre-install security)
+
+Usage:
+  targate add <package>[@version]                 Analyze one package, then gate its installation.
+  targate approve <package>[@version]             Record a committable human approval without installing.
+  targate install                                 Vet the complete dependency tree, then gate a full install.
+  targate sandbox <package>[@version]             Trial-install a package in a disposable Docker container.
+  targate ci [init]                               Gate dependency changes against a Git ref or scaffold CI.
+  targate policy init                             Scaffold a declarative team policy from a preset.
+  targate doctor                                  Diagnose the local security and provider environment.
+  targate diff <pkg>@<v1> [<pkg>[@<v2>]]          Compare package versions and rate the upgrade risk.
+  targate monitor                                 Re-check trusted packages and report increased risk.
+  targate graph [<package>[@version]]             Render a dependency risk graph or explain why a package is present.
+  targate recommend "<need>"                      Recommend analyzed packages for a need, safest first.
+  targate history [<package>[@version]]           Show recorded trust decisions and optionally verify signatures.
+  targate explain <package>[@version] | --last    Explain a fresh or previously recorded decision without installing.
+  targate cache <info|clear>                      Inspect or clear the AI assessment cache.
+  targate agents init                             Scaffold instructions that make coding agents use targate.
+
+Options:
+  --package-manager <pm>       Force pnpm, npm, or yarn (default: auto-detect).
+  --json                       Print machine-readable JSON.
+  --dry-run                    Analyze and report only; never prompt or install.
+  --yes                        Skip confirmation only for decisions that may be automated.
+  --no-cache                   Ignore cached AI assessments for this run.
+  --deep                       Analyze the full transitive dependency tree.
+  --concurrency <n>            Maximum parallel package analyses (default: 16).
+  --no-ai-batch                Use one AI request per package instead of batching.
+  --no-ai                      Skip AI reasoning and use deterministic rules only.
+  --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
+  --model <name>               Override the selected provider model.
+  --base-url <url>             Set the API base URL (required for a custom provider).
+  --api-key <key>              Set an API key (environment variables are preferred).
+  --reasoning                  Enable model reasoning where supported.
+  --fail-on-osv-error          Require approval when OSV is unreachable.
+  --no-reputation              Skip external reputation lookups.
+  --allow-scripts              Allow lifecycle scripts where the command supports it.
+  --sign                       Sign an approval with the human operator's SSH key.
+  --update-lockfile            Stage and review a lockfile update before installing.
+  --frozen-lockfile            Deprecated no-op; immutable installs are the default.
+  --image <image>              Docker image (default: node:20-alpine).
+  --timeout <seconds>          Kill the sandbox after this many seconds (default: 300).
+  --network <mode>             Sandbox network mode: open or none.
+  --no-capture                 Disable sandbox network observation.
+  --base-ref <ref>             Git ref to compare against (default: origin/main).
+  --format <format>            Select the output or scaffold format.
+  --preset <name>              Policy preset: default, strict, react-native, ci, or ai-agent.
+  --ping                       Send a real provider completion during diagnostics.
+  --fail-on <level>            Exit 2 at low, medium, or high diff risk (default: high).
+  --all                        Include the complete lockfile dependency tree.
+  --no-update                  Report monitor events without advancing the baseline.
+  --output <path>              Graph output path; use - for stdout.
+  --only <filters>             Keep graph nodes matching comma-separated risk filters.
+  --why <package>              Print every risk-annotated dependency chain to a package.
+  --open                       Open a written HTML or SVG graph in the browser.
+  --limit <n>                  Maximum recommendation candidates (default: 5, maximum: 15).
+  --verify                     Verify approval signatures against allowed signers.
+  --last                       Explain the most recent add or approve run offline.
+  --scope <scope>              Cache scope: user or project.
+  -h, --help                  Show global or command-specific help.
+
+Run \`targate <command> --help\` for command-specific options and examples."
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > graph help 1`] = `
+"Render a dependency risk graph or explain why a package is present.
+
+Usage:
+  targate graph [<package>[@version]]
+
+Options:
+  --format <format>            Select the output or scaffold format.
+  --output <path>              Graph output path; use - for stdout.
+  --only <filters>             Keep graph nodes matching comma-separated risk filters.
+  --why <package>              Print every risk-annotated dependency chain to a package.
+  --open                       Open a written HTML or SVG graph in the browser.
+  --json                       Print machine-readable JSON.
+  --package-manager <pm>       Force pnpm, npm, or yarn (default: auto-detect).
+  --no-reputation              Skip external reputation lookups.
+  --fail-on-osv-error          Require approval when OSV is unreachable.
+  --concurrency <n>            Maximum parallel package analyses (default: 16).
+  --help                       Show help for this command.
+
+Examples:
+  targate graph
+  targate graph --only high-risk,scripts
+  targate graph --why minimist"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > history help 1`] = `
+"Show recorded trust decisions and optionally verify signatures.
+
+Usage:
+  targate history [<package>[@version]]
+
+Options:
+  --json                       Print machine-readable JSON.
+  --verify                     Verify approval signatures against allowed signers.
+  --help                       Show help for this command.
+
+Examples:
+  targate history
+  targate history esbuild --verify"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > install help 1`] = `
+"Vet the complete dependency tree, then gate a full install.
+
+Usage:
+  targate install
+
+Options:
+  --package-manager <pm>       Force pnpm, npm, or yarn (default: auto-detect).
+  --json                       Print machine-readable JSON.
+  --dry-run                    Analyze and report only; never prompt or install.
+  --yes                        Skip confirmation only for decisions that may be automated.
+  --no-cache                   Ignore cached AI assessments for this run.
+  --update-lockfile            Stage and review a lockfile update before installing.
+  --frozen-lockfile            Deprecated no-op; immutable installs are the default.
+  --allow-scripts              Allow lifecycle scripts where the command supports it.
+  --concurrency <n>            Maximum parallel package analyses (default: 16).
+  --no-ai-batch                Use one AI request per package instead of batching.
+  --no-ai                      Skip AI reasoning and use deterministic rules only.
+  --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
+  --model <name>               Override the selected provider model.
+  --base-url <url>             Set the API base URL (required for a custom provider).
+  --api-key <key>              Set an API key (environment variables are preferred).
+  --reasoning                  Enable model reasoning where supported.
+  --fail-on-osv-error          Require approval when OSV is unreachable.
+  --no-reputation              Skip external reputation lookups.
+  --help                       Show help for this command.
+
+Examples:
+  targate install
+  targate install --update-lockfile --dry-run"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > monitor help 1`] = `
+"Re-check trusted packages and report increased risk.
+
+Usage:
+  targate monitor
+
+Options:
+  --package-manager <pm>       Force pnpm, npm, or yarn (default: auto-detect).
+  --json                       Print machine-readable JSON.
+  --all                        Include the complete lockfile dependency tree.
+  --no-update                  Report monitor events without advancing the baseline.
+  --concurrency <n>            Maximum parallel package analyses (default: 16).
+  --no-ai                      Skip AI reasoning and use deterministic rules only.
+  --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
+  --model <name>               Override the selected provider model.
+  --base-url <url>             Set the API base URL (required for a custom provider).
+  --api-key <key>              Set an API key (environment variables are preferred).
+  --reasoning                  Enable model reasoning where supported.
+  --fail-on-osv-error          Require approval when OSV is unreachable.
+  --no-reputation              Skip external reputation lookups.
+  --help                       Show help for this command.
+
+Examples:
+  targate monitor
+  targate monitor --all --no-update"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > policy help 1`] = `
+"Scaffold a declarative team policy from a preset.
+
+Usage:
+  targate policy init
+
+Options:
+  --format <format>            Select the output or scaffold format.
+  --preset <name>              Policy preset: default, strict, react-native, ci, or ai-agent.
+  --help                       Show help for this command.
+
+Examples:
+  targate policy init
+  targate policy init --preset ai-agent"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > recommend help 1`] = `
+"Recommend analyzed packages for a need, safest first.
+
+Usage:
+  targate recommend "<need>"
+
+Options:
+  --limit <n>                  Maximum recommendation candidates (default: 5, maximum: 15).
+  --json                       Print machine-readable JSON.
+  --no-ai                      Skip AI reasoning and use deterministic rules only.
+  --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
+  --model <name>               Override the selected provider model.
+  --base-url <url>             Set the API base URL (required for a custom provider).
+  --api-key <key>              Set an API key (environment variables are preferred).
+  --reasoning                  Enable model reasoning where supported.
+  --fail-on-osv-error          Require approval when OSV is unreachable.
+  --no-reputation              Skip external reputation lookups.
+  --help                       Show help for this command.
+
+Examples:
+  targate recommend "date formatting"
+  targate recommend "immutable state" --limit 8 --json"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > sandbox help 1`] = `
+"Trial-install a package in a disposable Docker container.
+
+Usage:
+  targate sandbox <package>[@version]
+
+Options:
+  --image <image>              Docker image (default: node:20-alpine).
+  --timeout <seconds>          Kill the sandbox after this many seconds (default: 300).
+  --network <mode>             Sandbox network mode: open or none.
+  --no-capture                 Disable sandbox network observation.
+  --json                       Print machine-readable JSON.
+  --help                       Show help for this command.
+
+Examples:
+  targate sandbox suspicious-package
+  targate sandbox esbuild --network none"
+`;
