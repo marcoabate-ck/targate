@@ -1,0 +1,7 @@
+# Isolates the docs site as its own pnpm root (separate from the repo
+# root workspace), so the main targate dependency gate is unaffected.
+# Build scripts pnpm must run for the docs toolchain are approved below.
+
+allowBuilds:
+  # core-js' postinstall only prints a funding notice; no build step.
+  core-js: true
