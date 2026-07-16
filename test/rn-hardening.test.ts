@@ -164,7 +164,8 @@ describe("analyzeRnHardening (end to end on fixture)", () => {
     expect(rn.gradleFindings.length).toBeGreaterThan(0);
     expect(rn.autolinkingFindings.length).toBeGreaterThan(0);
     expect(rn.dangerousPermissions).toEqual(["android.permission.CAMERA"]);
-    expect(rn.iosFrameworkFindings).toEqual([path.join("ios", "Closed.xcframework")]);
+    // Framework findings use POSIX-separated relPaths, host-independent.
+    expect(rn.iosFrameworkFindings).toEqual(["ios/Closed.xcframework"]);
     expect(rn.compatNotes.length).toBeGreaterThan(0);
   });
 });
