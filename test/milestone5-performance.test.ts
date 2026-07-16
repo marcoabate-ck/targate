@@ -35,9 +35,8 @@ describe("shared package file index", () => {
     const index = await buildPackageFileIndex(root);
     expect(index.totalFiles).toBe(2);
     expect(index.totalBytes).toBe(Buffer.byteLength("export default 1;\nPod::Spec.new\n"));
-    expect(index.byBasename.get("module.podspec")?.[0].relPath).toBe(
-      path.join("ios", "module.podspec"),
-    );
+    // relPath is always POSIX-separated, host-independent (not path.join).
+    expect(index.byBasename.get("module.podspec")?.[0].relPath).toBe("ios/module.podspec");
     expect(index.truncated).toBe(false);
   });
 
