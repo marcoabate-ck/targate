@@ -9,7 +9,6 @@ import { describe, expect, it } from "vitest";
  */
 
 const CLI = path.resolve(__dirname, "..", "src", "cli.ts");
-const TSX = path.resolve(__dirname, "..", "node_modules", ".bin", "tsx");
 
 interface CliRun {
   code: number;
@@ -19,10 +18,19 @@ interface CliRun {
 
 function runCli(...args: string[]): Promise<CliRun> {
   return new Promise((resolve, reject) => {
-    execFile(TSX, [CLI, ...args], { timeout: 30_000 }, (err, stdout, stderr) => {
-      if (err && typeof err.code !== "number") return reject(err); // spawn failure, not exit code
-      resolve({ code: err ? (err.code as number) : 0, stdout, stderr });
-    });
+    // Run the TS entry through `node --import tsx` rather than the
+    // node_modules/.bin/tsx shim: on Windows the shim is a .cmd, which Node
+    // refuses to spawn without shell:true (CVE-2024-27980), so execFile'ing
+    // the bare path fails with ENOENT. Invoking node directly is portable.
+    execFile(
+      process.execPath,
+      ["--import", "tsx", CLI, ...args],
+      { timeout: 30_000 },
+      (err, stdout, stderr) => {
+        if (err && typeof err.code !== "number") return reject(err); // spawn failure, not exit code
+        resolve({ code: err ? (err.code as number) : 0, stdout, stderr });
+      },
+    );
   });
 }
 
