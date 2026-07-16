@@ -201,12 +201,12 @@ targate doctor           # config + connectivity checks (free)
 targate doctor --ping    # also one real (paid) AI completion, end to end
 ```
 
-Checks: Node version (≥20), package manager (lockfile + binary), npm registry reachability, **registry configuration** (`.npmrc` default/override/scoped registries and whether credentials are configured — presence only, values are never printed), OSV/OpenSSF reachability, AI provider resolution (and `--ping` for a live completion), GitHub API quota, team policy validity, executable-config mode, `.targate/` and user-cache writability, and CI mode.
+Checks: Node version (≥22.13), package manager (lockfile + binary), npm registry reachability, **registry configuration** (`.npmrc` default/override/scoped registries and whether credentials are configured — presence only, values are never printed), OSV/OpenSSF reachability, AI provider resolution (and `--ping` for a live completion), GitHub API quota, team policy validity, executable-config mode, `.targate/` and user-cache writability, and CI mode.
 
 ```text
 targate doctor
 
-  ✓ Node version                     Node v20.16.0 (>=20 required)
+  ✓ Node version                     Node v22.13.0 (>=22 required)
   ✓ npm registry                     registry.npmjs.org reachable (628ms)
   ✓ Registry configuration (.npmrc)  default registry (registry.npmjs.org), no scoped registries
   ✓ OSV / OpenSSF                    api.osv.dev reachable (515ms)

@@ -15,8 +15,9 @@ permissions:
   contents: read
 
 jobs:
-  # Correctness, documentation, and formatting gates across Node 20/22 on both
+  # Correctness, documentation, and formatting gates across Node 22/24 on both
   # Linux and Windows — the Windows leg is our cross-platform path coverage.
+  # Node 20 is dropped: it is EOL, and pnpm 11 requires Node >= 22.13.
   quality:
     name: quality (node ${{ matrix.node }} · ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -24,7 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: [20, 22]
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
 

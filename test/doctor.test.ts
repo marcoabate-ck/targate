@@ -81,7 +81,7 @@ afterEach(async () => {
 });
 
 describe("individual checks", () => {
-  it("node-version passes on the current runtime (≥20 required to run tests)", async () => {
+  it("node-version passes on the current runtime (≥22 required to run tests)", async () => {
     const r = await check("node-version").run(makeCtx());
     expect(r.status).toBe("pass");
   });

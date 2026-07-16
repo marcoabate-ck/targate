@@ -55,7 +55,7 @@ export interface DoctorReport {
   exitCode: 0 | 1;
 }
 
-export const MIN_NODE_MAJOR = 20; // mirrors package.json "engines"
+export const MIN_NODE_MAJOR = 22; // mirrors package.json "engines" (>=22.13)
 
 const REGISTRY_PING = "https://registry.npmjs.org/-/ping";
 const OSV_QUERY = "https://api.osv.dev/v1/query";

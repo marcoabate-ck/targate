@@ -158,7 +158,7 @@ Or link the built binary for local use: `pnpm link --global` → `targate add <p
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs every push and pull request:
 
-- **quality** — `install --frozen-lockfile`, build, typecheck, `format:check`, `docs:check`, and the full test suite, on **Node 20 and 22** across **Linux and Windows** (the Windows leg is the cross-platform path coverage).
+- **quality** — `install --frozen-lockfile`, build, typecheck, `format:check`, `docs:check`, and the full test suite, on **Node 22 and 24** across **Linux and Windows** (the Windows leg is the cross-platform path coverage).
 - **dependency gate + audit** — gates the project's own dependency tree through `targate install --dry-run` (targate eats its own dog food) and audits runtime dependencies for advisories.
 - **performance benchmarks** — the repeatable 10–1000 package targets, which fail the job on regression.
 
