@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -51,14 +51,17 @@ describe("trust invariants", () => {
   });
 
   it("a non-zero package-manager exit is an install failure", async () => {
+    // Spawn `node <script>` rather than a PATH-resolved shebang binary: an
+    // extensionless shell script is not executable on Windows. Overriding the
+    // command keeps this exit-code contract test OS-independent.
     const binDir = await tempDir("targate-fake-pm-");
-    const fakePnpm = path.join(binDir, "pnpm");
-    await writeFile(fakePnpm, "#!/usr/bin/env node\nprocess.exit(7);\n");
-    await chmod(fakePnpm, 0o755);
-    vi.stubEnv("PATH", `${binDir}${path.delimiter}${process.env.PATH ?? ""}`);
+    const script = path.join(binDir, "fake-pm.mjs");
+    await writeFile(script, "process.exit(7);\n");
+    const command = [process.execPath, script, "install"];
 
     const result = await gateInstall("allow", "pnpm", "example-package@1.0.0", {
       assumeYes: true,
+      commands: { normal: command, noScripts: command },
     });
 
     expect(result).toMatchObject({
