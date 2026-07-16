@@ -59,7 +59,8 @@ describe("analyzeNativeSurface", () => {
       "prebuilt/lib.so": "binary",
     });
     const surface = await analyzeNativeSurface(pkg);
-    expect(surface.binaryArtifacts).toContain(path.join("prebuilt", "lib.so"));
+    // binaryArtifacts use POSIX-separated relPaths, host-independent.
+    expect(surface.binaryArtifacts).toContain("prebuilt/lib.so");
     expect(hasNativeCode(surface)).toBe(true);
   });
 });
