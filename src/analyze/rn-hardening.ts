@@ -189,7 +189,7 @@ export async function analyzeRnHardening(
   let packageJson: CompatInputs["packageJson"] = {};
   try {
     const manifest = index.byBasename.get("package.json")?.find(
-      (file) => path.dirname(file.relPath) === ".",
+      (file) => path.posix.dirname(file.relPath) === ".",
     );
     if (manifest) packageJson = JSON.parse(await readIndexedFile(manifest));
   } catch {

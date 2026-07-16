@@ -20,4 +20,3 @@ export function renderScoreLines(score: SecurityScore): string[] {
   lines.push("  " + dim("(informational — does not affect the decision)"));
   return lines;
 }
-

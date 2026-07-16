@@ -1,0 +1,12 @@
+# Normalize all text files to LF in the repo and on checkout, on every OS.
+# The zero-dependency format gate (scripts/check-format.ts) rejects CR, so a
+# Windows checkout with autocrlf must NOT introduce CRLF.
+* text=auto eol=lf
+
+# Explicit binary types (never touched by line-ending normalization).
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

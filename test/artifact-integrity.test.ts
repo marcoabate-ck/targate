@@ -247,4 +247,53 @@ describe("compromised npm mirror", () => {
     expect(signals.artifact.trust).toBe("mutated");
     expect(evaluateRules(signals).decision).toBe("block");
   });
+
+  it("keeps a checksum-verified tarball approvable when the packument over-declares a script it drops", async () => {
+    // fsevents-shaped drift: the registry packument keeps an `install` entry
+    // the authentic tarball has removed. Nothing extra runs, the bytes match
+    // the declared checksum, so this is an approvable drift — not a mutated
+    // hard block (which would make the package uninstallable forever).
+    cwd = process.cwd();
+    dir = await mkdtemp(path.join(tmpdir(), "targate-mirror-overdeclare-"));
+    await writeFile(path.join(dir, ".npmrc"), "registry=https://mirror.example/\n");
+    process.chdir(dir);
+    resetNpmrcCacheForTests();
+    const privateBytes = await tarball({}); // tarball declares no scripts
+    const integrity = sri(privateBytes);
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith(".tgz")) {
+        return { ok: true, status: 200, arrayBuffer: async () => privateBytes };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          "dist-tags": { latest: "1.0.0" },
+          versions: {
+            "1.0.0": {
+              name: "public-pkg",
+              repository: { url: "https://github.com/example/public-pkg" },
+              dist: { tarball: "https://mirror.example/public-pkg.tgz", integrity },
+              scripts: { install: "node-gyp rebuild" }, // packument over-declares
+              dependencies: {},
+            },
+          },
+          time: { created: "2020-01-01T00:00:00Z", "1.0.0": "2020-01-01T00:00:00Z" },
+        }),
+      };
+    }));
+
+    const { signals } = await buildPackageSignals("public-pkg", "1.0.0", {
+      noReputation: true,
+      osv: { knownMalicious: false, maliciousRecords: [], advisories: [], unavailable: false },
+      cwd: dir,
+    });
+    expect(signals.lifecycleScripts).toEqual({}); // tarball is authoritative — nothing runs
+    expect(signals.artifact.trust).not.toBe("mutated");
+    expect(signals.artifact.metadataDrift?.length).toBeGreaterThan(0);
+    expect(isHardBlock(signals)).toBe(false);
+    expect(evaluateRules(signals).decision).toBe("require_approval");
+  });
 });

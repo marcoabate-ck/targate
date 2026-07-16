@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -8,7 +9,7 @@ import {
   renderCommandHelp,
   renderGlobalHelp,
 } from "../src/command-registry.js";
-import { checkDocumentation } from "../src/docs-consistency.js";
+import { PRODUCT_DESCRIPTION, checkDocumentation } from "../src/docs-consistency.js";
 
 const repoRoot = path.resolve(__dirname, "..");
 
@@ -43,3 +44,27 @@ describe("documentation consistency", () => {
   });
 });
 
+describe("product positioning (Milestone 6.1)", () => {
+  it("keeps one canonical primary description", () => {
+    expect(PRODUCT_DESCRIPTION).toBe(
+      "targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents.",
+    );
+  });
+
+  it("uses that description consistently across the README, docs index, and manifest", () => {
+    const readme = readFileSync(path.join(repoRoot, "README.md"), "utf8");
+    const docsIndex = readFileSync(path.join(repoRoot, "docs", "README.md"), "utf8");
+    const manifest = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8")) as {
+      description: string;
+    };
+    expect(readme).toContain(PRODUCT_DESCRIPTION);
+    expect(docsIndex).toContain(PRODUCT_DESCRIPTION);
+    expect(manifest.description).toContain(PRODUCT_DESCRIPTION);
+  });
+
+  it("keeps pre-install security framed as the first application, not the whole category", () => {
+    const readme = readFileSync(path.join(repoRoot, "README.md"), "utf8");
+    expect(readme).toMatch(/first application/i);
+    expect(readme).toContain("What's shipped today vs. the vision");
+  });
+});

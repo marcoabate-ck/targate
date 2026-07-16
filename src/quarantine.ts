@@ -249,6 +249,11 @@ export async function quarantineTarball(
   let archiveFailure: ResourceLimitError | undefined;
   let archiveFiles = 0;
   let archiveBytes = 0;
+  // npm nests every entry under a single top-level directory, but does NOT
+  // guarantee it is named "package" — @types/* tarballs use the bare type
+  // name ("chai", "node v20.19"), and other publishers vary too. Track the
+  // segment we actually see instead of assuming it.
+  const topLevelDirs = new Set<string>();
   await tar.x({
     file: tarballPath,
     cwd: root,
@@ -266,6 +271,8 @@ export async function quarantineTarball(
         archiveFailure = new ResourceLimitError("unsafe-path", `archive entry escapes quarantine: ${entryPath}`);
         return false;
       }
+      const top = portable.split("/")[0];
+      if (top) topLevelDirs.add(top);
       const entryType = "type" in entry ? entry.type : undefined;
       if (
         entryType === "SymbolicLink" ||
@@ -298,8 +305,14 @@ export async function quarantineTarball(
     throw archiveFailure;
   }
 
-  // npm tarballs contain a top-level "package/" directory
-  const packageDir = path.join(root, "package");
+  // Resolve the package root to the tarball's actual top-level directory.
+  // A well-formed npm tarball has exactly one; anything else is malformed and
+  // falls back to "package" so the downstream package.json read fails loudly
+  // (surfacing as a mutated artifact) rather than silently guessing.
+  const packageDir = path.join(
+    root,
+    topLevelDirs.size === 1 ? [...topLevelDirs][0] : "package",
+  );
   try {
     await verifyExtractedTree(packageDir, root, limits);
   } catch (err) {

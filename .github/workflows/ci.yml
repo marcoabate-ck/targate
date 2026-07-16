@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save runner time.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Correctness, documentation, and formatting gates across Node 22/24 on both
+  # Linux and Windows — the Windows leg is our cross-platform path coverage.
+  # Node 20 is dropped: it is EOL, and pnpm 11 requires Node >= 22.13.
+  quality:
+    name: quality (node ${{ matrix.node }} · ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm format:check
+      - run: pnpm docs:check
+      - run: pnpm test
+
+  # Prove that the project's own dependency tree passes the gate it ships, and
+  # audit runtime dependencies for known advisories.
+  dependency-gate:
+    name: dependency gate + audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Gate dependencies through targate
+        run: node dist/cli.js install --dry-run
+
+      - name: Runtime dependency audit
+        run: pnpm audit --prod --audit-level high
+
+  # Repeatable performance targets (fake provider, no network) — the 1000-package
+  # thresholds are set with CI headroom and fail the job on regression.
+  benchmark:
+    name: performance benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm benchmark

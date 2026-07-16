@@ -53,7 +53,9 @@ export async function analyzeContent(
   const installTimeFiles = new Set<string>();
   for (const command of Object.values(lifecycleScripts)) {
     for (const ref of referencedScriptFiles(command)) {
-      installTimeFiles.add(path.normalize(ref));
+      // relPath is POSIX-separated; normalize refs the same way so matching is
+      // host-independent (path.normalize would introduce `\` on Windows).
+      installTimeFiles.add(path.posix.normalize(ref));
     }
   }
 
@@ -90,7 +92,7 @@ export async function analyzeContent(
     if (flags.length > 0) {
       findings.suspiciousFiles.push(`${relPath}: ${flags.join(", ")}`);
     }
-    if (installTimeFiles.has(path.normalize(relPath)) && flags.length > 0) {
+    if (installTimeFiles.has(path.posix.normalize(relPath)) && flags.length > 0) {
       findings.installTimeFindings.push(
         `install-time file ${relPath} ${flags.join(", ")}`,
       );

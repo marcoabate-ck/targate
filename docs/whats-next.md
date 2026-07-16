@@ -43,4 +43,4 @@ Reach, discoverability, and long-term value.
 
 ---
 
-Positioning we're building toward: *targate is a dependency intelligence layer that helps developers and AI agents choose, inspect, and approve packages before they enter the codebase.*
+Positioning: *targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents.* That layer ships today with pre-install security as its first application — it already helps you **inspect and approve** packages before they enter the codebase. The direction we're building toward adds **intent-aware recommendation**: helping you *choose* the right package, with project context, not only vet the one you already named.

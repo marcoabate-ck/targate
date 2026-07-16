@@ -84,4 +84,3 @@ export function renderVersionDiff(diff: VersionDiff): string {
   push();
   return lines.join("\n");
 }
-
