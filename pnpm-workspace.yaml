@@ -1,0 +1,6 @@
+# pnpm 11 approves dependency build scripts here, not in package.json.
+# esbuild (transitive via vitest) ships a postinstall that links its
+# platform binary; without this it is skipped and CI fails with
+# ERR_PNPM_IGNORED_BUILDS.
+allowBuilds:
+  esbuild: true
