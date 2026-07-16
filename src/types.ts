@@ -194,6 +194,28 @@ export interface ArtifactSignal {
   historicalIntegrity?: string;
   publicRegistryUrl?: string;
   reasons: string[];
+  /**
+   * Registry-metadata vs tarball-manifest divergences that are NOT byte
+   * tampering: the artifact bytes are independently checksum-verified, so the
+   * tarball is authentic and authoritative, but its package.json disagrees
+   * with the registry packument on a field npm can legitimately normalize
+   * (e.g. lifecycle scripts). Surfaced as an approvable require_approval
+   * reason rather than a mutated hard block. Identity fields (name/version)
+   * and the dependency graph stay hard blocks — they define the artifact.
+   */
+  metadataDrift?: string[];
+}
+
+/** Trust levels where the tarball bytes match reviewed/independent checksum
+ *  evidence — the artifact is authentic even if registry metadata diverges. */
+export function isChecksumVerified(trust: ArtifactTrust): boolean {
+  return (
+    trust === "public-equivalent" ||
+    trust === "lockfile-verified" ||
+    trust === "history-verified" ||
+    trust === "registry-consistent" ||
+    trust === "private-only"
+  );
 }
 
 export interface RnHardeningSignals {

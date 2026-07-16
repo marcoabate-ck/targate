@@ -1,0 +1,41 @@
+{
+  "esbuild@0.28.1": {
+    "mode": "normal",
+    "approvedAt": "2026-07-16T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "block",
+      "source": "rules",
+      "reasons": [
+        "Install-time postinstall (install.js) reads npm/proxy env vars and fetches the platform binary — the standard native-binary installer pattern, indistinguishable from exfiltration by static analysis but routinely legitimate.",
+        "Vouched: esbuild is a widely used, reputable build tool; its build is separately gated by pnpm allowBuilds in pnpm-workspace.yaml."
+      ]
+    }
+  },
+  "fsevents@2.3.3": {
+    "mode": "normal",
+    "approvedAt": "2026-07-16T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "Registry packument declares an `install` script the checksum-verified tarball omits — benign npm packument/tarball drift, not tampering. macOS-only optional dependency.",
+        "Vouched: bytes match the reviewed lockfile checksum; the authentic tarball runs no install-time script."
+      ]
+    }
+  },
+  "vite@7.3.6": {
+    "mode": "normal",
+    "approvedAt": "2026-07-16T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "npm packument exceeds the 16 MiB analysis limit, so full static analysis was degraded (UNKNOWN, not clean).",
+        "Vouched: vite is a reputable, widely used dev dependency; the oversized packument is its long release history, not a payload."
+      ]
+    }
+  }
+}

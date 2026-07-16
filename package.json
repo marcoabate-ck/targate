@@ -19,7 +19,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "benchmark": "node --import tsx benchmarks/milestone5.ts",
+    "benchmark": "node --import tsx benchmarks/analysis-scalability.ts",
     "dev": "tsx src/cli.ts",
     "docs:check": "node --import tsx scripts/check-docs.ts",
     "format:check": "node --import tsx scripts/check-format.ts",

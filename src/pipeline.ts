@@ -13,6 +13,7 @@ import { fetchMaintainerIntel } from "./maintainer-intel.js";
 import { fetchReputation, reputationSkipped, type ReputationLookup } from "./reputation.js";
 import { computeSecurityScore, type SecurityScore } from "./score.js";
 import { applyOsvFailurePolicy } from "./rules.js";
+import { isChecksumVerified } from "./types.js";
 import type { PackageMetadata, RiskAssessment, Signals } from "./types.js";
 import type { LockedPackageArtifact } from "./lockfile.js";
 import { ResourceLimitError, resolveResourceLimits, withScanBudget } from "./resource-limits.js";
@@ -136,8 +137,28 @@ async function bindMetadataToTarball(
     );
   }
   if (!sameMap(scripts, metadata.scripts)) {
-    artifact.trust = "mutated";
-    artifact.reasons.push("registry lifecycle scripts differ from the tarball package.json");
+    // Direction matters. A script the TARBALL runs but the registry metadata
+    // omits (or declares with a different body) is a compromised-mirror
+    // hidden-execution attack — always a mutated hard block. The benign case
+    // is the reverse: the packument over-declares a script the authentic,
+    // checksum-verified tarball drops (npm normalizes these — fsevents keeps
+    // an `install` entry the tarball has removed). Nothing extra runs, so
+    // that is an approvable drift, not tampering.
+    const hidden = Object.entries(scripts).some(
+      ([key, command]) => metadata.scripts[key] !== command,
+    );
+    if (!hidden && isChecksumVerified(artifact.trust)) {
+      (artifact.metadataDrift ??= []).push(
+        "registry metadata declares lifecycle scripts absent from the checksum-verified tarball package.json",
+      );
+    } else {
+      artifact.trust = "mutated";
+      artifact.reasons.push(
+        hidden
+          ? "tarball package.json runs lifecycle scripts hidden from the registry metadata"
+          : "registry lifecycle scripts differ from the tarball package.json",
+      );
+    }
   }
   if (!sameMap(dependencies, metadata.dependencyRanges ?? {})) {
     artifact.trust = "mutated";

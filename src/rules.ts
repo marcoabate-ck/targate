@@ -1,4 +1,19 @@
+import { isInstallTimeScript } from "./analyze/scripts.js";
 import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
+
+/** Partition detected lifecycle hooks into ones that run on a registry install
+ *  and ones that only run at pack/publish (or git-install) time. */
+function classifyLifecycleHooks(signals: Signals): {
+  installTime: string[];
+  packTime: string[];
+} {
+  const installTime: string[] = [];
+  const packTime: string[] = [];
+  for (const name of Object.keys(signals.lifecycleScripts)) {
+    (isInstallTimeScript(name) ? installTime : packTime).push(name);
+  }
+  return { installTime, packTime };
+}
 
 /**
  * A lifecycle command that fetches from the network and pipes into a shell /
@@ -39,6 +54,9 @@ export function isHardBlock(signals: Signals): boolean {
  */
 export function evaluateRules(signals: Signals): RiskAssessment {
   const reasons: string[] = [];
+  const { installTime: installTimeHooks, packTime: packTimeHooks } =
+    classifyLifecycleHooks(signals);
+  const hasInstallTimeScripts = installTimeHooks.length > 0;
 
   // ---- BLOCK ----
   if (signals.artifact.trust === "mutated") {
@@ -78,7 +96,7 @@ export function evaluateRules(signals: Signals): RiskAssessment {
   }
 
   const scriptTouchesEnvAndNetwork =
-    signals.hasLifecycleScripts &&
+    hasInstallTimeScripts &&
     signals.content.installTimeFindings.some((f) => f.includes("process.env")) &&
     signals.content.installTimeFindings.some((f) => f.includes("network"));
 
@@ -99,7 +117,7 @@ export function evaluateRules(signals: Signals): RiskAssessment {
       `Lifecycle command downloads and executes remote code: ${signals.scriptCommandFindings.join("; ")}`,
     );
   }
-  if (signals.repositoryMissing && signals.recentPublish && signals.hasLifecycleScripts) {
+  if (signals.repositoryMissing && signals.recentPublish && hasInstallTimeScripts) {
     reasons.push(
       "Recently published package with lifecycle scripts and no repository metadata.",
     );
@@ -121,14 +139,21 @@ export function evaluateRules(signals: Signals): RiskAssessment {
   }
 
   // ---- REQUIRE APPROVAL ----
-  if (signals.hasLifecycleScripts) {
+  if (hasInstallTimeScripts) {
     reasons.push(
-      `Lifecycle scripts present: ${Object.keys(signals.lifecycleScripts).join(", ")}.`,
+      `Install-time lifecycle scripts present: ${installTimeHooks.join(", ")}.`,
     );
   }
   // Suspicious lifecycle command constructs that didn't rise to a BLOCK
-  // (e.g. a shell invocation or credential-file reference on its own).
-  reasons.push(...signals.scriptCommandFindings);
+  // (e.g. a shell invocation or credential-file reference on its own). Only
+  // install-time hooks gate here — a suspicious construct in a pack/publish
+  // hook does not run on a registry install (surfaced as a warning below).
+  const packTimeCommandFindings = signals.scriptCommandFindings.filter((f) =>
+    packTimeHooks.some((h) => f.startsWith(`${h} script `)),
+  );
+  reasons.push(
+    ...signals.scriptCommandFindings.filter((f) => !packTimeCommandFindings.includes(f)),
+  );
   // Build-time code execution declared in native build files is equivalent
   // to a lifecycle script: it runs on the developer machine.
   reasons.push(...signals.rnHardening.podspecFindings.filter((f) => /prepare_command|script_phase|downloads|remote/.test(f)));
@@ -150,6 +175,12 @@ export function evaluateRules(signals: Signals): RiskAssessment {
   if (signals.artifact.trust === "unverified" && signals.hasNativeCode) {
     reasons.push("Artifact has native code but no registry, lockfile, public, or historical checksum.");
   }
+  if (signals.artifact.metadataDrift?.length) {
+    // Bytes are checksum-verified but the registry packument disagrees with
+    // the tarball manifest. Not tampering, but a reviewer should vouch that
+    // the authentic tarball is the intended artifact.
+    reasons.push(...signals.artifact.metadataDrift);
+  }
 
   if (reasons.length > 0) {
     return {
@@ -164,6 +195,12 @@ export function evaluateRules(signals: Signals): RiskAssessment {
   }
 
   // ---- ALLOW WITH WARNINGS ----
+  if (packTimeHooks.length > 0) {
+    reasons.push(
+      `Pack/publish-time scripts present (${packTimeHooks.join(", ")}) — not executed when installing this package from the registry.`,
+    );
+    reasons.push(...packTimeCommandFindings);
+  }
   if (signals.hasNativeCode) {
     reasons.push("Package contains native iOS/Android code.");
     if (signals.rnHardening.dangerousPermissions.length > 0) {
