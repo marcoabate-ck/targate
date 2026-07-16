@@ -121,4 +121,3 @@ export async function recordNoScriptsApprovals(
     if (options.packageManager === "pnpm") await recordBuildApproval(target.name, "ignored");
   }
 }
-

@@ -8,4 +8,3 @@ if (errors.length > 0) {
 } else {
   console.log("Documentation is consistent with the command registry.");
 }
-

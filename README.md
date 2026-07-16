@@ -1,6 +1,6 @@
 # targate — gate every dependency before it runs
 
-`targate` is a CLI that gates JavaScript and React Native dependencies before they are installed or approved. It analyzes an npm package **before** it touches your machine — metadata, lifecycle scripts, tarball contents, React Native native surface, and known malicious-package records — then produces an allow / warn / approve / block decision and only runs the real install if the package passes.
+**targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents.** Its **first application** — the one shipped today — is **pre-install security**: it analyzes an npm package **before** it touches your machine (metadata, lifecycle scripts, tarball contents, React Native native surface, and known malicious-package records), produces an allow / warn / approve / block decision, and only runs the real install if the package passes. Pre-install security is the first application, not the whole category — see [what's shipped today vs. the vision](#whats-shipped-today-vs-the-vision).
 
 Installing a package runs its lifecycle scripts on your machine. `targate` gates that moment. New to the problem it solves? Start with [Why targate](docs/why.md).
 
@@ -91,6 +91,26 @@ Exit codes: `0` ok · `1` error · `2` blocked (or suspicious sandbox / failed C
 - **Local-AI capable — your code never leaves your machine.** targate does reach the network for package metadata, tarballs and vulnerability data, but the AI reasoning can run entirely on a local model; with no AI provider configured it runs on the deterministic rules engine alone and sends nothing to any model. See [AI providers](docs/ai-providers.md).
 - **Fail-closed option.** `--fail-on-osv-error` escalates when the malicious-package lookup can't complete, so a package is never silently trusted while the strongest check was skipped.
 
+## What's shipped today vs. the vision
+
+targate is a dependency **intelligence and decision** layer. Pre-install security is the first application built on that layer, not the whole of it. To keep messaging honest, here is the line between what ships today and where the product is going.
+
+**Available today** — everything in this README is implemented and tested:
+
+- Security score and structured, machine-readable signals (`--json`).
+- Reputation and maintainer intelligence.
+- Explain, diff, and monitor workflows.
+- Team policy, version-specific approvals, and signed trust history.
+- Pre-install gating, CI integration, coding-agent integration, and sandboxed observation.
+
+**Future vision** — directional, not commitments (tracked in [what's next](docs/whats-next.md)):
+
+- Developer intent and project context as first-class inputs.
+- Grounded dependency recommendations and safer-alternative discovery.
+- Deeper trust history across an organization.
+
+The distinction that matters: today targate *inspects and decides*; the vision is that it also *recommends with intent*. An unchecked roadmap item is a plan, not a promise.
+
 ## Documentation
 
 Full specifications live in [`docs/`](docs/README.md):
@@ -126,8 +146,20 @@ pnpm build
 pnpm dev add <pkg>   # run from source (tsx), e.g. pnpm dev add react-native-mmkv --dry-run
 pnpm test            # vitest suite, including end-to-end CI and full-install fixture checks
 pnpm typecheck
+pnpm format:check    # zero-dependency whitespace/formatting gate across the tree
 pnpm docs:check      # generated CLI docs, examples, and local links
+pnpm audit           # runtime dependency advisory audit (--prod, high and above)
 pnpm benchmark       # repeatable cold/warm 10–1000 package performance targets
 ```
 
 Or link the built binary for local use: `pnpm link --global` → `targate add <package>`.
+
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs every push and pull request:
+
+- **quality** — `install --frozen-lockfile`, build, typecheck, `format:check`, `docs:check`, and the full test suite, on **Node 20 and 22** across **Linux and Windows** (the Windows leg is the cross-platform path coverage).
+- **dependency gate + audit** — gates the project's own dependency tree through `targate install --dry-run` (targate eats its own dog food) and audits runtime dependencies for advisories.
+- **performance benchmarks** — the repeatable 10–1000 package targets, which fail the job on regression.
+
+The project deliberately uses no external linter or formatter: type safety is enforced by `tsc` in `strict` mode and formatting by the zero-dependency `format:check`, so no toolchain dependency bypasses the targate gate.

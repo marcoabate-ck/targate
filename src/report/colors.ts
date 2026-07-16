@@ -8,4 +8,3 @@ export const red = (text: string) => color(31, text);
 export const green = (text: string) => color(32, text);
 export const yellow = (text: string) => color(33, text);
 export const cyan = (text: string) => color(36, text);
-

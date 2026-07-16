@@ -120,4 +120,3 @@ export async function resolveFileIndex(
   assertCompleteFileIndex(index);
   return index;
 }
-

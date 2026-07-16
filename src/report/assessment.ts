@@ -217,4 +217,3 @@ function renderReputationLines(
   if (reputation.repositoryMismatch) push(yellow(`⚠ repository mismatch: ${reputation.repositoryMismatchDetail ?? ""}`));
   return lines;
 }
-

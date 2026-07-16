@@ -12,4 +12,3 @@ export function renderMonitorEvent(event: MonitorEvent): string {
 export function monitorSeverityRank(severity: MonitorEvent["severity"]): number {
   return severity === "critical" ? 2 : severity === "warn" ? 1 : 0;
 }
-

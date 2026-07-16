@@ -73,4 +73,3 @@ export function renderExplanation(
   lines.push("");
   return lines.join("\n");
 }
-

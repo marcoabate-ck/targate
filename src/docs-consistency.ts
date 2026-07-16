@@ -10,6 +10,14 @@ import {
   renderReadmeCommandTable,
 } from "./command-registry.js";
 
+/**
+ * The single canonical product description (Milestone 6.1). Messaging in the
+ * README, the docs index, and the package manifest must all contain this exact
+ * sentence so positioning cannot drift; the docs check enforces it.
+ */
+export const PRODUCT_DESCRIPTION =
+  "targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents.";
+
 export const README_COMMANDS_START = "<!-- targate:commands:start -->";
 export const README_COMMANDS_END = "<!-- targate:commands:end -->";
 export const CLI_REFERENCE_START = "<!-- targate:cli-reference:start -->";
@@ -99,6 +107,22 @@ export async function checkDocumentation(root: string): Promise<string[]> {
   if (!readme.includes(expectedReadme)) errors.push("README command table is stale; regenerate it from the command registry");
   if (/\b\d+ tests\b/.test(readme)) errors.push("README contains a manual test count that can become stale");
 
+  if (!readme.includes(PRODUCT_DESCRIPTION)) {
+    errors.push(`README is missing the canonical product description: "${PRODUCT_DESCRIPTION}"`);
+  }
+
+  const docsIndexFile = path.join(root, "docs", "README.md");
+  const docsIndex = await readFile(docsIndexFile, "utf8");
+  if (!docsIndex.includes(PRODUCT_DESCRIPTION)) {
+    errors.push(`docs/README.md is missing the canonical product description: "${PRODUCT_DESCRIPTION}"`);
+  }
+
+  const manifestFile = path.join(root, "package.json");
+  const manifest = JSON.parse(await readFile(manifestFile, "utf8")) as { description?: string };
+  if (!manifest.description?.includes(PRODUCT_DESCRIPTION)) {
+    errors.push(`package.json description is missing the canonical product description: "${PRODUCT_DESCRIPTION}"`);
+  }
+
   const cliReferenceFile = path.join(root, "docs", "cli-reference.md");
   const cliReference = await readFile(cliReferenceFile, "utf8");
   const expectedReference = generatedBlock(CLI_REFERENCE_START, renderCliReference(), CLI_REFERENCE_END);
@@ -113,4 +137,3 @@ export async function checkDocumentation(root: string): Promise<string[]> {
   }
   return errors;
 }
-

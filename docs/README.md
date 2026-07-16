@@ -1,5 +1,7 @@
 # targate documentation
 
+targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents. Its first application is pre-install security.
+
 Detailed specifications for [`targate`](../README.md). Start with the root README for an overview and quick start; these pages go deep on each topic.
 
 ## Start here
