@@ -9,7 +9,8 @@ import {
 export interface IndexedFile {
   /** Absolute path inside the extracted package root. */
   fullPath: string;
-  /** Package-root-relative path using the host path separator. */
+  /** Package-root-relative path, always POSIX (`/`) separated so analysis and
+   *  findings are identical on Windows and Linux. */
   relPath: string;
   basename: string;
   extension: string;
@@ -78,7 +79,10 @@ export async function buildPackageFileIndex(
 
       const file: IndexedFile = {
         fullPath,
-        relPath: path.relative(packageDir, fullPath),
+        // Host-relative path, then forced to POSIX separators: archive paths
+        // are logically `/`-separated and downstream matching/output must not
+        // vary with path.sep (a `\` on Windows breaks `/`-based patterns).
+        relPath: path.relative(packageDir, fullPath).split(path.sep).join("/"),
         basename: entry.name,
         extension: path.extname(entry.name),
         size: info.size,

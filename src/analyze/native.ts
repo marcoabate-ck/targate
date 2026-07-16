@@ -37,7 +37,7 @@ export async function analyzeNativeSurface(packageInput: string | PackageFileInd
 
   for (const file of index.files) {
     const rel = file.relPath;
-    const segments = rel.split(path.sep);
+    const segments = rel.split("/"); // relPath is POSIX-separated, host-independent
     const basename = file.basename;
 
     if (segments[0] === "ios" || /\.(m|mm|swift|h)$/.test(basename)) {
