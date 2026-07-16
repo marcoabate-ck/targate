@@ -1,0 +1,90 @@
+name: Docs
+
+# Build the Docusaurus site (which runs TypeDoc against ../src for the API
+# reference) and deploy it to GitHub Pages. The docs dependency tree is itself
+# gated through targate — the tool eats its own dog food on its own docs.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - "src/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "website/**"
+      - "src/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+# Allow the deploy job to publish to Pages via OIDC.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One in-flight deploy at a time; don't cancel a running publish.
+concurrency:
+  group: docs-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: gate + build site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # corepack activates the pnpm version pinned in each package.json's
+      # `packageManager` field — the repo root and website/ can differ.
+      - name: Enable pnpm
+        run: corepack enable
+
+      # Build targate from source so the docs tree is gated by the LOCAL
+      # version, not a published one.
+      - name: Build targate
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install docs dependencies
+        working-directory: website
+        run: pnpm install --frozen-lockfile
+
+      - name: Gate docs dependencies through targate
+        working-directory: website
+        # Vets the whole docs dependency tree; exits non-zero on an unapproved
+        # or blocked package. Approvals live in website/.targate/approvals.json.
+        run: node ../dist/cli.js install --dry-run
+
+      - name: Type-check the site config
+        working-directory: website
+        run: pnpm typecheck
+
+      - name: Build (TypeDoc API + Docusaurus)
+        working-directory: website
+        run: pnpm build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/build
+
+  deploy:
+    name: deploy to GitHub Pages
+    # Only publish from main; PRs build (above) to catch breakage but never deploy.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

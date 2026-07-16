@@ -1,0 +1,7 @@
+# Docusaurus
+/.docusaurus/
+/build/
+/node_modules/
+
+# TypeDoc output is generated at build time from ../src.
+/docs/api/

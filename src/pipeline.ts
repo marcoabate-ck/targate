@@ -1,6 +1,7 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { buildDegradedSignals, buildSignals } from "./analyze/index.js";
+import { INSTALL_TIME_SCRIPT_NAMES } from "./analyze/scripts.js";
 import { historicalArtifactDigest } from "./artifact-ledger.js";
 import { assessRisk, type AssessOptions } from "./ai.js";
 import { isInternalScope } from "./npmrc.js";
@@ -136,27 +137,38 @@ async function bindMetadataToTarball(
       `tarball manifest identity ${String(manifest.name)}@${String(manifest.version)} does not match registry identity ${metadata.name}@${metadata.version}`,
     );
   }
-  if (!sameMap(scripts, metadata.scripts)) {
-    // Direction matters. A script the TARBALL runs but the registry metadata
-    // omits (or declares with a different body) is a compromised-mirror
-    // hidden-execution attack — always a mutated hard block. The benign case
-    // is the reverse: the packument over-declares a script the authentic,
-    // checksum-verified tarball drops (npm normalizes these — fsevents keeps
-    // an `install` entry the tarball has removed). Nothing extra runs, so
-    // that is an approvable drift, not tampering.
-    const hidden = Object.entries(scripts).some(
-      ([key, command]) => metadata.scripts[key] !== command,
+  // Only INSTALL-TIME hooks (preinstall/install/postinstall) execute on a
+  // registry install, so only they matter for artifact integrity. Differences
+  // in non-install scripts (test/build/lint) or pack-time hooks never run and
+  // are ignored — comparing the full scripts map would falsely flag ordinary
+  // packages (dayjs, retry, utils-merge…) whose tarball declares dev scripts
+  // the registry packument omits.
+  const tarballHidesInstallHook = INSTALL_TIME_SCRIPT_NAMES.some(
+    (name) => scripts[name] !== undefined && scripts[name] !== metadata.scripts[name],
+  );
+  const packumentOverDeclaresInstallHook = INSTALL_TIME_SCRIPT_NAMES.some(
+    (name) => scripts[name] === undefined && metadata.scripts[name] !== undefined,
+  );
+  if (tarballHidesInstallHook) {
+    // The tarball runs (or alters) an install-time script the registry metadata
+    // doesn't declare — the compromised-mirror hidden-execution attack.
+    artifact.trust = "mutated";
+    artifact.reasons.push(
+      "tarball package.json runs install-time lifecycle scripts hidden from the registry metadata",
     );
-    if (!hidden && isChecksumVerified(artifact.trust)) {
+  } else if (packumentOverDeclaresInstallHook) {
+    // The reverse: the packument declares an install-time script the authentic,
+    // checksum-verified tarball drops (npm normalizes these — fsevents keeps an
+    // `install` entry its tarball removed). Nothing extra runs. Approvable drift
+    // on verified bytes; a hard block only when the bytes themselves are unverified.
+    if (isChecksumVerified(artifact.trust)) {
       (artifact.metadataDrift ??= []).push(
-        "registry metadata declares lifecycle scripts absent from the checksum-verified tarball package.json",
+        "registry metadata declares install-time lifecycle scripts absent from the checksum-verified tarball package.json",
       );
     } else {
       artifact.trust = "mutated";
       artifact.reasons.push(
-        hidden
-          ? "tarball package.json runs lifecycle scripts hidden from the registry metadata"
-          : "registry lifecycle scripts differ from the tarball package.json",
+        "registry install-time lifecycle scripts differ from the unverified tarball package.json",
       );
     }
   }

@@ -1,0 +1,42 @@
+/**
+ * targate docs theme. Neutral, security-tool palette (deep indigo primary),
+ * tuned for both light and dark via Docusaurus' Infima variables.
+ */
+
+:root {
+  --ifm-color-primary: #4f46e5;
+  --ifm-color-primary-dark: #4338ca;
+  --ifm-color-primary-darker: #3f37c9;
+  --ifm-color-primary-darkest: #312aa0;
+  --ifm-color-primary-light: #6366f1;
+  --ifm-color-primary-lighter: #818cf8;
+  --ifm-color-primary-lightest: #a5b4fc;
+  --ifm-code-font-size: 92%;
+  --ifm-font-family-monospace: ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] {
+  --ifm-color-primary: #a5b4fc;
+  --ifm-color-primary-dark: #818cf8;
+  --ifm-color-primary-darker: #6366f1;
+  --ifm-color-primary-darkest: #4f46e5;
+  --ifm-color-primary-light: #c7d2fe;
+  --ifm-color-primary-lighter: #ddd6fe;
+  --ifm-color-primary-lightest: #ede9fe;
+  --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.1);
+}
+
+/* The decision verdicts read as chips in prose. */
+.verdict {
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border-radius: 0.4rem;
+  font-weight: 600;
+  font-size: 0.85em;
+}
+.verdict--allow { background: #dcfce7; color: #166534; }
+.verdict--warn { background: #fef9c3; color: #854d0e; }
+.verdict--approve { background: #ffedd5; color: #9a3412; }
+.verdict--block { background: #fee2e2; color: #991b1b; }

@@ -1,0 +1,28 @@
+{
+  "core-js@3.49.0": {
+    "mode": "normal",
+    "approvedAt": "2026-07-16T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "postinstall prints a funding notice only (no build step); transitive dependency of the Docusaurus toolchain.",
+        "Vouched: reputable, ubiquitous polyfill; its build is separately gated by pnpm allowBuilds in website/pnpm-workspace.yaml."
+      ]
+    }
+  },
+  "fsevents@2.3.3": {
+    "mode": "normal",
+    "approvedAt": "2026-07-16T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "Registry packument declares an install-time script the checksum-verified tarball omits — benign npm packument/tarball drift, not tampering. macOS-only optional dependency of the toolchain.",
+        "Vouched: bytes match the reviewed lockfile checksum; the authentic tarball runs no install-time script."
+      ]
+    }
+  }
+}
