@@ -22,11 +22,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/marcoabate-ck/before-you-execute.git"
+    "url": "git+https://github.com/marcoabate-ck/targate.git"
   },
-  "homepage": "https://github.com/marcoabate-ck/before-you-execute#readme",
+  "homepage": "https://github.com/marcoabate-ck/targate#readme",
   "bugs": {
-    "url": "https://github.com/marcoabate-ck/before-you-execute/issues"
+    "url": "https://github.com/marcoabate-ck/targate/issues"
   },
   "scripts": {
     "build": "tsc",
