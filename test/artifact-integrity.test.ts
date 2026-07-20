@@ -13,6 +13,8 @@ import { resetNpmrcCacheForTests } from "../src/npmrc.js";
 import { buildPackageSignals } from "../src/pipeline.js";
 import { verifyArtifactIdentity } from "../src/quarantine.js";
 import { evaluateRules, isHardBlock } from "../src/rules.js";
+import { approveOutcome } from "../src/commands/approve.js";
+import { isChecksumVerified } from "../src/types.js";
 
 const bytes = Buffer.from("private mirror artifact");
 const sri = (value: Buffer) =>
@@ -143,13 +145,16 @@ describe("compromised npm mirror", () => {
     if (dir) await rm(dir, { recursive: true, force: true });
   });
 
-  async function tarball(scripts: Record<string, string> = {}): Promise<Buffer> {
+  async function tarball(
+    scripts: Record<string, string> = {},
+    extraManifest: Record<string, unknown> = {},
+  ): Promise<Buffer> {
     const work = await mkdtemp(path.join(tmpdir(), "targate-mirror-tar-"));
     try {
       await mkdir(path.join(work, "package"));
       await writeFile(
         path.join(work, "package", "package.json"),
-        JSON.stringify({ name: "public-pkg", version: "1.0.0", scripts }),
+        JSON.stringify({ name: "public-pkg", version: "1.0.0", scripts, ...extraManifest }),
       );
       const file = path.join(work, "package.tgz");
       await tar.c({ gzip: true, cwd: work, file }, ["package"]);
@@ -295,5 +300,161 @@ describe("compromised npm mirror", () => {
     expect(signals.artifact.metadataDrift?.length).toBeGreaterThan(0);
     expect(isHardBlock(signals)).toBe(false);
     expect(evaluateRules(signals).decision).toBe("require_approval");
+  });
+
+  it("reclassifies dependency-metadata drift as approvable on a checksum-verified tarball", async () => {
+    // jest-haste-map-shaped drift: the checksum-verified tarball is authentic,
+    // but the registry packument lists different `dependencies`. npm installs
+    // the tarball manifest, so this is metadata drift a reviewer can vouch for
+    // with a version-pinned `targate approve` — NOT a mutated hard block that
+    // would make the package permanently uninstallable.
+    cwd = process.cwd();
+    dir = await mkdtemp(path.join(tmpdir(), "targate-mirror-depdrift-"));
+    await writeFile(path.join(dir, ".npmrc"), "registry=https://mirror.example/\n");
+    process.chdir(dir);
+    resetNpmrcCacheForTests();
+    // Tarball manifest declares a dependency the packument omits.
+    const privateBytes = await tarball({}, { dependencies: { "left-pad": "^1.3.0" } });
+    const integrity = sri(privateBytes);
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith(".tgz")) {
+        return { ok: true, status: 200, arrayBuffer: async () => privateBytes };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          "dist-tags": { latest: "1.0.0" },
+          versions: {
+            "1.0.0": {
+              name: "public-pkg",
+              repository: { url: "https://github.com/example/public-pkg" },
+              dist: { tarball: "https://mirror.example/public-pkg.tgz", integrity },
+              scripts: {},
+              dependencies: {}, // packument disagrees with the tarball manifest
+            },
+          },
+          time: { created: "2020-01-01T00:00:00Z", "1.0.0": "2020-01-01T00:00:00Z" },
+        }),
+      };
+    }));
+
+    const { signals } = await buildPackageSignals("public-pkg", "1.0.0", {
+      noReputation: true,
+      osv: { knownMalicious: false, maliciousRecords: [], advisories: [], unavailable: false },
+      cwd: dir,
+    });
+    expect(signals.artifact.trust).not.toBe("mutated");
+    expect(signals.artifact.metadataDrift?.join(" ")).toContain(
+      "registry dependencies differ from the checksum-verified tarball",
+    );
+    // The mutated hard-block reasons must NOT carry the dependency divergence.
+    expect(signals.artifact.reasons.join(" ")).not.toContain("dependencies differ");
+    expect(isHardBlock(signals)).toBe(false);
+    const decision = evaluateRules(signals).decision;
+    expect(decision).toBe("require_approval");
+    expect(approveOutcome(decision, isHardBlock(signals))).toBe("approvable");
+  });
+
+  it("keeps dependency-metadata mismatch a mutated hard block when the bytes are unverified", async () => {
+    // No independent checksum (packument omits integrity, no public mirror,
+    // first contact): we cannot tell authentic drift from a substituted
+    // artifact, so a dependency divergence stays a mutated hard block.
+    cwd = process.cwd();
+    dir = await mkdtemp(path.join(tmpdir(), "targate-mirror-depunverified-"));
+    await writeFile(path.join(dir, ".npmrc"), "registry=https://mirror.example/\n");
+    process.chdir(dir);
+    resetNpmrcCacheForTests();
+    const privateBytes = await tarball({}, { dependencies: { "left-pad": "^1.3.0" } });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith(".tgz")) {
+        return { ok: true, status: 200, arrayBuffer: async () => privateBytes };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          "dist-tags": { latest: "1.0.0" },
+          versions: {
+            "1.0.0": {
+              name: "public-pkg",
+              repository: { url: "https://github.com/example/public-pkg" },
+              dist: { tarball: "https://mirror.example/public-pkg.tgz" }, // no integrity → unverifiable
+              scripts: {},
+              dependencies: {},
+            },
+          },
+          time: { created: "2020-01-01T00:00:00Z", "1.0.0": "2020-01-01T00:00:00Z" },
+        }),
+      };
+    }));
+
+    const { signals } = await buildPackageSignals("public-pkg", "1.0.0", {
+      noReputation: true,
+      osv: { knownMalicious: false, maliciousRecords: [], advisories: [], unavailable: false },
+      cwd: dir,
+    });
+    expect(isChecksumVerified(signals.artifact.trust)).toBe(false);
+    expect(signals.artifact.trust).toBe("mutated");
+    expect(signals.artifact.reasons.join(" ")).toContain(
+      "registry dependencies differ from the unverified tarball",
+    );
+    expect(isHardBlock(signals)).toBe(true);
+    expect(evaluateRules(signals).decision).toBe("block");
+  });
+
+  it("keeps a tarball identity mismatch a mutated hard block even on checksum-verified bytes", async () => {
+    // The bytes match the declared checksum, but the tarball manifest identity
+    // disagrees with the registry identity — that IS the artifact's identity, so
+    // it stays a non-approvable hard block regardless of checksum verification.
+    cwd = process.cwd();
+    dir = await mkdtemp(path.join(tmpdir(), "targate-mirror-identity-"));
+    await writeFile(path.join(dir, ".npmrc"), "registry=https://mirror.example/\n");
+    process.chdir(dir);
+    resetNpmrcCacheForTests();
+    // Tarball manifest claims a different name than the registry identity.
+    const privateBytes = await tarball({}, { name: "evil-pkg" });
+    const integrity = sri(privateBytes);
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith(".tgz")) {
+        return { ok: true, status: 200, arrayBuffer: async () => privateBytes };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          "dist-tags": { latest: "1.0.0" },
+          versions: {
+            "1.0.0": {
+              name: "public-pkg",
+              repository: { url: "https://github.com/example/public-pkg" },
+              dist: { tarball: "https://mirror.example/public-pkg.tgz", integrity },
+              scripts: {},
+              dependencies: {},
+            },
+          },
+          time: { created: "2020-01-01T00:00:00Z", "1.0.0": "2020-01-01T00:00:00Z" },
+        }),
+      };
+    }));
+
+    const { signals } = await buildPackageSignals("public-pkg", "1.0.0", {
+      noReputation: true,
+      osv: { knownMalicious: false, maliciousRecords: [], advisories: [], unavailable: false },
+      cwd: dir,
+    });
+    expect(signals.artifact.trust).toBe("mutated");
+    expect(signals.artifact.reasons.join(" ")).toContain("does not match registry identity");
+    expect(isHardBlock(signals)).toBe(true);
+    expect(evaluateRules(signals).decision).toBe("block");
+    expect(approveOutcome(evaluateRules(signals).decision, isHardBlock(signals))).toBe(
+      "hard-blocked",
+    );
   });
 });
