@@ -1,4 +1,6 @@
 import { execFileSync, execSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 /**
@@ -23,13 +25,25 @@ interface PackEntry {
 }
 
 function packedFiles(): string[] {
-  // execSync with a static string is shell-portable (npm is npm.cmd on Windows,
-  // which execFile cannot spawn without a shell). Args are constant — no injection.
-  const stdout = execSync("npm pack --dry-run --json", { cwd: root, encoding: "utf8" });
-  const parsed = JSON.parse(stdout) as Array<{ files?: PackEntry[] }>;
-  const files = parsed[0]?.files ?? [];
-  // Normalize to POSIX so the allowlist matches on Windows too.
-  return files.map((f) => f.path.split(path.sep).join("/"));
+  // Use a throwaway npm cache so a read-only/locked user cache (seen on some
+  // dev machines and locked-down CI) can't fail the check — npm pack does no
+  // network work here, but it still touches the cache dir. execSync with a
+  // static string is shell-portable (npm is npm.cmd on Windows, which execFile
+  // cannot spawn without a shell); the only interpolated value is a temp path
+  // we created, quoted, so there is no injection surface.
+  const cache = mkdtempSync(path.join(tmpdir(), "targate-packcache-"));
+  try {
+    const stdout = execSync(`npm pack --dry-run --json --cache "${cache}"`, {
+      cwd: root,
+      encoding: "utf8",
+    });
+    const parsed = JSON.parse(stdout) as Array<{ files?: PackEntry[] }>;
+    const files = parsed[0]?.files ?? [];
+    // Normalize to POSIX so the allowlist matches on Windows too.
+    return files.map((f) => f.path.split(path.sep).join("/"));
+  } finally {
+    rmSync(cache, { recursive: true, force: true });
+  }
 }
 
 const errors: string[] = [];

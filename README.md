@@ -165,3 +165,25 @@ Or link the built binary for local use: `pnpm link --global` → `targate add <p
 - **performance benchmarks** — the repeatable 10–1000 package targets, which fail the job on regression.
 
 The project deliberately uses no external linter or formatter: type safety is enforced by `tsc` in `strict` mode and formatting by the zero-dependency `format:check`, so no toolchain dependency bypasses the targate gate.
+
+## Stability & compatibility
+
+`targate` follows [Semantic Versioning](https://semver.org/). From **1.0.0** on,
+the following are the stable surface — a breaking change to any of them ships
+only in a new **major** version, with an entry in [CHANGELOG.md](CHANGELOG.md):
+
+- **CLI** — command names, their flags, and exit codes. In particular `0` = allowed / clean, `1` = usage or operational error, `2` = blocked or an unresolved approval. New commands and new (additive) flags are minor releases.
+- **`--json` output** — the machine-readable schema, carried explicitly as `schemaVersion` (currently `1`). Within a major, changes are **additive only** (consumers must ignore unknown keys); any removal, rename, or type change bumps `schemaVersion` and the major.
+- **Committed config formats** — `.targate/approvals.json`, `.targate/denials.json`, and the `targate.policy.*` schema (including the `dependencyPolicy`, `aiCache`, `registries`, and `resourceLimits` fields). Existing keys keep their meaning within a major; unknown keys are ignored with a warning.
+
+Not part of the stable surface (may change in a minor release): human-readable
+terminal formatting, heuristic tuning and thresholds, AI prompts/models, the
+security **score** number, and internal module APIs (`targate` is consumed as a
+CLI, not imported as a library).
+
+Releases are cut by pushing a `v*` tag; the release pipeline
+([`.github/workflows/release.yml`](.github/workflows/release.yml)) runs the full
+gate set (typecheck, tests, build, docs, format, and the `pack:check` artifact
+gate, plus the runtime dependency audit), sets the published version from the
+tag, and publishes with npm provenance. The `version` in `package.json` is not
+bumped by hand.
