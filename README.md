@@ -149,6 +149,7 @@ pnpm test            # vitest suite, including end-to-end CI and full-install fi
 pnpm typecheck
 pnpm format:check    # zero-dependency whitespace/formatting gate across the tree
 pnpm docs:check      # generated CLI docs, examples, and local links
+pnpm pack:check      # offline: the published tarball ships only dist/**+README+LICENSE+package.json, and the bin runs
 pnpm audit           # runtime dependency advisory audit (--prod, high and above)
 pnpm benchmark       # repeatable cold/warm 10–1000 package performance targets
 ```
@@ -159,7 +160,7 @@ Or link the built binary for local use: `pnpm link --global` → `targate add <p
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs every push and pull request:
 
-- **quality** — `install --frozen-lockfile`, build, typecheck, `format:check`, `docs:check`, and the full test suite, on **Node 22 and 24** across **Linux and Windows** (the Windows leg is the cross-platform path coverage).
+- **quality** — `install --frozen-lockfile`, build, typecheck, `format:check`, `docs:check`, the full test suite, and `pack:check` (the published-artifact gate), on **Node 22 and 24** across **Linux and Windows** (the Windows leg is the cross-platform path coverage).
 - **dependency gate + audit** — gates the project's own dependency tree through `targate install --dry-run` (targate eats its own dog food) and audits runtime dependencies for advisories.
 - **performance benchmarks** — the repeatable 10–1000 package targets, which fail the job on regression.
 
