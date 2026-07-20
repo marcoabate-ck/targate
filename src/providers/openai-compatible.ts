@@ -1,20 +1,24 @@
 import OpenAI from "openai";
-import type { RiskAssessment, Signals } from "../types.js";
+import type { RiskAssessment, Signals, SourceAuditFinding } from "../types.js";
 import {
+  SOURCE_AUDIT_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
   batchJsonModeInstruction,
   buildBatchUserPrompt,
+  buildSourceAuditPrompt,
   buildSuggestPrompt,
   buildUserPrompt,
   jsonModeInstruction,
+  sourceAuditJsonModeInstruction,
   suggestJsonModeInstruction,
 } from "./prompt.js";
-import type { AiProvider, BatchAssessment } from "./types.js";
+import type { AiProvider, BatchAssessment, SourceAuditInput } from "./types.js";
 import {
   stripJsonFences,
   stripThinkBlocks,
   validateAssessment,
   validateBatchAssessment,
+  validateSourceAudit,
   validateSuggestions,
 } from "./validate.js";
 
@@ -88,6 +92,14 @@ export class OpenAiCompatibleProvider implements AiProvider {
       buildSuggestPrompt(need, count),
     );
     return validateSuggestions(parsed, count);
+  }
+
+  async analyzeSource(input: SourceAuditInput): Promise<SourceAuditFinding[]> {
+    const parsed = await this.complete(
+      `${SOURCE_AUDIT_SYSTEM_PROMPT}${sourceAuditJsonModeInstruction()}`,
+      buildSourceAuditPrompt(input),
+    );
+    return validateSourceAudit(parsed);
   }
 
   private async complete(systemContent: string, userContent: string): Promise<unknown> {

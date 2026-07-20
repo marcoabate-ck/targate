@@ -1,24 +1,36 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { RiskAssessment, Signals } from "../types.js";
+import type { RiskAssessment, Signals, SourceAuditFinding } from "../types.js";
 import {
   ASSESSMENT_JSON_SCHEMA,
   BATCH_ASSESSMENT_JSON_SCHEMA,
+  SOURCE_AUDIT_JSON_SCHEMA,
+  SOURCE_AUDIT_SYSTEM_PROMPT,
   SUGGESTIONS_JSON_SCHEMA,
   SYSTEM_PROMPT,
   buildBatchUserPrompt,
+  buildSourceAuditPrompt,
   buildSuggestPrompt,
   buildUserPrompt,
 } from "./prompt.js";
-import type { AiProvider, BatchAssessment } from "./types.js";
-import { validateAssessment, validateBatchAssessment, validateSuggestions } from "./validate.js";
+import type { AiProvider, BatchAssessment, SourceAuditInput } from "./types.js";
+import {
+  validateAssessment,
+  validateBatchAssessment,
+  validateSourceAudit,
+  validateSuggestions,
+} from "./validate.js";
 
 const DEFAULT_MODEL = "claude-opus-4-8";
 
+/** Wrap a stable system prompt for ephemeral prompt caching (paid once per run). */
+const cachedSystem = (text: string) => [
+  { type: "text" as const, text, cache_control: { type: "ephemeral" as const } },
+];
+
 // Cache the (stable, ~1.5KB) system prompt so repeated calls in a run only pay
 // for the per-package data + output, not the instructions every time.
-const CACHED_SYSTEM = [
-  { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
-];
+const CACHED_SYSTEM = cachedSystem(SYSTEM_PROMPT);
+const CACHED_AUDIT_SYSTEM = cachedSystem(SOURCE_AUDIT_SYSTEM_PROMPT);
 
 export interface AnthropicProviderOptions {
   /** Falls back to ANTHROPIC_API_KEY or an `ant auth login` profile when omitted. */
@@ -57,10 +69,23 @@ export class AnthropicProvider implements AiProvider {
     return validateSuggestions(JSON.parse(text), count);
   }
 
+  async analyzeSource(input: SourceAuditInput): Promise<SourceAuditFinding[]> {
+    // Scale tokens with the number of files; findings are compact.
+    const maxTokens = Math.min(8192, 1024 + input.files.length * 256);
+    const text = await this.complete(
+      buildSourceAuditPrompt(input),
+      SOURCE_AUDIT_JSON_SCHEMA,
+      maxTokens,
+      CACHED_AUDIT_SYSTEM,
+    );
+    return validateSourceAudit(JSON.parse(text));
+  }
+
   private async complete(
     userContent: string,
     schema: Record<string, unknown>,
     maxTokens: number,
+    system: typeof CACHED_SYSTEM = CACHED_SYSTEM,
   ): Promise<string> {
     const response = await this.client.messages.create({
       model: this.model,
@@ -68,7 +93,7 @@ export class AnthropicProvider implements AiProvider {
       // Opus 4.8 runs WITHOUT thinking when the field is omitted — enable
       // adaptive reasoning explicitly so the model can weigh weak signals.
       thinking: { type: "adaptive" },
-      system: CACHED_SYSTEM,
+      system,
       output_config: { format: { type: "json_schema", schema } },
       messages: [{ role: "user", content: userContent }],
     });

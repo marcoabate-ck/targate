@@ -74,9 +74,18 @@ export function resolveCacheSettings(
   };
 }
 
-export function cacheFilePath(settings: AiCacheSettings, cwd: string = process.cwd()): string {
+/** Resolve a cache file of the given basename under the settings' scope dir. */
+export function cacheFileFor(
+  settings: AiCacheSettings,
+  basename: string,
+  cwd: string = process.cwd(),
+): string {
   const base = settings.scope === "project" ? cwd : homedir();
-  return path.join(base, ".targate", "ai-cache.json");
+  return path.join(base, ".targate", basename);
+}
+
+export function cacheFilePath(settings: AiCacheSettings, cwd: string = process.cwd()): string {
+  return cacheFileFor(settings, "ai-cache.json", cwd);
 }
 
 export interface CacheKeyInput {
@@ -207,7 +216,7 @@ export async function readCachedAssessments(
  */
 const writeQueues = new Map<string, Promise<void>>();
 
-function enqueueWrite(file: string, task: () => Promise<void>): Promise<void> {
+export function enqueueWrite(file: string, task: () => Promise<void>): Promise<void> {
   const prev = writeQueues.get(file) ?? Promise.resolve();
   const next = prev.then(task, task); // run regardless of a prior write's outcome
   writeQueues.set(

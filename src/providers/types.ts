@@ -1,4 +1,4 @@
-import type { RiskAssessment, Signals, SourceAuditResult } from "../types.js";
+import type { RiskAssessment, Signals, SourceAuditFinding } from "../types.js";
 import type { BatchAssessment } from "./validate.js";
 
 export type { BatchAssessment } from "./validate.js";
@@ -47,7 +47,7 @@ export interface AiProvider {
    * attacker-controlled and must be treated as untrusted DATA by the prompt;
    * findings only ever ESCALATE the verdict through the deterministic clamp.
    */
-  analyzeSource?(input: SourceAuditInput): Promise<SourceAuditResult>;
+  analyzeSource?(input: SourceAuditInput): Promise<SourceAuditFinding[]>;
 }
 
 export type ProviderName = "anthropic" | "deepseek" | "openai" | "ollama" | "custom";

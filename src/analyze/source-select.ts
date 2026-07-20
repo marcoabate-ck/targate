@@ -21,6 +21,9 @@ import { resolveResourceLimits, type ResolvedResourceLimits } from "../resource-
  * Files with no signal at all are not audited.
  */
 
+/** Bump when the ranking/budget/slicing changes — part of the audit cache key. */
+export const SOURCE_SELECTION_VERSION = "1";
+
 export interface AuditFileExcerpt {
   /** POSIX package-relative path. */
   relPath: string;
