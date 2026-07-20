@@ -5,9 +5,11 @@ import { isInternalScope } from "./npmrc.js";
 import { queryOsvBatch, type OsvResult } from "./osv.js";
 import {
   analyzePackage,
+  applySourceAudit,
   buildPackageSignals,
   finalizeAssessment,
   type AnalyzePackageOptions,
+  type PendingAudit,
 } from "./pipeline.js";
 import type { AiProvider } from "./providers/types.js";
 import { isHardBlock } from "./rules.js";
@@ -195,6 +197,7 @@ export async function analyzeTransitiveDeps(
         lockedArtifact: pkg,
         lockfileTrusted: opts.lockfileTrusted,
         cwd: opts.cwd ?? opts.assess.cwd,
+        codeAudit: opts.codeAudit,
       });
       result = {
         name: pkg.name,
@@ -229,13 +232,13 @@ async function analyzeTreeBatched(
 
   // Phase A — signals for every package (the network I/O), concurrently.
   type Built =
-    | { pkg: TreePackage; signals: Signals; ok: true }
+    | { pkg: TreePackage; signals: Signals; audit?: PendingAudit; ok: true }
     | { pkg: TreePackage; error: string; ok: false };
   let scanned = 0;
   const built = await mapLimit(packages, concurrency, async (pkg): Promise<Built> => {
     let result: Built;
     try {
-      const { signals } = await buildSignals(pkg.name, pkg.version, {
+      const { signals, audit } = await buildSignals(pkg.name, pkg.version, {
         failOnOsvError: opts.failOnOsvError,
         osv: osvFor(pkg),
         noReputation: opts.noReputation,
@@ -243,8 +246,9 @@ async function analyzeTreeBatched(
         lockedArtifact: pkg,
         lockfileTrusted: opts.lockfileTrusted,
         cwd: opts.cwd ?? opts.assess.cwd,
+        codeAudit: opts.codeAudit,
       });
-      result = { pkg, signals, ok: true };
+      result = { pkg, signals, audit, ok: true };
     } catch (err) {
       result = { pkg, error: err instanceof Error ? err.message : String(err), ok: false };
     }
@@ -269,10 +273,17 @@ async function analyzeTreeBatched(
   const finalByKey = new Map<string, TransitiveResult>();
   await Promise.all(
     okItems.map(async (b, i) => {
-      const assessment = await finalizeAssessment(b.signals, rawAssessments[i], {
+      const finalized = await finalizeAssessment(b.signals, rawAssessments[i], {
         failOnOsvError: opts.failOnOsvError,
         policy: opts.policy,
       });
+      const { assessment } = await applySourceAudit(
+        provider,
+        b.audit,
+        finalized,
+        b.signals,
+        opts.assess,
+      );
       finalByKey.set(`${b.pkg.name}@${b.pkg.version}`, {
         name: b.pkg.name,
         version: b.pkg.version,

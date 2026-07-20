@@ -2,20 +2,29 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { buildDegradedSignals, buildSignals } from "./analyze/index.js";
 import { INSTALL_TIME_SCRIPT_NAMES } from "./analyze/scripts.js";
+import { buildPackageFileIndex } from "./analyze/file-index.js";
+import { selectAuditFiles } from "./analyze/source-select.js";
 import { historicalArtifactDigest } from "./artifact-ledger.js";
-import { assessRisk, type AssessOptions } from "./ai.js";
+import { assessRisk, auditSourceWithCache, resolveBatchProvider, type AssessOptions } from "./ai.js";
 import { isInternalScope } from "./npmrc.js";
 import { osvSkipped, osvUnavailable, queryOsv, type OsvResult } from "./osv.js";
 import { applyPolicy, type LoadedPolicy } from "./policy.js";
 import { artifactMirrorFor } from "./policy.js";
+import type { AiProvider, SourceAuditInput } from "./providers/types.js";
 import { quarantineTarball } from "./quarantine.js";
 import { fetchArtifactEvidence, fetchPackageMetadata } from "./registry.js";
 import { fetchMaintainerIntel } from "./maintainer-intel.js";
 import { fetchReputation, reputationSkipped, type ReputationLookup } from "./reputation.js";
 import { computeSecurityScore, type SecurityScore } from "./score.js";
-import { applyOsvFailurePolicy } from "./rules.js";
+import { applyOsvFailurePolicy, evaluateRules, foldSourceAudit } from "./rules.js";
 import { isChecksumVerified } from "./types.js";
-import type { PackageMetadata, RiskAssessment, Signals } from "./types.js";
+import type {
+  CodeAuditScope,
+  PackageMetadata,
+  RiskAssessment,
+  Signals,
+  SourceAuditResult,
+} from "./types.js";
 import type { LockedPackageArtifact } from "./lockfile.js";
 import { ResourceLimitError, resolveResourceLimits, withScanBudget } from "./resource-limits.js";
 
@@ -67,6 +76,10 @@ export interface AnalyzePackageOptions {
   metadata?: PackageMetadata;
   /** Project root for the artifact ledger. */
   cwd?: string;
+  /** AI source-code audit scope for this package (default "off"). */
+  codeAudit?: CodeAuditScope;
+  /** True when this package is a direct dependency of the project (scope "direct"). */
+  isDirect?: boolean;
   onStage?: (stage: AnalysisStage, detail?: string) => void;
 }
 
@@ -76,11 +89,65 @@ export interface PackageAnalysis {
   assessment: RiskAssessment;
   /** Informational 0–100 risk-signal aggregation — never drives the decision. */
   score: SecurityScore;
+  /** Present when the AI source-code audit ran for this package. */
+  sourceAudit?: SourceAuditResult;
+}
+
+/**
+ * Source excerpts captured while the tarball was still extracted, plus the
+ * artifact digest that keys the audit cache. Held on PackageSignals so the AI
+ * audit can run later (with a provider + cache) without keeping the temp dir
+ * alive. NOT part of the cache-keyed Signals — the digest already binds bytes.
+ */
+export interface PendingAudit {
+  input: SourceAuditInput;
+  digest: string;
+  dropped: { count: number; reason: string }[];
 }
 
 export interface PackageSignals {
   metadata: PackageMetadata;
   signals: Signals;
+  /** Present when this package was selected for the AI source-code audit. */
+  audit?: PendingAudit;
+}
+
+/** True when the deterministic pass gives targate a reason to look harder. */
+function isPackageFlagged(signals: Signals): boolean {
+  const decision = evaluateRules(signals).decision;
+  if (decision === "require_approval" || decision === "block") return true;
+  if (signals.analysisDegraded?.length) return true;
+  if (Object.keys(signals.lifecycleScripts).length > 0) return true;
+  if (signals.hasNativeCode) return true;
+  const c = signals.content;
+  return Boolean(
+    c &&
+      (c.hasProcessEnvAccess ||
+        c.hasChildProcessUsage ||
+        c.hasNetworkCalls ||
+        c.hasEvalUsage ||
+        c.hasMinifiedCode ||
+        c.suspiciousFiles.length > 0 ||
+        c.installTimeFindings.length > 0),
+  );
+}
+
+/** Decide whether THIS package should be source-audited under the given scope. */
+function shouldAuditPackage(
+  scope: CodeAuditScope | undefined,
+  signals: Signals,
+  isDirect: boolean | undefined,
+): boolean {
+  switch (scope) {
+    case "all":
+      return true;
+    case "direct":
+      return isDirect === true;
+    case "flagged":
+      return isPackageFlagged(signals);
+    default:
+      return false; // "off" / undefined
+  }
 }
 
 function stringMap(value: unknown): Record<string, string> {
@@ -227,7 +294,7 @@ export async function buildPackageSignals(
   version: string | undefined,
   opts: Pick<
     AnalyzePackageOptions,
-    "failOnOsvError" | "osv" | "noReputation" | "maintainerIntel" | "onStage" | "policy" | "lockedArtifact" | "lockfileTrusted" | "metadata" | "cwd"
+    "failOnOsvError" | "osv" | "noReputation" | "maintainerIntel" | "onStage" | "policy" | "lockedArtifact" | "lockfileTrusted" | "metadata" | "cwd" | "codeAudit" | "isDirect"
   >,
 ): Promise<PackageSignals> {
   const resourcePolicy = opts.policy?.policy.resourceLimits;
@@ -380,9 +447,67 @@ export async function buildPackageSignals(
       });
     }
     opts.onStage?.("signals");
-    return { metadata: boundMetadata, signals };
+
+    // Capture the risky source subset for the AI audit WHILE the tarball is
+    // still extracted (cleanup below deletes it). This is only selection +
+    // bounded reads — the model call happens later, with a provider + cache.
+    let audit: PendingAudit | undefined;
+    if (!internal && shouldAuditPackage(opts.codeAudit, signals, opts.isDirect)) {
+      try {
+        const index = await buildPackageFileIndex(quarantine.packageDir, limits);
+        const selection = await selectAuditFiles(index, signals.lifecycleScripts, [], limits);
+        if (selection.files.length > 0) {
+          audit = {
+            input: {
+              package: boundMetadata.name,
+              version: boundMetadata.version,
+              files: selection.files.map((f) => ({
+                relPath: f.relPath,
+                content: f.content,
+                truncated: f.truncated,
+              })),
+            },
+            digest: signals.artifact.digest,
+            dropped: selection.dropped,
+          };
+        }
+      } catch {
+        /* audit is advisory — a selection failure must never fail analysis */
+      }
+    }
+    return { metadata: boundMetadata, signals, audit };
   } finally {
     await quarantine.cleanup();
+  }
+}
+
+/**
+ * Run the AI source-code audit for a prepared package and fold its findings
+ * into the verdict — ESCALATION ONLY (foldSourceAudit + clampDecision keep the
+ * deterministic floor). Returns the (possibly escalated) assessment plus a
+ * SourceAuditResult for reporting. An audit error degrades to no change.
+ */
+export async function applySourceAudit(
+  provider: AiProvider | null,
+  audit: PendingAudit | undefined,
+  assessment: RiskAssessment,
+  signals: Signals,
+  assess: Pick<AssessOptions, "cache" | "cwd">,
+): Promise<{ assessment: RiskAssessment; result?: SourceAuditResult }> {
+  if (!audit || !provider?.analyzeSource) return { assessment };
+  const filesAnalyzed = audit.input.files.map((f) => f.relPath);
+  try {
+    const findings = await auditSourceWithCache(provider, audit.input, audit.digest, {
+      cache: assess.cache,
+      cwd: assess.cwd,
+    });
+    return {
+      assessment: foldSourceAudit(assessment, findings, signals),
+      result: { findings, filesAnalyzed, dropped: audit.dropped, source: "ai" },
+    };
+  } catch {
+    // Model/transport failure: never worsen or break the verdict on it.
+    return { assessment, result: { findings: [], filesAnalyzed, dropped: audit.dropped, source: "skipped" } };
   }
 }
 
@@ -411,7 +536,7 @@ export async function analyzePackage(
   version: string | undefined,
   opts: AnalyzePackageOptions,
 ): Promise<PackageAnalysis> {
-  const { metadata, signals } = await buildPackageSignals(name, version, {
+  const { metadata, signals, audit } = await buildPackageSignals(name, version, {
     ...opts,
     cwd: opts.cwd ?? opts.assess.cwd,
   });
@@ -419,5 +544,13 @@ export async function analyzePackage(
   // the signals and stays independent of the AI/rules verdict.
   const score = computeSecurityScore(signals);
   const assessment = await finalizeAssessment(signals, await assessRisk(signals, opts.assess), opts);
-  return { metadata, signals, assessment, score };
+  // Optional AI source-code audit — folded escalation-only over the verdict.
+  const audited = await applySourceAudit(
+    resolveBatchProvider(opts.assess),
+    audit,
+    assessment,
+    signals,
+    opts.assess,
+  );
+  return { metadata, signals, assessment: audited.assessment, score, sourceAudit: audited.result };
 }

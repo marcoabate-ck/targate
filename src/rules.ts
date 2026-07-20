@@ -1,5 +1,13 @@
 import { isInstallTimeScript } from "./analyze/scripts.js";
-import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
+import {
+  DECISION_SEVERITY,
+  type Decision,
+  type RiskAssessment,
+  type RiskLevel,
+  type Signals,
+  type SourceAuditFinding,
+  type SourceAuditSeverity,
+} from "./types.js";
 
 /** Partition detected lifecycle hooks into ones that run on a registry install
  *  and ones that only run at pack/publish (or git-install) time. */
@@ -299,6 +307,60 @@ export function applyOsvFailurePolicy(
       "[fail-closed] OSV lookup unavailable — cannot confirm the package is not known-malicious.",
     ],
   };
+}
+
+const AUDIT_SEVERITY_ORDER: Record<SourceAuditSeverity, number> = {
+  info: 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+};
+
+/** The worst severity across a set of source-audit findings. */
+function worstAuditSeverity(findings: SourceAuditFinding[]): SourceAuditSeverity {
+  return findings.reduce<SourceAuditSeverity>(
+    (worst, f) => (AUDIT_SEVERITY_ORDER[f.severity] > AUDIT_SEVERITY_ORDER[worst] ? f.severity : worst),
+    "info",
+  );
+}
+
+/** Cap on audit findings quoted into the reasons list (keep the report readable). */
+const AUDIT_REASONS_MAX = 8;
+
+/**
+ * Fold AI source-code audit findings into a verdict — ESCALATION ONLY. A "high"
+ * finding maps to block, "medium" to require_approval, lower to
+ * allow_with_warnings; the decision is raised to that only when it is stricter
+ * than the current one, then re-clamped against the deterministic floor. The
+ * audit can therefore make a package stricter (turn a clean verdict into a
+ * block) but can NEVER downgrade — clampDecision keeps the rules floor, so a
+ * hard block stays a hard block regardless of what the audit says.
+ */
+export function foldSourceAudit(
+  assessment: RiskAssessment,
+  findings: SourceAuditFinding[],
+  signals: Signals,
+): RiskAssessment {
+  if (findings.length === 0) return assessment;
+  const worst = worstAuditSeverity(findings);
+  const auditDecision: Decision =
+    worst === "high" ? "block" : worst === "medium" ? "require_approval" : "allow_with_warnings";
+  const decision: Decision =
+    DECISION_SEVERITY[auditDecision] > DECISION_SEVERITY[assessment.decision]
+      ? auditDecision
+      : assessment.decision;
+  const risk: RiskLevel =
+    worst === "high" ? "high" : worst === "medium" && assessment.risk === "low" ? "medium" : assessment.risk;
+  const reasons = [
+    ...assessment.reasons,
+    ...findings
+      .slice(0, AUDIT_REASONS_MAX)
+      .map((f) => `[code-audit ${f.severity}] ${f.file}${f.line ? `:${f.line}` : ""} — ${f.summary}`),
+  ];
+  if (findings.length > AUDIT_REASONS_MAX) {
+    reasons.push(`[code-audit] …and ${findings.length - AUDIT_REASONS_MAX} more finding(s).`);
+  }
+  return clampDecision({ ...assessment, decision, risk, reasons }, signals);
 }
 
 /**

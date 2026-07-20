@@ -296,6 +296,16 @@ export interface RiskAssessment {
 
 export type PackageManager = "pnpm" | "npm" | "yarn";
 
+/**
+ * Scope of the opt-in AI source-code audit:
+ * - "off": never audit (default).
+ * - "flagged": audit only packages the deterministic pass already flagged
+ *   (require_approval/block/unknown, or with content/script/native findings).
+ * - "direct": audit the project's direct dependencies (+ the named package).
+ * - "all": audit every package in the command's scope (most expensive).
+ */
+export type CodeAuditScope = "off" | "flagged" | "direct" | "all";
+
 /** Severity of a single AI source-audit finding. */
 export type SourceAuditSeverity = "info" | "low" | "medium" | "high";
 

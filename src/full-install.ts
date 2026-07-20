@@ -9,7 +9,7 @@ import {
 } from "./install-plan.js";
 import type { LoadedPolicy } from "./policy.js";
 import { analyzeTransitiveDeps, type TreePackage, type TransitiveResult } from "./transitive.js";
-import type { Decision, PackageManager } from "./types.js";
+import type { CodeAuditScope, Decision, PackageManager } from "./types.js";
 import {
   aggregateTreeTrust,
   resolvePackageTrust,
@@ -122,6 +122,8 @@ export interface VetInstallOptions {
   noAiBatch?: boolean;
   /** Skip the external reputation lookups (npm downloads, GitHub). */
   noReputation?: boolean;
+  /** AI source-code audit scope for the tree (default "off"). */
+  codeAudit?: CodeAuditScope;
   onResult?: (result: InstallVetResult, index: number, total: number) => void;
   /** Live progress (spinner/ETA) — see AnalyzeTransitiveOptions.onProgress. */
   onProgress?: (phase: "scan" | "assess" | "analyze", done: number, total: number) => void;
@@ -170,6 +172,7 @@ export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport
     concurrency: opts.concurrency,
     noAiBatch: opts.noAiBatch,
     noReputation: opts.noReputation,
+    codeAudit: opts.codeAudit,
     cwd: opts.cwd,
     lockfileTrusted: plan.source === "existing",
     onProgress: opts.onProgress,
