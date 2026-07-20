@@ -154,6 +154,28 @@ function resolveVetResult(
   };
 }
 
+/** Names declared in the root manifest's dependency fields (the project's directs). */
+function directDependencyNames(manifestContent: string): Set<string> {
+  const names = new Set<string>();
+  try {
+    const manifest = JSON.parse(manifestContent) as Record<string, unknown>;
+    for (const field of [
+      "dependencies",
+      "devDependencies",
+      "optionalDependencies",
+      "peerDependencies",
+    ]) {
+      const deps = manifest[field];
+      if (deps && typeof deps === "object" && !Array.isArray(deps)) {
+        for (const name of Object.keys(deps)) names.add(name);
+      }
+    }
+  } catch {
+    /* a malformed manifest just yields no direct tags */
+  }
+  return names;
+}
+
 /** Enumerate the tree, vet every unique package, and aggregate the verdict. */
 export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport> {
   const plan = opts.plan ?? await resolveInstallPlan({
@@ -161,7 +183,13 @@ export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport
     cwd: opts.cwd,
     updateLockfile: false,
   });
-  const packages = plan.packages;
+  // Tag the project's direct dependencies so codeAudit scope "direct" can target
+  // them; the lockfile tree itself does not preserve the direct/transitive line.
+  const directNames = directDependencyNames(plan.manifestContent);
+  const packages =
+    directNames.size > 0
+      ? plan.packages.map((p) => (directNames.has(p.name) ? { ...p, isDirect: true } : p))
+      : plan.packages;
   const source = plan.source === "existing" ? "lockfile" : "resolved";
   const analyzeAll = opts.analyzeAll ?? analyzeTransitiveDeps;
 

@@ -13,6 +13,7 @@ Options:
   --yes                        Skip confirmation only for decisions that may be automated.
   --no-cache                   Ignore cached AI assessments for this run.
   --deep                       Analyze the full transitive dependency tree.
+  --audit-code                 Run the AI source-code security audit (opt-in; expensive). Scope comes from the team policy's codeAudit (default: flagged packages).
   --concurrency <n>            Maximum parallel package analyses (default: 16).
   --no-ai-batch                Use one AI request per package instead of batching.
   --no-ai                      Skip AI reasoning and use deterministic rules only.
@@ -59,6 +60,7 @@ Options:
   --sign                       Sign an approval with the human operator's SSH key.
   --no-cache                   Ignore cached AI assessments for this run.
   --deep                       Analyze the full transitive dependency tree.
+  --audit-code                 Run the AI source-code security audit (opt-in; expensive). Scope comes from the team policy's codeAudit (default: flagged packages).
   --no-ai                      Skip AI reasoning and use deterministic rules only.
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
@@ -213,6 +215,7 @@ Options:
   --yes                        Skip confirmation only for decisions that may be automated.
   --no-cache                   Ignore cached AI assessments for this run.
   --deep                       Analyze the full transitive dependency tree.
+  --audit-code                 Run the AI source-code security audit (opt-in; expensive). Scope comes from the team policy's codeAudit (default: flagged packages).
   --concurrency <n>            Maximum parallel package analyses (default: 16).
   --no-ai-batch                Use one AI request per package instead of batching.
   --no-ai                      Skip AI reasoning and use deterministic rules only.
@@ -307,6 +310,7 @@ Options:
   --update-lockfile            Stage and review a lockfile update before installing.
   --frozen-lockfile            Deprecated no-op; immutable installs are the default.
   --allow-scripts              Allow lifecycle scripts where the command supports it.
+  --audit-code                 Run the AI source-code security audit (opt-in; expensive). Scope comes from the team policy's codeAudit (default: flagged packages).
   --concurrency <n>            Maximum parallel package analyses (default: 16).
   --no-ai-batch                Use one AI request per package instead of batching.
   --no-ai                      Skip AI reasoning and use deterministic rules only.
