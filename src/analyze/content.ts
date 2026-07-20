@@ -4,8 +4,8 @@ import { referencedScriptFiles } from "./scripts.js";
 import { resolveResourceLimits, type ResolvedResourceLimits } from "../resource-limits.js";
 import { readIndexedFile, resolveFileIndex, type PackageFileIndex } from "./file-index.js";
 
-const CODE_EXTENSIONS = new Set([".js", ".cjs", ".mjs", ".ts", ".sh"]);
-interface FileScan {
+export const CODE_EXTENSIONS = new Set([".js", ".cjs", ".mjs", ".ts", ".sh"]);
+export interface FileScan {
   relPath: string;
   processEnv: boolean;
   childProcess: boolean;
@@ -20,7 +20,7 @@ interface FileScan {
 // not verdicts on their own. False positives cost a warning line; false
 // negatives cost a missed exfiltration path. See "Scope and limitations" in
 // the README before tightening these.
-function scanSource(relPath: string, source: string): FileScan {
+export function scanSource(relPath: string, source: string): FileScan {
   const lines = source.split("\n");
   const avgLineLength = source.length / Math.max(lines.length, 1);
   return {

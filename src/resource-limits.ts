@@ -14,6 +14,10 @@ export interface ResourceLimits {
   maxFileBytes?: number;
   /** Maximum duration of static package-content analysis, in milliseconds. */
   maxScanDuration?: number;
+  /** Maximum files sent to the AI source-code audit (--audit-code). */
+  maxAuditFiles?: number;
+  /** Maximum total source bytes sent to the AI source-code audit. */
+  maxAuditBytes?: number;
 }
 
 export interface ResolvedResourceLimits {
@@ -24,6 +28,8 @@ export interface ResolvedResourceLimits {
   maxFiles: number;
   maxFileBytes: number;
   maxScanDuration: number;
+  maxAuditFiles: number;
+  maxAuditBytes: number;
 }
 
 export const DEFAULT_RESOURCE_LIMITS: ResolvedResourceLimits = {
@@ -34,6 +40,8 @@ export const DEFAULT_RESOURCE_LIMITS: ResolvedResourceLimits = {
   maxFiles: 20_000,
   maxFileBytes: 32 * 1024 * 1024,
   maxScanDuration: 20_000,
+  maxAuditFiles: 15,
+  maxAuditBytes: 256 * 1024,
 };
 
 export function resolveResourceLimits(limits?: ResourceLimits): ResolvedResourceLimits {
