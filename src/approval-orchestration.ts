@@ -2,8 +2,10 @@ import path from "node:path";
 import {
   buildApprovalContext,
   recordApproval,
+  removeApproval,
   type ApprovalRecord,
 } from "./approvals.js";
+import { recordDenial, removeDenial } from "./denials.js";
 import { recordBuildApproval } from "./pnpm-builds.js";
 import { policyFileDigest, type LoadedPolicy } from "./policy.js";
 import { isHardBlock } from "./rules.js";
@@ -119,5 +121,57 @@ export async function recordNoScriptsApprovals(
       };
     }
     if (options.packageManager === "pnpm") await recordBuildApproval(target.name, "ignored");
+  }
+}
+
+export interface TriageApprovalTarget {
+  name: string;
+  version: string;
+  assessment: RiskAssessment;
+  /** Allow the package's lifecycle scripts ("normal") vs record as "no-scripts". */
+  scripts: boolean;
+}
+
+export interface TriageDenialTarget {
+  name: string;
+  version: string;
+  assessment: RiskAssessment;
+}
+
+/**
+ * Record the outcome of the interactive install triage in one pass: approvals
+ * (honoring each item's per-item scripts choice) into .targate/approvals.json,
+ * denials into .targate/denials.json. Approvals and denials are mutually
+ * exclusive per name@version, so each write clears any opposite entry.
+ */
+export async function recordTriageDecisions(
+  approvals: TriageApprovalTarget[],
+  denials: TriageDenialTarget[],
+  options: {
+    policy: LoadedPolicy | null;
+    packageManager: PackageManager;
+    cwd?: string;
+  },
+): Promise<void> {
+  const cwd = options.cwd ?? process.cwd();
+  const policyFile = options.policy ? path.basename(options.policy.file) : undefined;
+  const policyHash = options.policy ? await policyFileDigest(options.policy.file) : undefined;
+
+  for (const target of approvals) {
+    const mode = target.scripts ? "normal" : "no-scripts";
+    await recordApproval(target.name, target.version, mode, cwd, {
+      context: buildApprovalContext({ assessment: target.assessment, policyFile, policyHash }),
+    });
+    await removeDenial(target.name, target.version, cwd);
+    if (options.packageManager === "pnpm") {
+      await recordBuildApproval(target.name, target.scripts ? "approved" : "ignored");
+    }
+  }
+
+  for (const target of denials) {
+    await recordDenial(target.name, target.version, cwd, {
+      context: buildApprovalContext({ assessment: target.assessment, policyFile, policyHash }),
+    });
+    await removeApproval(target.name, target.version, cwd);
   }
 }

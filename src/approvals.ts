@@ -230,3 +230,32 @@ export async function recordApproval(
   await writeFile(file, JSON.stringify(sorted, null, 2) + "\n");
   return record;
 }
+
+/**
+ * Remove an approval for name@version from approvals.json (if present). Used to
+ * keep approvals and denials mutually exclusive — recording a denial drops any
+ * prior approval of the same version. Returns true if an entry was removed.
+ */
+export async function removeApproval(
+  name: string,
+  version: string,
+  cwd: string = process.cwd(),
+): Promise<boolean> {
+  const file = jsonPath(cwd);
+  if (!existsSync(file)) return false;
+  let existing: ApprovalsMap = {};
+  try {
+    const doc = JSON.parse(await readFile(file, "utf8"));
+    if (isApprovalsMap(doc)) existing = doc as ApprovalsMap;
+  } catch {
+    return false; // unreadable — nothing safely removable
+  }
+  const key = `${name}@${version}`;
+  if (!(key in existing)) return false;
+  delete existing[key];
+  const sorted = Object.fromEntries(
+    Object.entries(existing).sort(([a], [b]) => a.localeCompare(b)),
+  );
+  await writeFile(file, JSON.stringify(sorted, null, 2) + "\n");
+  return true;
+}

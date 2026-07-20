@@ -1,4 +1,5 @@
 import { getApproval, type ApprovalsMap } from "./approvals.js";
+import { getDenial, type DenialsMap } from "./denials.js";
 import type { AssessOptions } from "./ai.js";
 import { snapshotLockfile } from "./lockfile.js";
 import {
@@ -64,6 +65,8 @@ export interface InstallVetResult extends TransitiveResult {
   approvalMode?: ApprovalMode;
   scriptPolicy: ScriptPolicy;
   unresolved: boolean;
+  /** True when a committed denial (.targate/denials.json) explicitly rejects this version. */
+  denied?: boolean;
 }
 
 /**
@@ -110,6 +113,8 @@ export interface VetInstallOptions {
   cwd: string;
   assess: AssessOptions;
   approvals: ApprovalsMap;
+  /** Committed denials — flag rejected versions so the caller can skip re-prompting. */
+  denials?: DenialsMap;
   policy?: LoadedPolicy | null;
   failOnOsvError?: boolean;
   concurrency?: number;
@@ -124,6 +129,27 @@ export interface VetInstallOptions {
   analyzeAll?: typeof analyzeTransitiveDeps;
   /** Pre-resolved immutable plan; avoids resolving a second tree. */
   plan?: InstallPlan;
+}
+
+/** Apply committed approval/denial context to one raw result. Pure. */
+function resolveVetResult(
+  r: TransitiveResult,
+  approvals: ApprovalsMap,
+  denials?: DenialsMap,
+): InstallVetResult {
+  const approval = getApproval(approvals, r.name, r.version);
+  const trust = resolvePackageTrust(r.assessment, r.hardBlock === true, approval);
+  const denial = denials ? getDenial(denials, r.name, r.version) : null;
+  return {
+    ...r,
+    approved: trust.approved,
+    approvalMode: trust.approved ? approval?.mode : undefined,
+    scriptPolicy: trust.scriptPolicy,
+    unresolved: trust.unresolved,
+    // A denial only matters while the package is still unresolved — an
+    // approval (or a clean verdict) always wins over a stale denial.
+    denied: trust.unresolved && denial !== null,
+  };
 }
 
 /** Enumerate the tree, vet every unique package, and aggregate the verdict. */
@@ -148,29 +174,13 @@ export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport
     lockfileTrusted: plan.source === "existing",
     onProgress: opts.onProgress,
     onResult: (r, i, total) => {
-      const approval = getApproval(opts.approvals, r.name, r.version);
-      const trust = resolvePackageTrust(r.assessment, r.hardBlock === true, approval);
-      opts.onResult?.({
-        ...r,
-        approved: trust.approved,
-        approvalMode: trust.approved ? approval?.mode : undefined,
-        scriptPolicy: trust.scriptPolicy,
-        unresolved: trust.unresolved,
-      }, i, total);
+      opts.onResult?.(resolveVetResult(r, opts.approvals, opts.denials), i, total);
     },
   });
 
-  const results: InstallVetResult[] = raw.map((r) => {
-    const approval = getApproval(opts.approvals, r.name, r.version);
-    const trust = resolvePackageTrust(r.assessment, r.hardBlock === true, approval);
-    return {
-      ...r,
-      approved: trust.approved,
-      approvalMode: trust.approved ? approval?.mode : undefined,
-      scriptPolicy: trust.scriptPolicy,
-      unresolved: trust.unresolved,
-    };
-  });
+  const results: InstallVetResult[] = raw.map((r) =>
+    resolveVetResult(r, opts.approvals, opts.denials),
+  );
   const { decision, exitCode } = aggregateInstallDecision(results);
 
   return {
