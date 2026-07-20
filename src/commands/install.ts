@@ -3,7 +3,8 @@ import { recordArtifactObservations } from "../artifact-ledger.js";
 import {
   isCiEnvironment,
 } from "../approvals.js";
-import { recordNoScriptsApprovals } from "../approval-orchestration.js";
+import { loadDenials } from "../denials.js";
+import { recordTriageDecisions } from "../approval-orchestration.js";
 import { prepareAnalysisSession } from "../command-analysis.js";
 import {
   vetInstall,
@@ -19,7 +20,7 @@ import {
 import { printJson } from "../json-output.js";
 import { createTreeProgress } from "../progress.js";
 import { bold, cyan, dim, green, red, yellow } from "../report.js";
-import { multiSelect } from "../select.js";
+import { triage, type TriageItem } from "../triage.js";
 import type { PackageManager } from "../types.js";
 import {
   applyInstallPlan,
@@ -87,6 +88,7 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
   });
   const { policy, assess } = session;
   const approvals = session.approvals!;
+  const denials = await loadDenials();
 
   // Live feedback during the walk: spinner + done/total + ETA on a TTY,
   // milestone lines otherwise, nothing in --json.
@@ -106,6 +108,7 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
       cwd: process.cwd(),
       assess,
       approvals,
+      denials,
       policy,
       failOnOsvError: opts.failOnOsvError,
       concurrency: opts.concurrency,
@@ -155,41 +158,78 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
   }
 
   // Gate: refuse the install if anything is blocked or unapproved. In an
-  // interactive terminal, first offer to approve the approvable ones right
-  // here (arrow keys + space) instead of pointing at `targate approve` N times.
+  // interactive terminal, first triage the flagged ones right here (arrow keys
+  // to approve / deny / skip, with a live detail panel) instead of pointing at
+  // `targate approve` N times. Runs in --dry-run too: it never installs, but it
+  // does record the committable approvals/denials, exactly like `targate approve`.
   if (report.exitCode === 2) {
-    const approvable = unresolved.filter((r) => !r.hardBlock);
+    // Previously denied versions (committed in .targate/denials.json) are not
+    // re-offered — they are refused without prompting again.
+    const previouslyDenied = unresolved.filter((r) => r.denied);
+    const approvable = unresolved.filter((r) => !r.hardBlock && !r.denied);
     const hard = unresolved.filter((r) => r.hardBlock);
     let remaining = unresolved;
 
-    const interactive =
-      !opts.json && !opts.assumeYes && !opts.dryRun && !isCiEnvironment();
-    if (interactive && approvable.length > 0) {
-      const picked = await multiSelect(
-        `${approvable.length} package(s) need approval — select the ones you vouch for:`,
-        [
-          ...approvable.map((r) => ({
-            label: `${r.name}@${r.version}`,
-            hint: r.assessment.decision === "block" ? "soft block" : r.assessment.decision,
-          })),
-          ...hard.map((r) => ({
-            label: `${r.name}@${r.version}`,
-            hint: "HARD block — can never be approved",
-            disabled: true,
-          })),
-        ],
-        "Recorded as no-scripts in .targate/approvals.json (commit it to share; `targate approve <pkg> --allow-scripts` to allow scripts).",
+    if (previouslyDenied.length > 0) {
+      note(
+        dim(
+          `  ${previouslyDenied.length} package(s) previously denied in .targate/denials.json — not re-offered (\`targate approve <pkg>@<version>\` to reverse).`,
+        ),
       );
-      if (picked && picked.length > 0) {
-        const chosen = picked.map((i) => approvable[i]);
-        await recordNoScriptsApprovals(chosen, { policy, packageManager: pm });
-        note(
-          green(
-            `  ✓ approved ${chosen.length} package(s) (no-scripts) — recorded in .targate/approvals.json`,
-          ),
-        );
-        const chosenKeys = new Set(chosen.map((r) => `${r.name}@${r.version}`));
-        remaining = unresolved.filter((r) => !chosenKeys.has(`${r.name}@${r.version}`));
+    }
+
+    const interactive = !opts.json && !opts.assumeYes && !isCiEnvironment();
+    if (interactive && approvable.length > 0) {
+      const pickable = [...approvable, ...hard];
+      const items: TriageItem[] = pickable.map((r) => ({
+        label: `${r.name}@${r.version}`,
+        disabled: r.hardBlock === true,
+        detail: {
+          decision: r.assessment.decision,
+          risk: r.assessment.risk,
+          summary: r.assessment.summary,
+          reasons: r.assessment.reasons,
+          recommendedAction: r.assessment.recommendedAction,
+          source: r.assessment.source,
+          facts: r.assessment.suggestedAlternatives?.length
+            ? [`alternatives: ${r.assessment.suggestedAlternatives.join(", ")}`]
+            : undefined,
+        },
+      }));
+      const result = await triage(
+        `${approvable.length} package(s) need a decision — approve, deny, or skip each:`,
+        items,
+        "Approvals → .targate/approvals.json · denials → .targate/denials.json (commit to share). Approvals default to no-scripts; press s to allow scripts.",
+      );
+      if (result && (result.approve.length > 0 || result.deny.length > 0)) {
+        const approveTargets = result.approve.map(({ index, scripts }) => ({
+          name: pickable[index].name,
+          version: pickable[index].version,
+          assessment: pickable[index].assessment,
+          scripts,
+        }));
+        const denyTargets = result.deny.map((index) => ({
+          name: pickable[index].name,
+          version: pickable[index].version,
+          assessment: pickable[index].assessment,
+        }));
+        await recordTriageDecisions(approveTargets, denyTargets, { policy, packageManager: pm });
+        if (approveTargets.length > 0) {
+          note(
+            green(
+              `  ✓ approved ${approveTargets.length} package(s) — recorded in .targate/approvals.json`,
+            ),
+          );
+        }
+        if (denyTargets.length > 0) {
+          note(
+            yellow(
+              `  ✗ denied ${denyTargets.length} package(s) — recorded in .targate/denials.json`,
+            ),
+          );
+        }
+        const approvedKeys = new Set(approveTargets.map((t) => `${t.name}@${t.version}`));
+        remaining = unresolved.filter((r) => !approvedKeys.has(`${r.name}@${r.version}`));
       }
     }
 

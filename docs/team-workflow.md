@@ -19,7 +19,7 @@ Recording requires **explicit human intent**, by design:
 
 The recorded mode is **binding at install time**: a `no-scripts` approval makes the later `targate add` install run with `--ignore-scripts`, and on pnpm projects `approve` also writes the decision to `pnpm-workspace.yaml` (`ignoredBuiltDependencies` / `onlyBuiltDependencies`) so even a raw `pnpm install` honors it.
 
-**Approving several packages at once.** When a `--deep` run or `targate install` flags multiple packages, an interactive terminal offers an **arrow-key picker** (↑/↓ move, space select, `a` all, enter confirm) that records the selected approvals in one step — see [Transitive dependencies & full-tree install](transitive-and-install.md). Approvals from the picker are always `no-scripts`; use `targate approve <pkg> --allow-scripts` when a package genuinely needs its lifecycle scripts.
+**Triaging several packages at once.** When `targate install` (including `--dry-run`) flags multiple packages, an interactive terminal offers an **arrow-key triage picker** (↑/↓ move, `a` approve, `d` deny, `s` toggle scripts, enter confirm) with a live per-package detail panel — see [Transitive dependencies & full-tree install](transitive-and-install.md). Approvals default to `no-scripts` (press `s`, or use `targate approve <pkg> --allow-scripts`, when a package genuinely needs its lifecycle scripts); denials are written to `.targate/denials.json` so the rejected version is never re-offered. **Commit both files** — approvals and denials travel with the repo the same way. A denial can be reversed later with `targate approve <pkg>@<version>` (which clears the denial).
 
 `--dry-run` is *not* how you approve: it is a pure preview (analyze + report, no prompt, no install, nothing recorded).
 
