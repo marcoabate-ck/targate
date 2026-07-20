@@ -10,9 +10,16 @@ import {
 } from "./ai-cache.js";
 import { DEFAULT_CONCURRENCY, mapLimit } from "./concurrency.js";
 import { resolveProvider, type ProviderSelection } from "./providers/index.js";
-import type { AiProvider } from "./providers/types.js";
+import type { AiProvider, SourceAuditInput } from "./providers/types.js";
+import { SOURCE_AUDIT_PROMPT_VERSION } from "./providers/prompt.js";
+import { SOURCE_SELECTION_VERSION } from "./analyze/source-select.js";
+import {
+  readCachedSourceAudit,
+  sourceAuditCacheKey,
+  writeCachedSourceAudit,
+} from "./source-audit-cache.js";
 import { clampDecision, evaluateRules } from "./rules.js";
-import type { RiskAssessment, Signals } from "./types.js";
+import type { RiskAssessment, Signals, SourceAuditFinding } from "./types.js";
 
 export interface AssessOptions extends ProviderSelection {
   /** When false, skip AI entirely and use the deterministic rules engine. */
@@ -74,6 +81,43 @@ function shapeCacheHit(
     },
     signals,
   );
+}
+
+/**
+ * Run the AI source-code audit for one package through the content-addressed
+ * cache. Keyed on the artifact digest (+ provider/model/prompt/selection
+ * version), so identical bytes are audited by the model only once. Returns the
+ * findings (possibly empty — a clean audit is cached too so it is not repaid).
+ * Only successful results are cached; errors propagate to the caller, which
+ * degrades to no audit rather than a poisoned empty cache entry.
+ */
+export async function auditSourceWithCache(
+  provider: AiProvider,
+  input: SourceAuditInput,
+  digest: string,
+  opts: Pick<AssessOptions, "cache" | "cwd">,
+): Promise<SourceAuditFinding[]> {
+  if (!provider.analyzeSource || input.files.length === 0) return [];
+  const key = opts.cache
+    ? sourceAuditCacheKey({
+        provider: provider.name,
+        model: provider.model,
+        digest,
+        promptVersion: SOURCE_AUDIT_PROMPT_VERSION,
+        selectionVersion: SOURCE_SELECTION_VERSION,
+      })
+    : null;
+
+  if (key && opts.cache) {
+    const hit = await readCachedSourceAudit(key, opts.cache, input.package, opts.cwd);
+    if (hit) return hit;
+  }
+
+  const findings = await provider.analyzeSource(input);
+  if (key && opts.cache) {
+    await writeCachedSourceAudit(key, findings, opts.cache, input.package, opts.cwd);
+  }
+  return findings;
 }
 
 /** Resolve a provider for batched assessment, or null when batching can't apply

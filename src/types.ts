@@ -295,3 +295,33 @@ export interface RiskAssessment {
 }
 
 export type PackageManager = "pnpm" | "npm" | "yarn";
+
+/** Severity of a single AI source-audit finding. */
+export type SourceAuditSeverity = "info" | "low" | "medium" | "high";
+
+/**
+ * One issue the AI reported while reading a package's actual source (the
+ * opt-in `--audit-code` pass). Findings are ADVISORY inputs to the verdict:
+ * they can only escalate the decision through the deterministic clamp, never
+ * downgrade it.
+ */
+export interface SourceAuditFinding {
+  severity: SourceAuditSeverity;
+  /** POSIX package-relative path the finding is in. */
+  file: string;
+  /** 1-indexed line, when the model localizes it. */
+  line?: number;
+  /** One-sentence description of the issue. */
+  summary: string;
+}
+
+/** The result of an AI source-code audit of one package. */
+export interface SourceAuditResult {
+  findings: SourceAuditFinding[];
+  /** POSIX relPaths actually sent to the model. */
+  filesAnalyzed: string[];
+  /** Candidate files/bytes NOT sent, with why — never a silent truncation. */
+  dropped: { count: number; reason: string }[];
+  /** "ai" when a model produced it; "skipped" when selection yielded nothing. */
+  source: "ai" | "skipped";
+}

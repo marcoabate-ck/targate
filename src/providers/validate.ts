@@ -1,4 +1,10 @@
-import type { Decision, RiskAssessment, RiskLevel } from "../types.js";
+import type {
+  Decision,
+  RiskAssessment,
+  RiskLevel,
+  SourceAuditFinding,
+  SourceAuditSeverity,
+} from "../types.js";
 
 const RISK_LEVELS: RiskLevel[] = ["low", "medium", "high"];
 const DECISIONS: Decision[] = [
@@ -79,6 +85,41 @@ export function validateBatchAssessment(raw: unknown): BatchAssessment[] {
     } catch {
       /* skip malformed item — caller falls back for its package */
     }
+  }
+  return out;
+}
+
+const AUDIT_SEVERITIES: SourceAuditSeverity[] = ["info", "low", "medium", "high"];
+
+/**
+ * Validate a parsed source-audit response `{ findings: [...] }`. Malformed
+ * findings are dropped, not fatal — a garbled item must never crash the audit
+ * (which is advisory), but the surviving findings must be well-typed before
+ * they feed the verdict. A response missing `findings` entirely throws.
+ */
+export function validateSourceAudit(raw: unknown): SourceAuditFinding[] {
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error("source-audit response is not a JSON object");
+  }
+  const findings = (raw as { findings?: unknown }).findings;
+  if (!Array.isArray(findings)) {
+    throw new Error('source-audit response missing "findings" array');
+  }
+  const out: SourceAuditFinding[] = [];
+  for (const item of findings) {
+    if (typeof item !== "object" || item === null) continue;
+    const obj = item as Record<string, unknown>;
+    if (!AUDIT_SEVERITIES.includes(obj.severity as SourceAuditSeverity)) continue;
+    if (typeof obj.file !== "string" || obj.file.length === 0) continue;
+    if (typeof obj.summary !== "string" || obj.summary.length === 0) continue;
+    out.push({
+      severity: obj.severity as SourceAuditSeverity,
+      file: obj.file,
+      summary: obj.summary,
+      ...(typeof obj.line === "number" && Number.isFinite(obj.line)
+        ? { line: obj.line }
+        : {}),
+    });
   }
   return out;
 }
