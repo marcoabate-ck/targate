@@ -132,6 +132,38 @@ function isPackageFlagged(signals: Signals): boolean {
   );
 }
 
+/**
+ * Entry-point files declared by the tarball's package.json (`main`, `bin`),
+ * defaulting to npm's implicit `index.js`. Used to seed the audit file
+ * selection so the code that actually runs is always a candidate — even when it
+ * trips none of the static heuristics (e.g. obfuscated payloads).
+ */
+async function auditEntryPoints(packageDir: string): Promise<string[]> {
+  const clean = (p: unknown): string | null =>
+    typeof p === "string" && p.length > 0 ? p.replace(/^\.\//, "") : null;
+  try {
+    const manifest = JSON.parse(await readFile(path.join(packageDir, "package.json"), "utf8")) as {
+      main?: unknown;
+      bin?: unknown;
+    };
+    const entries = new Set<string>();
+    const main = clean(manifest.main) ?? "index.js";
+    entries.add(main);
+    if (typeof manifest.bin === "string") {
+      const b = clean(manifest.bin);
+      if (b) entries.add(b);
+    } else if (manifest.bin && typeof manifest.bin === "object") {
+      for (const value of Object.values(manifest.bin)) {
+        const b = clean(value);
+        if (b) entries.add(b);
+      }
+    }
+    return [...entries];
+  } catch {
+    return ["index.js"];
+  }
+}
+
 /** Decide whether THIS package should be source-audited under the given scope. */
 function shouldAuditPackage(
   scope: CodeAuditScope | undefined,
@@ -455,7 +487,8 @@ export async function buildPackageSignals(
     if (!internal && shouldAuditPackage(opts.codeAudit, signals, opts.isDirect)) {
       try {
         const index = await buildPackageFileIndex(quarantine.packageDir, limits);
-        const selection = await selectAuditFiles(index, signals.lifecycleScripts, [], limits);
+        const entryPoints = await auditEntryPoints(quarantine.packageDir);
+        const selection = await selectAuditFiles(index, signals.lifecycleScripts, entryPoints, limits);
         if (selection.files.length > 0) {
           audit = {
             input: {
