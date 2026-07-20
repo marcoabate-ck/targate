@@ -12,7 +12,7 @@ downloaded private tarball == private-registry checksum == npm-public checksum
 
 This detects a compromised mirror that rewrites both its cached tarball and its packument, including on the first installation. Private credentials are never sent to the public endpoint. A mismatch is a deterministic hard block and cannot be cleared by an approval or allow list.
 
-Targate analyzes lifecycle scripts and dependency declarations from the `package.json` inside the verified tarball, then compares those critical fields with the private packument. A mirror that serves the original public bytes but removes `postinstall` from its metadata is therefore blocked too.
+Targate analyzes lifecycle scripts and dependency declarations from the `package.json` inside the verified tarball, then compares those critical fields with the private packument. A mirror that serves the original public bytes but removes `postinstall` from its metadata is therefore blocked too. Dependency-metadata divergence (`dependencies` / `optionalDependencies` / `peerDependencies`) is treated differently on **checksum-verified** bytes: npm installs the tarball manifest regardless, so it is reported as approvable `metadataDrift` (`require_approval`) rather than a hard block. Identity (name/version) and hidden install-time scripts remain hard blocks; the same dependency divergence on unverified bytes remains a mutated hard block.
 
 Scoped registries are assumed private unless declared as mirrors:
 

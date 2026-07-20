@@ -172,17 +172,41 @@ async function bindMetadataToTarball(
       );
     }
   }
+  // Dependency-metadata divergences (dependencies / optionalDependencies /
+  // peerDependencies) between the registry packument and the authentic tarball
+  // manifest are NOT install-time execution and do not change the artifact's
+  // identity — npm installs from the tarball manifest, which the checksum
+  // already binds. On checksum-verified bytes this is approvable drift (a
+  // reviewer vouches for the authentic tarball with a version-pinned
+  // `targate approve`), mirroring packumentOverDeclaresInstallHook above. On
+  // UNVERIFIED bytes the same divergence stays a mutated hard block: without a
+  // checksum we cannot tell authentic drift from a substituted artifact.
+  const verifiedBytes = isChecksumVerified(artifact.trust);
+  const noteDependencyDivergence = (verifiedReason: string, mutatedReason: string): void => {
+    if (verifiedBytes) {
+      (artifact.metadataDrift ??= []).push(verifiedReason);
+    } else {
+      artifact.trust = "mutated";
+      artifact.reasons.push(mutatedReason);
+    }
+  };
   if (!sameMap(dependencies, metadata.dependencyRanges ?? {})) {
-    artifact.trust = "mutated";
-    artifact.reasons.push("registry dependencies differ from the tarball package.json");
+    noteDependencyDivergence(
+      "registry dependencies differ from the checksum-verified tarball package.json (the authentic tarball is authoritative)",
+      "registry dependencies differ from the unverified tarball package.json",
+    );
   }
   if (!sameNames(Object.keys(optionalDependencies), metadata.optionalDependencyNames ?? [])) {
-    artifact.trust = "mutated";
-    artifact.reasons.push("registry optionalDependencies differ from the tarball package.json");
+    noteDependencyDivergence(
+      "registry optionalDependencies differ from the checksum-verified tarball package.json (the authentic tarball is authoritative)",
+      "registry optionalDependencies differ from the unverified tarball package.json",
+    );
   }
   if (!sameNames(Object.keys(peerDependencies), metadata.peerDependencyNames ?? [])) {
-    artifact.trust = "mutated";
-    artifact.reasons.push("registry peerDependencies differ from the tarball package.json");
+    noteDependencyDivergence(
+      "registry peerDependencies differ from the checksum-verified tarball package.json (the authentic tarball is authoritative)",
+      "registry peerDependencies differ from the unverified tarball package.json",
+    );
   }
 
   return {
