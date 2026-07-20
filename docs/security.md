@@ -37,6 +37,6 @@ OSV/OpenSSF is targate's source of known-malicious-package intelligence — its 
 
 ## Compatibility notes
 
-- **Node**: requires Node ≥ 20 (uses the global `fetch` and `node:util` `parseArgs`).
+- **Node**: requires Node ≥ 22.13 (matches the CI matrix — Node 22/24; Node 20 is EOL and pnpm 11 requires ≥ 22.13). Uses the global `fetch` and `node:util` `parseArgs`.
 - **Anthropic SDK**: pinned to `@anthropic-ai/sdk` `^0.110`; the Anthropic provider uses `output_config.format` (server-enforced structured output) and adaptive thinking, which require a recent SDK/model. Other providers go through the OpenAI-compatible client and validate JSON client-side.
 - **Docker**: only the `sandbox` command needs Docker; every other command runs without it.
