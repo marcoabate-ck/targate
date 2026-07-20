@@ -44,6 +44,7 @@ jobs:
       - run: pnpm format:check
       - run: pnpm docs:check
       - run: pnpm test
+      - run: pnpm pack:check
 
   # Prove that the project's own dependency tree passes the gate it ships, and
   # audit runtime dependencies for known advisories.

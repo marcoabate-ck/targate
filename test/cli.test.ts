@@ -224,12 +224,6 @@ describe("cli routing and validation", () => {
     expect(stderr).toContain("Usage: targate explain");
   });
 
-  it("accepts --concurrency without error on a rules-only dry run", async () => {
-    // Rules-only + dry-run: no install; just confirm the flag parses/threads.
-    const { code } = await runCli("add", "left-pad@1.3.0", "--no-ai", "--dry-run", "--concurrency", "8");
-    expect(code).toBe(0);
-  });
-
   it("documents the cache command and --no-cache flag", async () => {
     const { code, stdout } = await runCli("--help");
     expect(code).toBe(0);

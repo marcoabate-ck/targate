@@ -133,7 +133,7 @@ function assessmentOptions(values: CommandValues) {
   };
 }
 
-function parseConcurrency(values: CommandValues): number | undefined {
+export function parseConcurrency(values: CommandValues): number | undefined {
   const raw = stringValue(values, "concurrency");
   const parsed = Number(raw);
   return raw !== undefined && Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;

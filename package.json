@@ -34,11 +34,12 @@
     "dev": "tsx src/cli.ts",
     "docs:check": "node --import tsx scripts/check-docs.ts",
     "format:check": "node --import tsx scripts/check-format.ts",
+    "pack:check": "node --import tsx scripts/check-pack.ts",
     "audit": "pnpm audit --prod --audit-level high",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm run typecheck && pnpm test && pnpm run build"
+    "prepublishOnly": "pnpm run typecheck && pnpm test && pnpm run build && pnpm run pack:check"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

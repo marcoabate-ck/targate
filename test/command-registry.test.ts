@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMMAND_DEFINITIONS,
   findCommand,
+  parseConcurrency,
   parseOptionsFor,
   renderCommandHelp,
   renderGlobalHelp,
@@ -35,6 +36,45 @@ describe("declarative command registry", () => {
     for (const command of COMMAND_DEFINITIONS) {
       expect(renderCommandHelp(command)).toMatchSnapshot(`${command.name} help`);
     }
+  });
+});
+
+// Offline, deterministic replacement for the old cli.test.ts case that spawned a
+// real `targate add ... --concurrency 8` (which hit the npm registry). We assert
+// the flag is accepted by the option parser and threaded through parseConcurrency
+// — the exact contract the removed end-to-end run was standing in for.
+describe("--concurrency parsing and threading", () => {
+  const parse = (commandName: string, args: string[]) =>
+    parseArgs({
+      args,
+      allowPositionals: true,
+      strict: true,
+      options: parseOptionsFor(findCommand(commandName)!),
+    }).values as Record<string, unknown>;
+
+  it("is a declared option on every command that runs the tree walker", () => {
+    for (const name of ["add", "audit", "install", "monitor", "graph"]) {
+      const command = findCommand(name);
+      expect(command, name).toBeDefined();
+      expect(command!.options.some((o) => o.name === "concurrency"), name).toBe(true);
+    }
+  });
+
+  it("accepts --concurrency on `add` and parses it to a positive integer", () => {
+    const values = parse("add", ["left-pad@1.3.0", "--no-ai", "--dry-run", "--concurrency", "8"]);
+    expect(values.concurrency).toBe("8");
+    expect(parseConcurrency(values)).toBe(8);
+  });
+
+  it("accepts --concurrency on `install` too", () => {
+    expect(parseConcurrency(parse("install", ["--concurrency", "4"]))).toBe(4);
+  });
+
+  it("ignores an absent, non-numeric, or non-positive value (falls back to the default)", () => {
+    expect(parseConcurrency(parse("add", ["left-pad"]))).toBeUndefined();
+    expect(parseConcurrency(parse("add", ["left-pad", "--concurrency", "abc"]))).toBeUndefined();
+    expect(parseConcurrency(parse("add", ["left-pad", "--concurrency", "0"]))).toBeUndefined();
+    expect(parseConcurrency(parse("add", ["left-pad", "--concurrency=-3"]))).toBeUndefined();
   });
 });
 
