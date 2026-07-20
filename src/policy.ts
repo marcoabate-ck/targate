@@ -8,7 +8,7 @@ import { execConfigDisabled, isExecConfigFile, loadConfigFile } from "./config-l
 import { DEFAULT_REGISTRY } from "./npmrc.js";
 import type { ResourceLimits } from "./resource-limits.js";
 import { isHardBlock } from "./rules.js";
-import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
+import { DECISION_SEVERITY, type CodeAuditScope, type RiskAssessment, type Signals } from "./types.js";
 
 export const POLICY_BASENAME = "targate.policy";
 
@@ -48,6 +48,13 @@ export interface DependencyPolicy {
    * "clean", it is visibly "not externally checked".
    */
   internalScopes?: string[];
+  /**
+   * AI source-code audit scope (the opt-in `--audit-code` pass): "off" (default),
+   * "flagged" (only packages the deterministic pass flagged), "direct" (the
+   * project's direct dependencies), or "all". The `--audit-code` flag turns the
+   * audit on ad-hoc; this field lets a team enable/scope it centrally.
+   */
+  codeAudit?: CodeAuditScope;
 }
 
 export interface PolicyFile {
@@ -118,6 +125,14 @@ export function validatePolicyObject(doc: unknown, sourceName = POLICY_BASENAME)
       );
     }
   }
+  if ("codeAudit" in policy) {
+    const v = policy.codeAudit;
+    if (v !== "off" && v !== "flagged" && v !== "direct" && v !== "all") {
+      throw new PolicyError(
+        `"dependencyPolicy.codeAudit" must be one of "off", "flagged", "direct", or "all"`,
+      );
+    }
+  }
 
   return {
     dependencyPolicy: policy as DependencyPolicy,
@@ -125,6 +140,21 @@ export function validatePolicyObject(doc: unknown, sourceName = POLICY_BASENAME)
     registries: validateRegistries(doc),
     resourceLimits: validateResourceLimits(doc),
   };
+}
+
+/**
+ * Resolve the effective source-audit scope from the `--audit-code` flag and the
+ * team policy. The flag turns the audit on ad-hoc (at least "flagged", or the
+ * richer scope the policy already asks for); without the flag, the policy scope
+ * governs (default "off"). A policy can therefore force auditing in CI/strict
+ * runs, and a developer can opt in on any run.
+ */
+export function resolveCodeAuditScope(
+  flagOn: boolean,
+  policyScope: CodeAuditScope | undefined,
+): CodeAuditScope {
+  if (flagOn) return policyScope && policyScope !== "off" ? policyScope : "flagged";
+  return policyScope ?? "off";
 }
 
 const RESOURCE_LIMIT_KEYS = [
@@ -135,6 +165,8 @@ const RESOURCE_LIMIT_KEYS = [
   "maxFiles",
   "maxFileBytes",
   "maxScanDuration",
+  "maxAuditFiles",
+  "maxAuditBytes",
 ] as const;
 
 function validateResourceLimits(doc: object): ResourceLimits | undefined {
@@ -460,6 +492,7 @@ export const POLICY_PRESETS: Record<string, PolicyPresetDefinition> = {
         requirePublicMirrorVerification: true,
         allowKnownPackages: [],
         blockPackages: [],
+        codeAudit: "flagged",
       },
       aiCache: { enabled: true, scope: "user", ttlHours: 24, exclude: [] },
     },
@@ -493,6 +526,7 @@ export const POLICY_PRESETS: Record<string, PolicyPresetDefinition> = {
         requirePublicMirrorVerification: true,
         allowKnownPackages: [],
         blockPackages: [],
+        codeAudit: "off",
       },
       aiCache: { enabled: false },
     },
@@ -510,6 +544,7 @@ export const POLICY_PRESETS: Record<string, PolicyPresetDefinition> = {
         requirePublicMirrorVerification: true,
         allowKnownPackages: [],
         blockPackages: [],
+        codeAudit: "flagged",
       },
       aiCache: { enabled: true, scope: "project", ttlHours: 24, exclude: [] },
     },

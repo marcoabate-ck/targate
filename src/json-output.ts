@@ -17,6 +17,7 @@ export const JSON_SCHEMA_VERSION = 1;
 export type JsonCommand =
   | "add"
   | "approve"
+  | "audit"
   | "install"
   | "ci"
   | "cache"

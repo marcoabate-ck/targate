@@ -13,6 +13,7 @@ Options:
   --yes                        Skip confirmation only for decisions that may be automated.
   --no-cache                   Ignore cached AI assessments for this run.
   --deep                       Analyze the full transitive dependency tree.
+  --audit-code                 Run the AI source-code security audit (opt-in; expensive). Scope comes from the team policy's codeAudit (default: flagged packages).
   --concurrency <n>            Maximum parallel package analyses (default: 16).
   --no-ai-batch                Use one AI request per package instead of batching.
   --no-ai                      Skip AI reasoning and use deterministic rules only.
@@ -59,6 +60,7 @@ Options:
   --sign                       Sign an approval with the human operator's SSH key.
   --no-cache                   Ignore cached AI assessments for this run.
   --deep                       Analyze the full transitive dependency tree.
+  --audit-code                 Run the AI source-code security audit (opt-in; expensive). Scope comes from the team policy's codeAudit (default: flagged packages).
   --no-ai                      Skip AI reasoning and use deterministic rules only.
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
@@ -72,6 +74,33 @@ Options:
 Examples:
   targate approve esbuild@0.27.3
   targate approve esbuild@0.27.3 --sign"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > audit help 1`] = `
+"AI-read a package's source for security issues, without installing.
+
+Usage:
+  targate audit <package>[@version]
+
+Options:
+  --json                       Print machine-readable JSON.
+  --deep                       Analyze the full transitive dependency tree.
+  --concurrency <n>            Maximum parallel package analyses (default: 16).
+  --no-ai-batch                Use one AI request per package instead of batching.
+  --no-cache                   Ignore cached AI assessments for this run.
+  --no-ai                      Skip AI reasoning and use deterministic rules only.
+  --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
+  --model <name>               Override the selected provider model.
+  --base-url <url>             Set the API base URL (required for a custom provider).
+  --api-key <key>              Set an API key (environment variables are preferred).
+  --reasoning                  Enable model reasoning where supported.
+  --fail-on-osv-error          Require approval when OSV is unreachable.
+  --no-reputation              Skip external reputation lookups.
+  --help                       Show help for this command.
+
+Examples:
+  targate audit left-pad
+  targate audit esbuild@0.27.3 --deep"
 `;
 
 exports[`declarative command registry > keeps global and per-command help under snapshots > cache help 1`] = `
@@ -192,6 +221,7 @@ exports[`declarative command registry > keeps global and per-command help under 
 Usage:
   targate add <package>[@version]                 Analyze one package, then gate its installation.
   targate approve <package>[@version]             Record a committable human approval without installing.
+  targate audit <package>[@version]               AI-read a package's source for security issues, without installing.
   targate install                                 Vet the complete dependency tree, then gate a full install.
   targate sandbox <package>[@version]             Trial-install a package in a disposable Docker container.
   targate ci [init]                               Gate dependency changes against a Git ref or scaffold CI.
@@ -213,6 +243,7 @@ Options:
   --yes                        Skip confirmation only for decisions that may be automated.
   --no-cache                   Ignore cached AI assessments for this run.
   --deep                       Analyze the full transitive dependency tree.
+  --audit-code                 Run the AI source-code security audit (opt-in; expensive). Scope comes from the team policy's codeAudit (default: flagged packages).
   --concurrency <n>            Maximum parallel package analyses (default: 16).
   --no-ai-batch                Use one AI request per package instead of batching.
   --no-ai                      Skip AI reasoning and use deterministic rules only.
@@ -307,6 +338,7 @@ Options:
   --update-lockfile            Stage and review a lockfile update before installing.
   --frozen-lockfile            Deprecated no-op; immutable installs are the default.
   --allow-scripts              Allow lifecycle scripts where the command supports it.
+  --audit-code                 Run the AI source-code security audit (opt-in; expensive). Scope comes from the team policy's codeAudit (default: flagged packages).
   --concurrency <n>            Maximum parallel package analyses (default: 16).
   --no-ai-batch                Use one AI request per package instead of batching.
   --no-ai                      Skip AI reasoning and use deterministic rules only.

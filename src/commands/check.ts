@@ -27,7 +27,7 @@ import {
 import { diffLockfiles, snapshotLockfile } from "../lockfile.js";
 import { extractLockfileArtifacts } from "../lockfile.js";
 import { printJson } from "../json-output.js";
-import { policyFileDigest } from "../policy.js";
+import { policyFileDigest, resolveCodeAuditScope } from "../policy.js";
 import { describeProvider } from "../providers/index.js";
 import { isHardBlock } from "../rules.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
@@ -56,6 +56,8 @@ export interface CheckOptions {
   failOnOsvError?: boolean;
   /** Analyze the full transitive dependency tree, not just the named package. */
   deep?: boolean;
+  /** Turn on the AI source-code audit (scope from the team policy). */
+  codeAudit?: boolean;
   /** Tree-analysis pool width (default: 16). */
   concurrency?: number;
   /** Force isolated per-package AI calls instead of batching. */
@@ -97,6 +99,10 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     approvals: "policy",
   });
   const { policy, assess } = session;
+  const auditScope = resolveCodeAuditScope(
+    opts.codeAudit ?? false,
+    policy?.policy.dependencyPolicy.codeAudit,
+  );
   const onStage = createAnalysisStageReporter(note, { failOnOsvError: opts.failOnOsvError });
 
   let analysis;
@@ -129,6 +135,8 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       metadata: preloadedMetadata,
       lockedArtifact: lockedRoot,
       lockfileTrusted: installPlan?.source === "existing",
+      codeAudit: auditScope,
+      isDirect: true, // the named package is the project's direct dependency
       onStage,
     });
   } catch (err) {
@@ -171,6 +179,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
           concurrency: opts.concurrency,
           noAiBatch: opts.noAiBatch,
           noReputation: opts.noReputation,
+          codeAudit: auditScope,
           lockfileTrusted: installPlan.source === "existing",
           renderResult: (r) => {
             const icon = STAGE_ICON[r.assessment.decision] ?? "?";
@@ -315,6 +324,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       assessment,
       score,
       deep: deepResults,
+      ...(analysis.sourceAudit ? { sourceAudit: analysis.sourceAudit } : {}),
       ...(installPlan ? { planFingerprint: installPlan.fingerprint } : {}),
       ...(installPlan ? { artifactFingerprint: installPlan.artifactFingerprint } : {}),
       install: result,

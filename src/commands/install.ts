@@ -5,6 +5,7 @@ import {
 } from "../approvals.js";
 import { loadDenials } from "../denials.js";
 import { recordTriageDecisions } from "../approval-orchestration.js";
+import { resolveCodeAuditScope } from "../policy.js";
 import { prepareAnalysisSession } from "../command-analysis.js";
 import {
   vetInstall,
@@ -38,6 +39,8 @@ export interface InstallOptions {
   updateLockfile?: boolean;
   /** Run lifecycle scripts during the install (default: scripts disabled). */
   allowScripts?: boolean;
+  /** Turn on the AI source-code audit (scope from the team policy). */
+  codeAudit?: boolean;
   /** Tree-analysis pool width (default: 16). */
   concurrency?: number;
   /** Force isolated per-package AI calls instead of batching. */
@@ -89,6 +92,10 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
   const { policy, assess } = session;
   const approvals = session.approvals!;
   const denials = await loadDenials();
+  const auditScope = resolveCodeAuditScope(
+    opts.codeAudit ?? false,
+    policy?.policy.dependencyPolicy.codeAudit,
+  );
 
   // Live feedback during the walk: spinner + done/total + ETA on a TTY,
   // milestone lines otherwise, nothing in --json.
@@ -110,6 +117,7 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
       approvals,
       denials,
       policy,
+      codeAudit: auditScope,
       failOnOsvError: opts.failOnOsvError,
       concurrency: opts.concurrency,
       noAiBatch: opts.noAiBatch,

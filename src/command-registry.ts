@@ -1,6 +1,7 @@
 import type { ParseArgsConfig } from "node:util";
 import { DEFAULT_AGENT_FORMATS, initAgentFiles, parseAgentFormats } from "./agents.js";
 import { approveCommand } from "./commands/approve.js";
+import { auditCommand } from "./commands/audit.js";
 import { cacheCommand } from "./commands/cache.js";
 import { checkCommand } from "./commands/check.js";
 import { ciCommand } from "./commands/ci.js";
@@ -77,6 +78,7 @@ export const OPTION_DEFINITIONS = {
   baseRef: option("base-ref", "string", "ref", "Git ref to compare against (default: origin/main)."),
   failOnOsvError: option("fail-on-osv-error", "boolean", undefined, "Require approval when OSV is unreachable."),
   deep: option("deep", "boolean", undefined, "Analyze the full transitive dependency tree."),
+  codeAudit: option("audit-code", "boolean", undefined, "Run the AI source-code security audit (opt-in; expensive). Scope comes from the team policy's codeAudit (default: flagged packages)."),
   concurrency: option("concurrency", "string", "n", "Maximum parallel package analyses (default: 16)."),
   noAiBatch: option("no-ai-batch", "boolean", undefined, "Use one AI request per package instead of batching."),
   noReputation: option("no-reputation", "boolean", undefined, "Skip external reputation lookups."),
@@ -150,7 +152,7 @@ const commands: CommandDefinition[] = [
     name: "add",
     usage: "targate add <package>[@version]",
     summary: "Analyze one package, then gate its installation.",
-    options: [O.packageManager, O.json, O.dryRun, O.yes, O.noCache, O.deep, O.concurrency, O.noAiBatch, ...ANALYSIS_OPTIONS],
+    options: [O.packageManager, O.json, O.dryRun, O.yes, O.noCache, O.deep, O.codeAudit, O.concurrency, O.noAiBatch, ...ANALYSIS_OPTIONS],
     examples: ["targate add lodash", "targate add left-pad@1.3.0 --dry-run", "targate add esbuild --yes --deep"],
     jsonCommand: "add",
     handler: async (context) => {
@@ -165,6 +167,7 @@ const commands: CommandDefinition[] = [
         assumeYes: booleanValue(v, "yes"),
         failOnOsvError: booleanValue(v, "fail-on-osv-error"),
         deep: booleanValue(v, "deep"),
+        codeAudit: booleanValue(v, "audit-code"),
         concurrency: parseConcurrency(v),
         noAiBatch: booleanValue(v, "no-ai-batch"),
         noReputation: booleanValue(v, "no-reputation"),
@@ -177,7 +180,7 @@ const commands: CommandDefinition[] = [
     name: "approve",
     usage: "targate approve <package>[@version]",
     summary: "Record a committable human approval without installing.",
-    options: [O.json, O.yes, O.allowScripts, O.sign, O.noCache, O.deep, ...ANALYSIS_OPTIONS],
+    options: [O.json, O.yes, O.allowScripts, O.sign, O.noCache, O.deep, O.codeAudit, ...ANALYSIS_OPTIONS],
     examples: ["targate approve esbuild@0.27.3", "targate approve esbuild@0.27.3 --sign"],
     jsonCommand: "approve",
     handler: async (context) => {
@@ -192,8 +195,33 @@ const commands: CommandDefinition[] = [
         sign: booleanValue(v, "sign"),
         failOnOsvError: booleanValue(v, "fail-on-osv-error"),
         deep: booleanValue(v, "deep"),
+        codeAudit: booleanValue(v, "audit-code"),
         noReputation: booleanValue(v, "no-reputation"),
         noCache: booleanValue(v, "no-cache"),
+        assess: assessmentOptions(v),
+      });
+    },
+  },
+  {
+    name: "audit",
+    usage: "targate audit <package>[@version]",
+    summary: "AI-read a package's source for security issues, without installing.",
+    options: [O.json, O.deep, O.concurrency, O.noAiBatch, O.noCache, ...ANALYSIS_OPTIONS],
+    examples: ["targate audit left-pad", "targate audit esbuild@0.27.3 --deep"],
+    jsonCommand: "audit",
+    handler: async (context) => {
+      const spec = requireSingleSpec(context, "targate audit <package>[@version]");
+      if (!spec) return 1;
+      const v = context.values;
+      return auditCommand({
+        spec,
+        json: booleanValue(v, "json"),
+        deep: booleanValue(v, "deep"),
+        concurrency: parseConcurrency(v),
+        noAiBatch: booleanValue(v, "no-ai-batch"),
+        noReputation: booleanValue(v, "no-reputation"),
+        noCache: booleanValue(v, "no-cache"),
+        failOnOsvError: booleanValue(v, "fail-on-osv-error"),
         assess: assessmentOptions(v),
       });
     },
@@ -202,7 +230,7 @@ const commands: CommandDefinition[] = [
     name: "install",
     usage: "targate install",
     summary: "Vet the complete dependency tree, then gate a full install.",
-    options: [O.packageManager, O.json, O.dryRun, O.yes, O.noCache, O.updateLockfile, O.frozenLockfile, O.allowScripts, O.concurrency, O.noAiBatch, ...ANALYSIS_OPTIONS],
+    options: [O.packageManager, O.json, O.dryRun, O.yes, O.noCache, O.updateLockfile, O.frozenLockfile, O.allowScripts, O.codeAudit, O.concurrency, O.noAiBatch, ...ANALYSIS_OPTIONS],
     examples: ["targate install", "targate install --update-lockfile --dry-run"],
     jsonCommand: "install",
     handler: async ({ values: v, positionals }) => {
@@ -218,6 +246,7 @@ const commands: CommandDefinition[] = [
         failOnOsvError: booleanValue(v, "fail-on-osv-error"),
         updateLockfile: booleanValue(v, "update-lockfile"),
         allowScripts: booleanValue(v, "allow-scripts"),
+        codeAudit: booleanValue(v, "audit-code"),
         concurrency: parseConcurrency(v),
         noAiBatch: booleanValue(v, "no-ai-batch"),
         noReputation: booleanValue(v, "no-reputation"),

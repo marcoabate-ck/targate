@@ -16,7 +16,7 @@ import {
 } from "../command-analysis.js";
 import { printJson } from "../json-output.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
-import { policyFileDigest } from "../policy.js";
+import { policyFileDigest, resolveCodeAuditScope } from "../policy.js";
 import { describeProvider } from "../providers/index.js";
 import { approvalSigner } from "../signing.js";
 import { isHardBlock } from "../rules.js";
@@ -43,6 +43,8 @@ export interface ApproveOptions {
   failOnOsvError?: boolean;
   /** Also analyze the full transitive tree before approving. */
   deep?: boolean;
+  /** Turn on the AI source-code audit (scope from the team policy). */
+  codeAudit?: boolean;
   /** Skip the external reputation lookups (npm downloads, GitHub). */
   noReputation?: boolean;
   /** Ignore cached AI assessments for this run (recompute; still refresh the cache). */
@@ -110,6 +112,10 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
 
   const session = await prepareAnalysisSession(opts.assess, { noCache: opts.noCache });
   const { policy, assess } = session;
+  const auditScope = resolveCodeAuditScope(
+    opts.codeAudit ?? false,
+    policy?.policy.dependencyPolicy.codeAudit,
+  );
   const onStage = createAnalysisStageReporter(note, { failOnOsvError: opts.failOnOsvError });
 
   let analysis;
@@ -118,6 +124,8 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
       failOnOsvError: opts.failOnOsvError,
       noReputation: opts.noReputation,
       maintainerIntel: true,
+      codeAudit: auditScope,
+      isDirect: true,
       onStage,
     });
   } catch (err) {
@@ -141,6 +149,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
           json: opts.json,
           failOnOsvError: opts.failOnOsvError,
           noReputation: opts.noReputation,
+          codeAudit: auditScope,
         });
     }
     assessment = aggregateWithTransitive(assessment, deepResults ?? []);
@@ -218,7 +227,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
   }
 
   if (opts.json) {
-    printJson("approve", { metadata, signals, assessment, score, deep: deepResults, outcome, approval });
+    printJson("approve", { metadata, signals, assessment, score, deep: deepResults, outcome, approval, ...(analysis.sourceAudit ? { sourceAudit: analysis.sourceAudit } : {}) });
   }
 
   switch (outcome) {

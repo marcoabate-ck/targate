@@ -34,6 +34,8 @@ interface ResourceLimits {
   maxFiles?: number;
   maxFileBytes?: number;
   maxScanDuration?: number;
+  maxAuditFiles?: number;
+  maxAuditBytes?: number;
 }
 
 interface DependencyPolicy {
@@ -47,6 +49,7 @@ interface DependencyPolicy {
   requireSignedApprovals?: boolean;
   requirePublicMirrorVerification?: boolean;
   internalScopes?: string[];
+  codeAudit?: "off" | "flagged" | "direct" | "all";
 }
 ```
 
@@ -74,6 +77,7 @@ registries:
 | `requireSignedApprovals` | boolean | `false` | Only honor approvals whose SSH signature verifies against the committed `.targate/allowed-signers`; unsigned/invalid entries are ignored (the package asks again). See [signed approvals](team-workflow.md#signed-approvals--targate-approve---sign). |
 | `requirePublicMirrorVerification` | boolean | `false` | A mirrored package whose upstream registry cannot be reached becomes `require_approval` instead of `allow_with_warnings`. Divergence is always a hard block regardless of this setting. Enabled by the `strict`, `ci`, and `ai-agent` presets. |
 | `internalScopes` | string[] (each starting `@`) | `[]` | Scopes whose package **names must not leak**: OSV, npm downloads, maintainer search and GitHub lookups are skipped, typosquat similarity is not applied, and every skip is shown in the report/score. See [private registries](private-registries.md#internalscopes--name-privacy). |
+| `codeAudit` | `"off"` \| `"flagged"` \| `"direct"` \| `"all"` | `"off"` | Scope of the AI **source-code audit** (`--audit-code`): `flagged` audits only packages the deterministic pass flagged, `direct` the project's direct dependencies, `all` every analyzed package. Findings only ever **escalate** the verdict (clamped — a hard block can never be audited into an approval). The `--audit-code` flag turns it on ad-hoc (at least `flagged`); `strict`/`ai-agent` enable `flagged`, `ci` forces `off`. |
 
 ¹ Defaults shown are the values `targate policy init` scaffolds. A field you omit from your file simply doesn't apply — there is no hidden default beyond note ².
 ² `minPackageAgeDays` only takes effect when it is set, or when `blockRecentlyPublishedPackages` is `true` (in which case an unset `minPackageAgeDays` falls back to `7`).
@@ -102,6 +106,8 @@ Every value is a positive integer. Durations are milliseconds; sizes are bytes. 
 | `maxFiles` | `20000` | Maximum archive entries and extracted filesystem objects; also bounds the shared file index consumed by every static analyzer. |
 | `maxFileBytes` | `33554432` | Maximum size of one extracted/scanned file. |
 | `maxScanDuration` | `20000` | Maximum static-analysis duration for one package. |
+| `maxAuditFiles` | `15` | Maximum source files sent to the AI code audit (`--audit-code`) for one package. |
+| `maxAuditBytes` | `262144` | Maximum total source bytes sent to the AI code audit for one package; larger files are sliced. |
 
 Crossing a package-analysis limit is not a clean result: targate renders the missing evidence as `UNKNOWN` and deterministically requires approval. Network-only reputation/OSV failures retain their documented degraded-state policy.
 

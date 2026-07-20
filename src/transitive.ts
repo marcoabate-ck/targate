@@ -36,6 +36,8 @@ export interface TreePackage {
   version: string;
   resolved?: string;
   integrity?: string;
+  /** True when this package is a DIRECT dependency of the project (scope "direct"). */
+  isDirect?: boolean;
 }
 
 /** Pure part of the resolution: lockfile content -> unique packages, root excluded. */
@@ -198,6 +200,7 @@ export async function analyzeTransitiveDeps(
         lockfileTrusted: opts.lockfileTrusted,
         cwd: opts.cwd ?? opts.assess.cwd,
         codeAudit: opts.codeAudit,
+        isDirect: pkg.isDirect,
       });
       result = {
         name: pkg.name,
@@ -247,6 +250,7 @@ async function analyzeTreeBatched(
         lockfileTrusted: opts.lockfileTrusted,
         cwd: opts.cwd ?? opts.assess.cwd,
         codeAudit: opts.codeAudit,
+        isDirect: pkg.isDirect,
       });
       result = { pkg, signals, audit, ok: true };
     } catch (err) {
