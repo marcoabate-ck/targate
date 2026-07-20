@@ -62,6 +62,7 @@ targate resolves the package from npm, extracts the tarball into quarantine (scr
 |---|---|
 | `targate add <package>[@version]` | Analyze one package, then gate its installation. |
 | `targate approve <package>[@version]` | Record a committable human approval without installing. |
+| `targate audit <package>[@version]` | AI-read a package's source for security issues, without installing. |
 | `targate install` | Vet the complete dependency tree, then gate a full install. |
 | `targate sandbox <package>[@version]` | Trial-install a package in a disposable Docker container. |
 | `targate ci [init]` | Gate dependency changes against a Git ref or scaffold CI. |

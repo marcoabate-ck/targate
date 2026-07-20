@@ -1,6 +1,7 @@
 import type { ParseArgsConfig } from "node:util";
 import { DEFAULT_AGENT_FORMATS, initAgentFiles, parseAgentFormats } from "./agents.js";
 import { approveCommand } from "./commands/approve.js";
+import { auditCommand } from "./commands/audit.js";
 import { cacheCommand } from "./commands/cache.js";
 import { checkCommand } from "./commands/check.js";
 import { ciCommand } from "./commands/ci.js";
@@ -197,6 +198,30 @@ const commands: CommandDefinition[] = [
         codeAudit: booleanValue(v, "audit-code"),
         noReputation: booleanValue(v, "no-reputation"),
         noCache: booleanValue(v, "no-cache"),
+        assess: assessmentOptions(v),
+      });
+    },
+  },
+  {
+    name: "audit",
+    usage: "targate audit <package>[@version]",
+    summary: "AI-read a package's source for security issues, without installing.",
+    options: [O.json, O.deep, O.concurrency, O.noAiBatch, O.noCache, ...ANALYSIS_OPTIONS],
+    examples: ["targate audit left-pad", "targate audit esbuild@0.27.3 --deep"],
+    jsonCommand: "audit",
+    handler: async (context) => {
+      const spec = requireSingleSpec(context, "targate audit <package>[@version]");
+      if (!spec) return 1;
+      const v = context.values;
+      return auditCommand({
+        spec,
+        json: booleanValue(v, "json"),
+        deep: booleanValue(v, "deep"),
+        concurrency: parseConcurrency(v),
+        noAiBatch: booleanValue(v, "no-ai-batch"),
+        noReputation: booleanValue(v, "no-reputation"),
+        noCache: booleanValue(v, "no-cache"),
+        failOnOsvError: booleanValue(v, "fail-on-osv-error"),
         assess: assessmentOptions(v),
       });
     },
