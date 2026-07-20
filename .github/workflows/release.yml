@@ -1,0 +1,63 @@
+name: Release
+
+# Cut a release by pushing a semver tag, e.g. `git tag v1.0.0 && git push --tags`.
+# The published version is taken from the tag — package.json is not bumped by hand.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 1.0.0), without the leading v"
+        required: true
+
+# Provenance publishing needs an OIDC token; everything else is read-only.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    name: verify + publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - run: pnpm install --frozen-lockfile
+
+      # Full gate set — a failure here stops the release before anything is published.
+      - run: pnpm typecheck
+      - run: pnpm format:check
+      - run: pnpm docs:check
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm pack:check
+      - name: Runtime dependency audit
+        run: pnpm audit --prod --audit-level high
+
+      # Derive the published version from the tag (or the manual input); never
+      # committed back — the release pipeline owns the version, not a hand edit.
+      - name: Set version from the release ref
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "Publishing version ${VERSION}"
+          npm version "${VERSION}" --no-git-tag-version --allow-same-version
+
+      - name: Publish to npm (with provenance)
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
