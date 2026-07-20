@@ -3,13 +3,13 @@ import type * as Preset from "@docusaurus/preset-classic";
 import { themes as prismThemes } from "prism-react-renderer";
 
 // GitHub Pages project site. The product is "targate"; the repository is
-// currently "before-you-execute". The Pages URL path IS the repo name, so we
+// currently "targate". The Pages URL path IS the repo name, so we
 // derive org/repo from GITHUB_REPOSITORY in CI — renaming the repo (e.g. to
 // "targate") then moves the site to /targate/ automatically, no edit here.
 // Locally, fall back to the current repo so `npm run build` matches CI.
 const [ENV_ORG, ENV_REPO] = (process.env.GITHUB_REPOSITORY ?? "").split("/");
 const ORG = ENV_ORG || "marcoabate-ck";
-const REPO = ENV_REPO || "before-you-execute";
+const REPO = ENV_REPO || "targate";
 
 const config: Config = {
   title: "targate",
@@ -82,8 +82,18 @@ const config: Config = {
       title: "targate",
       logo: { alt: "targate", src: "img/logo.svg" },
       items: [
-        { type: "docSidebar", sidebarId: "guide", position: "left", label: "Guide" },
-        { type: "docSidebar", sidebarId: "api", position: "left", label: "API" },
+        {
+          type: "docSidebar",
+          sidebarId: "guide",
+          position: "left",
+          label: "Guide",
+        },
+        {
+          type: "docSidebar",
+          sidebarId: "api",
+          position: "left",
+          label: "API",
+        },
         {
           href: `https://github.com/${ORG}/${REPO}`,
           label: "GitHub",
@@ -106,7 +116,10 @@ const config: Config = {
           title: "More",
           items: [
             { label: "GitHub", href: `https://github.com/${ORG}/${REPO}` },
-            { label: "Issues", href: `https://github.com/${ORG}/${REPO}/issues` },
+            {
+              label: "Issues",
+              href: `https://github.com/${ORG}/${REPO}/issues`,
+            },
           ],
         },
       ],
