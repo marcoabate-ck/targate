@@ -117,9 +117,17 @@ export async function runCiCheck(opts: CiOptions = {}): Promise<CiReport> {
   const lockIndex = lockContent ? lockfileVersionIndex(pm, lockContent) : null;
   const lockArtifacts = lockContent ? extractLockfileArtifacts(pm, lockContent) : [];
   const baseLockContent = await gitShow(baseRef, lockfileName(pm), cwd);
-  const baseLockArtifacts = baseLockContent
-    ? extractLockfileArtifacts(pm, baseLockContent)
-    : [];
+  // The HEAD lockfile (above) must fail hard, but a corrupt/tampered lockfile
+  // already merged into the BASE ref should not gate every unrelated PR — treat
+  // an unparsable base as "no base artifacts" and still fail hard on HEAD.
+  let baseLockArtifacts: typeof lockArtifacts = [];
+  if (baseLockContent) {
+    try {
+      baseLockArtifacts = extractLockfileArtifacts(pm, baseLockContent);
+    } catch {
+      log(`note: base ref ${baseRef} lockfile is unparsable — comparing against no base artifacts`);
+    }
+  }
   if (!lockIndex) {
     log(`note: no ${pm} lockfile found — analyzing declared version ranges, not resolved versions`);
   }

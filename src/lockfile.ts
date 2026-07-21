@@ -63,6 +63,47 @@ function mergeArtifact(
   });
 }
 
+/** A valid lockfile parses to a plain object (or an empty document → nullish).
+ *  An array or a scalar (`[]`, `123`, `"x"`) is structurally invalid — fail
+ *  loudly rather than degrade to an empty, apparently-clean tree. */
+function assertLockfileObject(
+  doc: unknown,
+  pm: PackageManager,
+): asserts doc is Record<string, unknown> | null | undefined {
+  if (Array.isArray(doc) || (doc != null && typeof doc !== "object")) {
+    throw new LockfileParseError(`Malformed ${pm} lockfile: expected a top-level object`, pm);
+  }
+}
+
+interface NpmV1Dependency {
+  version?: string;
+  resolved?: string;
+  integrity?: string;
+  dependencies?: Record<string, NpmV1Dependency>;
+}
+
+/** npm lockfileVersion 1 (npm 6) has no `packages` map — only a nested
+ *  `dependencies` tree. Walk it recursively so a v1 lockfile is vetted instead
+ *  of silently yielding zero packages. */
+function walkNpmV1Dependencies(
+  deps: Record<string, NpmV1Dependency>,
+  artifacts: Map<string, LockedPackageArtifact>,
+): void {
+  for (const [name, meta] of Object.entries(deps)) {
+    if (name && meta && typeof meta.version === "string") {
+      mergeArtifact(artifacts, {
+        name,
+        version: meta.version,
+        ...(typeof meta.resolved === "string" ? { resolved: meta.resolved } : {}),
+        ...(typeof meta.integrity === "string" ? { integrity: meta.integrity } : {}),
+      });
+    }
+    if (meta && typeof meta.dependencies === "object" && meta.dependencies) {
+      walkNpmV1Dependencies(meta.dependencies, artifacts);
+    }
+  }
+}
+
 function pnpmIdentity(rawKey: string): { name: string; version: string } | null {
   const key = rawKey.replace(/^\//, "").replace(/\([^\r\n]*\)$/, "");
   const at = key.lastIndexOf("@");
@@ -81,38 +122,49 @@ export function extractLockfileArtifacts(
     // Only the parse is wrapped: a genuinely empty-but-valid lockfile yields
     // [] (correct — nothing to vet), while unparsable bytes throw. The
     // conflicting-integrity throw from mergeArtifact deliberately propagates.
-    let doc: {
-      packages?: Record<string, { version?: string; resolved?: string; integrity?: string }>;
-    };
+    let parsed: unknown;
     try {
-      doc = JSON.parse(content);
+      parsed = JSON.parse(content);
     } catch (err) {
       throw new LockfileParseError(
         `Unparsable npm lockfile: ${err instanceof Error ? err.message : String(err)}`,
         pm,
       );
     }
-    for (const [key, meta] of Object.entries(doc.packages ?? {})) {
-      if (!key || !meta.version) continue;
-      mergeArtifact(artifacts, {
-        name: key.replace(/^.*node_modules\//, ""),
-        version: meta.version,
-        ...(typeof meta.resolved === "string" ? { resolved: meta.resolved } : {}),
-        ...(typeof meta.integrity === "string" ? { integrity: meta.integrity } : {}),
-      });
-    }
-  } else if (pm === "pnpm") {
-    let doc: {
-      packages?: Record<string, { resolution?: { integrity?: string; tarball?: string } | string }>;
+    assertLockfileObject(parsed, pm);
+    const doc = parsed as {
+      packages?: Record<string, { version?: string; resolved?: string; integrity?: string }>;
+      dependencies?: Record<string, NpmV1Dependency>;
     };
+    if (doc?.packages) {
+      for (const [key, meta] of Object.entries(doc.packages)) {
+        if (!key || !meta.version) continue;
+        mergeArtifact(artifacts, {
+          name: key.replace(/^.*node_modules\//, ""),
+          version: meta.version,
+          ...(typeof meta.resolved === "string" ? { resolved: meta.resolved } : {}),
+          ...(typeof meta.integrity === "string" ? { integrity: meta.integrity } : {}),
+        });
+      }
+    } else if (doc?.dependencies) {
+      // lockfileVersion 1 (npm 6): no `packages` map, only a nested tree.
+      walkNpmV1Dependencies(doc.dependencies, artifacts);
+    }
+    // Neither key present → genuinely empty lockfile → [] (nothing to vet).
+  } else if (pm === "pnpm") {
+    let parsed: unknown;
     try {
-      doc = parseYaml(content);
+      parsed = parseYaml(content);
     } catch (err) {
       throw new LockfileParseError(
         `Unparsable pnpm lockfile: ${err instanceof Error ? err.message : String(err)}`,
         pm,
       );
     }
+    assertLockfileObject(parsed, pm);
+    const doc = parsed as {
+      packages?: Record<string, { resolution?: { integrity?: string; tarball?: string } | string }>;
+    };
     for (const [key, meta] of Object.entries(doc?.packages ?? {})) {
       const identity = pnpmIdentity(key);
       if (!identity) continue;

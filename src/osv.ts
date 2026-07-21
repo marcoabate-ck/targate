@@ -59,15 +59,20 @@ export function isMaliciousRecord(vuln: {
   // input ("a malicious payload"), which must not trigger a block.
   const summary = (vuln.summary ?? "").toLowerCase();
   // "Malicious code in <pkg>" is the exact title GitHub gives every GHSA npm
-  // malware advisory — the common case that the old `malicious package` /
-  // `embedded malicious code` alternation missed entirely.
+  // malware advisory. It is ANCHORED to the start of the summary: an ordinary
+  // advisory that merely says "…allows an attacker to execute malicious code in
+  // the browser…" must NOT be classified as a package-is-malware hard block
+  // (which allowKnownPackages can never clear).
   if (
-    /\bmalware\b|malicious package|embedded malicious code|malicious code in\b/.test(summary)
+    /\bmalware\b|malicious package|embedded malicious code/.test(summary) ||
+    /^malicious code in\b/.test(summary)
   ) {
     return true;
   }
   const details = (vuln.details ?? "").toLowerCase();
-  return /contain(s|ed) (malware|malicious code)|malicious code in\b|is malware|package (is|was) malicious/.test(
+  // No unanchored "malicious code in" here — details is long prose where the
+  // false match is most likely.
+  return /contain(s|ed) (malware|malicious code)|is malware|package (is|was) malicious/.test(
     details,
   );
 }

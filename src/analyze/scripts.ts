@@ -44,7 +44,10 @@ const SUSPICIOUS_COMMAND_PATTERNS: Array<[RegExp, string]> = [
   // A shell invoked as a command token — bare `sh`, `| sh`, `sh -c`, `bash`,
   // `zsh`… The delimiter prefix and lookahead keep it from matching substrings
   // like "bash" (covered separately), "push", or a `build.sh` filename.
-  [/(?:^|[|&;`($\s])(?:sh|bash|zsh|ksh|dash|ash|fish)(?=\s|$|[;&|`)])/, "invokes a shell"],
+  [/(?:^|[|&;`($\s])(?:sh|bash|zsh|ksh|dash|ash|fish)(?=\s|$|[;&|`)<>])/, "invokes a shell"],
+  // POSIX dot-source (`. <(curl …)`, `. ./x`) — runs the target in the current
+  // shell, so remote content sourced this way is remote execution.
+  [/(?:^|[|&;`(])\s*\.\s+\S/, "invokes a shell"],
   // Piping (or command-substituting) fetched content straight into an
   // interpreter — `curl … | python`, `wget … | node`. Unambiguously executes
   // remote bytes, so the label keeps the "invokes a shell" substring the
@@ -57,7 +60,7 @@ const SUSPICIOUS_COMMAND_PATTERNS: Array<[RegExp, string]> = [
   [/>\s*\/|>>\s*\//, "writes to absolute filesystem paths"],
   [/\.ssh|id_rsa|\.npmrc|\.aws|\.env\b/i, "references credential or config files"],
   [/powershell|cmd\s+\/c/i, "invokes a Windows shell"],
-  [/node\s+-e\s/, "runs inline node code"],
+  [/node\s+(?:-e|--eval)/, "runs inline node code"],
 ];
 
 /**

@@ -207,7 +207,7 @@ Checks: Node version (≥22.13), package manager (lockfile + binary), npm regist
 ```text
 targate doctor
 
-  ✓ Node version                     Node v22.13.0 (>=22 required)
+  ✓ Node version                     Node v22.13.0 (>=22.13.0 required)
   ✓ npm registry                     registry.npmjs.org reachable (628ms)
   ✓ Registry configuration (.npmrc)  default registry (registry.npmjs.org), no scoped registries
   ✓ OSV / OpenSSF                    api.osv.dev reachable (515ms)
@@ -217,7 +217,7 @@ targate doctor
   ✓ Project .targate/                .targate writable
   ℹ CI mode                          not running in CI
 
-targate is usable — 1 warning(s) above.
+targate is ready.
 ```
 
 ```
@@ -227,7 +227,7 @@ targate is usable — 1 warning(s) above.
 --json                  Machine-readable checks[] + summary
 ```
 
-Statuses: `✓` pass, `⚠` warn (usable, degraded), `✗` fail (something will break), `ℹ` info (a fact, not a problem — e.g. rules-only mode is a supported configuration). Exit codes: `0` when every check passes or only warns, `1` when at least one check fails.
+Statuses: `✓` pass, `⚠` warn (usable, degraded), `✖` fail (something will break), `ℹ` info (a fact, not a problem — e.g. rules-only mode is a supported configuration). Exit codes: `0` when every check passes or only warns, `1` when at least one check fails.
 
 ## Exit codes
 

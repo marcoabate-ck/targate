@@ -19,7 +19,7 @@ targate add lodash
 Pre-install review — lodash@4.17.21
 ────────────────────────────────────────────────────────────
 Lodash modular utilities.
-license: MIT  ·  published: 5190 days ago  ·  deps: 0  ·  repo: git+https://github.com/lodash/lodash.git
+license: MIT  ·  published: 1977 days ago  ·  deps: 0  ·  repo: git+https://github.com/lodash/lodash.git
 
 Analysis
   ✓ no lifecycle scripts

@@ -45,4 +45,31 @@ describe("extractLockfileArtifacts fail-closed", () => {
   it("propagates through packagesFromLockfile (so resolveInstallPlan fails closed)", () => {
     expect(() => packagesFromLockfile("npm", "{corrupt")).toThrow(LockfileParseError);
   });
+
+  // Regression (v2 P2.1): npm lockfileVersion 1 has no `packages` map, only a
+  // nested `dependencies` tree — it must be vetted, not silently emptied.
+  it("extracts artifacts from an npm v1 (dependencies-tree) lockfile", () => {
+    const v1 = JSON.stringify({
+      lockfileVersion: 1,
+      dependencies: {
+        foo: {
+          version: "1.0.0",
+          integrity: "sha512-AAA",
+          dependencies: { bar: { version: "2.0.0", integrity: "sha512-BBB" } },
+        },
+      },
+    });
+    const artifacts = extractLockfileArtifacts("npm", v1);
+    expect(artifacts.map((a) => `${a.name}@${a.version}`).sort()).toEqual(["bar@2.0.0", "foo@1.0.0"]);
+  });
+
+  // Regression (v2 P2.2): a parseable-but-non-lockfile value must fail loudly,
+  // not degrade to "0 packages, all clean".
+  it.each(["[]", "123", '"x"'])("throws on a structurally invalid npm lockfile: %s", (body) => {
+    expect(() => extractLockfileArtifacts("npm", body)).toThrow(LockfileParseError);
+  });
+
+  it("throws on a pnpm lockfile that is a YAML scalar", () => {
+    expect(() => extractLockfileArtifacts("pnpm", "123")).toThrow(LockfileParseError);
+  });
 });

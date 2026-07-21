@@ -206,7 +206,17 @@ export async function assessManyWithCache(
           results[index] = clampDecision(raw, signals);
         } else {
           // Missing/misaligned item -> isolated call (clamps + caches inside).
-          results[index] = await assessWithCache(provider, signals, opts);
+          // A provider outage must degrade THIS package to deterministic rules
+          // (like assessRisk), never reject and abort the whole tree review.
+          try {
+            results[index] = await assessWithCache(provider, signals, opts);
+          } catch (err) {
+            const fallback = evaluateRules(signals);
+            fallback.reasons.push(
+              `(AI reasoning unavailable via ${provider.name} — used deterministic rules: ${err instanceof Error ? err.message.split("\n")[0] : String(err)})`,
+            );
+            results[index] = fallback;
+          }
         }
         bump();
       }),

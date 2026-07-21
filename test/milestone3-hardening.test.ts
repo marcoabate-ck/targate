@@ -135,6 +135,54 @@ describe("network and quarantine budgets", () => {
     await quarantine.cleanup();
   });
 
+  // Regression (v2 P0.1): these archive-limit breaches used to be thrown from
+  // the node-tar filter, which escaped as an uncaughtException and CRASHED the
+  // process instead of rejecting. They must reject cleanly with the right kind.
+  async function tarballWith(files: Record<string, string>): Promise<Buffer> {
+    const work = path.join(dir, `src-${Object.keys(files).length}-${Object.values(files).join("").length}`);
+    await mkdir(path.join(work, "package"), { recursive: true });
+    for (const [name, content] of Object.entries(files)) {
+      await writeFile(path.join(work, "package", name), content);
+    }
+    const archive = path.join(work, "package.tgz");
+    await tar.c({ cwd: work, file: archive, gzip: true }, ["package"]);
+    return readFile(archive);
+  }
+
+  async function quarantineWithLimits(bytes: Buffer, resourceLimits: object) {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(bytes, { status: 200 })));
+    return quarantineTarball("https://registry.test/pkg.tgz", {
+      packageName: "pkg",
+      version: "1.0.0",
+      registryUrl: "https://registry.test",
+      registry: {},
+      resourceLimits,
+    } as never);
+  }
+
+  it("rejects (not crashes) when the archive exceeds the file-count limit", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 12; i++) files[`f${i}.js`] = `x=${i}`;
+    const bytes = await tarballWith(files);
+    await expect(quarantineWithLimits(bytes, { maxFiles: 3 })).rejects.toMatchObject({
+      kind: "file-count",
+    });
+  });
+
+  it("rejects when a single entry exceeds the per-file byte limit", async () => {
+    const bytes = await tarballWith({ "big.js": "a".repeat(5000) });
+    await expect(quarantineWithLimits(bytes, { maxFileBytes: 100 })).rejects.toMatchObject({
+      kind: "file-size",
+    });
+  });
+
+  it("rejects when the total extracted size exceeds the limit", async () => {
+    const bytes = await tarballWith({ "a.js": "a".repeat(400), "b.js": "b".repeat(400) });
+    await expect(
+      quarantineWithLimits(bytes, { maxFileBytes: 1000, maxExtractedBytes: 500 }),
+    ).rejects.toMatchObject({ kind: "extracted-size" });
+  });
+
   it("makes an exceeded analysis budget UNKNOWN and approval-required", () => {
     const signals = buildDegradedSignals(
       makeMetadata(),

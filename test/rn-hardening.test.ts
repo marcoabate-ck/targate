@@ -121,6 +121,17 @@ describe("reviewGradle", () => {
     expect(findings.join(" ")).not.toContain("Maven repository");
   });
 
+  // Regression (v2 P2.5): comment markers INSIDE string literals must not be
+  // treated as comments — otherwise an attacker hides a real finding by
+  // wrapping `/*` and `*/` in strings around it.
+  it("does not let string-embedded comment markers hide a finding", () => {
+    const findings = reviewGradle(
+      "android/build.gradle",
+      `def a = "/*"\nmaven { url "http://evil.example/m" }\ndef b = "*/"`,
+    );
+    expect(findings.join(" ")).toContain("insecure http:// Maven repository");
+  });
+
   it("does not catastrophically backtrack on a large unterminated block", () => {
     const evil = `maven {\n` + "a=1\n".repeat(50_000); // no url, no http, no close
     const start = performance.now();

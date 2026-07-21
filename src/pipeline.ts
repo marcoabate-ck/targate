@@ -437,6 +437,12 @@ export async function buildPackageSignals(
     }
     const reason = `${err.kind}: ${err.message}`;
     opts.onStage?.("resource-limit", reason);
+    // We consume osv + reputation for the degraded signal; the other two
+    // evidence promises are abandoned here — swallow their settlement so a
+    // future change that makes them reject can't leak an unhandledRejection.
+    for (const p of [publicArtifactPromise, historicalIntegrityPromise]) {
+      void Promise.resolve(p).catch(() => {});
+    }
     const [osv, reputation] = await Promise.all([osvPromise, reputationPromise]);
     return {
       metadata,

@@ -28,6 +28,25 @@ describe("isPrivateHost", () => {
       expect(isPrivateHost(host)).toBe(false);
     },
   );
+
+  // Regression (v2 P1.1/P2.7): the old dotted-quad-only regex let alternate IP
+  // encodings smuggle a private address past the SSRF guard.
+  it.each([
+    ["169.254.169.254.", "trailing dot"],
+    ["2852039166", "decimal 169.254.169.254"],
+    ["2130706433", "decimal 127.0.0.1"],
+    ["0x7f000001", "hex 127.0.0.1"],
+    ["0177.0.0.1", "octal-first 127.0.0.1"],
+    ["127.1", "short-form 127.0.0.1"],
+    ["::ffff:a9fe:a9fe", "IPv4-mapped IPv6 hex 169.254.169.254"],
+  ])("flags alternate-encoded private IP %s (%s)", (host) => {
+    expect(isPrivateHost(host)).toBe(true);
+  });
+
+  it("still allows public IPs given in decimal/short form", () => {
+    expect(isPrivateHost("134744072")).toBe(false); // 8.8.8.8 in decimal
+    expect(isPrivateHost("8.8.8.8")).toBe(false);
+  });
 });
 
 describe("assertSafeArtifactUrl", () => {
