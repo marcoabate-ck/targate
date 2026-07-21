@@ -5,3 +5,9 @@
 allowBuilds:
   # core-js' postinstall only prints a funding notice; no build step.
   core-js: true
+
+# Force a patched serialize-javascript. 6.0.2 (pulled transitively by
+# copy-webpack-plugin and css-minimizer-webpack-plugin) is vulnerable to
+# code injection via RegExp.flags / Date.toISOString — fixed in 7.0.3.
+overrides:
+  serialize-javascript@<7.0.3: '>=7.0.3'
