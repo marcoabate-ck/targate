@@ -32,6 +32,14 @@ describe("InstallPlan", () => {
     expect(command).toContain(marker);
   });
 
+  // Regression (P2): a spec beginning with "-" would be parsed as a flag by the
+  // package manager (argv flag injection).
+  it("rejects a package spec that looks like a flag", () => {
+    expect(() =>
+      buildPlanResolveCommand("npm", { name: "-x", version: "1", spec: "--registry=http://evil" }),
+    ).toThrow(/looks like a flag/);
+  });
+
   it.each(["npm", "pnpm", "yarn"] as const)(
     "captures and applies a staged %s lockfile without a second resolution",
     async (pm: PackageManager) => {

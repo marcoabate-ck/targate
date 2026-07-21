@@ -86,6 +86,11 @@ export function buildPlanResolveCommand(
   root?: PlanPackageSpec,
 ): string[] {
   const spec = root?.spec;
+  // A spec beginning with "-" would be parsed as an option by the package
+  // manager (argv flag injection). Valid npm specs never start with a dash.
+  if (spec && spec.startsWith("-")) {
+    throw new Error(`Refusing package spec that looks like a flag: ${spec}`);
+  }
   switch (pm) {
     case "npm":
       return [

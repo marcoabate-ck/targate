@@ -13,7 +13,7 @@ targate add lodash --dry-run
 ```
 
 ```text
-Pre-install review — lodash@4.18.1
+Pre-install review — lodash@4.17.21
 ────────────────────────────────────────────────────────────
 Lodash modular utilities.
 license: MIT  ·  published: 5190 days ago  ·  deps: 0  ·  repo: git+https://github.com/lodash/lodash.git
@@ -39,7 +39,7 @@ Recommendation
   Safe to install normally.
 
 
-Dry run — recommended command: pnpm add lodash@4.18.1
+Dry run — recommended command: pnpm add lodash@4.17.21
 ```
 
 A mature, script-free package with matching repository metadata and no malicious records: `ALLOW`. Without `--dry-run`, targate would run the real install right after this report.

@@ -426,7 +426,15 @@ export async function buildPackageSignals(
       resourceLimits: resourcePolicy,
     });
   } catch (err) {
-    if (!(err instanceof ResourceLimitError)) throw err;
+    if (!(err instanceof ResourceLimitError)) {
+      // Rethrowing abandons the in-flight evidence promises; swallow their
+      // eventual settlement so a later rejection can't surface as an
+      // unhandledRejection after this function has already thrown.
+      for (const p of [osvPromise, reputationPromise, publicArtifactPromise, historicalIntegrityPromise]) {
+        void Promise.resolve(p).catch(() => {});
+      }
+      throw err;
+    }
     const reason = `${err.kind}: ${err.message}`;
     opts.onStage?.("resource-limit", reason);
     const [osv, reputation] = await Promise.all([osvPromise, reputationPromise]);

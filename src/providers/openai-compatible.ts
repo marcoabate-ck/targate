@@ -59,6 +59,11 @@ export class OpenAiCompatibleProvider implements AiProvider {
     return this.opts.model;
   }
 
+  /** The base URL disambiguates cache entries across custom endpoints. */
+  get cacheNamespace(): string {
+    return this.opts.baseURL;
+  }
+
   constructor(opts: OpenAiCompatibleOptions) {
     this.name = opts.label;
     this.opts = opts;

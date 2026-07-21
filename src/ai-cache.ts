@@ -93,6 +93,9 @@ export interface CacheKeyInput {
   model: string;
   reasoning: boolean;
   signals: Signals;
+  /** Endpoint identity (e.g. a custom base URL) so two endpoints on the same
+   *  provider label + model never share cached verdicts. */
+  namespace?: string;
 }
 
 /**
@@ -104,9 +107,16 @@ export function cacheKey(input: CacheKeyInput): string {
   const signalsHash = createHash("sha256")
     .update(JSON.stringify(input.signals))
     .digest("hex")
-    .slice(0, 16);
+    // 128-bit prefix — wide enough that an accidental collision within one
+    // provider/model/package namespace is not a practical concern.
+    .slice(0, 32);
   const reasoning = input.reasoning ? "reasoning" : "no-reasoning";
-  return `${input.provider}/${input.model}/${reasoning}/${input.signals.package}@${input.signals.version}/${signalsHash}`;
+  // The base URL, when present, is hashed into the readable prefix so the key
+  // stays filesystem-safe (URLs contain "/" and ":").
+  const ns = input.namespace
+    ? `${createHash("sha256").update(input.namespace).digest("hex").slice(0, 12)}/`
+    : "";
+  return `${input.provider}/${ns}${input.model}/${reasoning}/${input.signals.package}@${input.signals.version}/${signalsHash}`;
 }
 
 interface CacheEntry {

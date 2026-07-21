@@ -45,7 +45,7 @@ bumped by hand.
 ## [0.1.0]
 
 - Initial pre-release: pre-install security analysis for npm packages
-  (`add` / `install` / `approve` / `ci` / `check`), deterministic rules engine
+  (`add` / `install` / `approve` / `ci`), deterministic rules engine
   with an AI advisory layer clamped to it, artifact-identity verification,
   transitive/full-tree analysis, team policy, signed approvals, sandbox, graph,
   diff, monitor, recommend, and a stable `--json` schema.

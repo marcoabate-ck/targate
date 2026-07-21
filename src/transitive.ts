@@ -187,7 +187,7 @@ export async function analyzeTransitiveDeps(
   // Non-batch path: per-package pipeline (still gets batched OSV + concurrency).
   const analyze = opts.analyze ?? analyzePackage;
   let done = 0;
-  return mapLimit(packages, concurrency, async (pkg) => {
+  return mapLimit(packages, concurrency, async (pkg, index) => {
     let result: TransitiveResult;
     try {
       const analysis = await analyze(pkg.name, pkg.version, {
@@ -212,8 +212,10 @@ export async function analyzeTransitiveDeps(
     } catch (err) {
       result = errorResult(pkg, err instanceof Error ? err.message : String(err));
     }
-    opts.onResult?.(result, done++, packages.length);
-    opts.onProgress?.("analyze", done, packages.length);
+    // Report the package's REAL position (mapLimit's index), not a
+    // completion-order counter — workers finish out of order.
+    opts.onResult?.(result, index, packages.length);
+    opts.onProgress?.("analyze", ++done, packages.length);
     return result;
   });
 }
