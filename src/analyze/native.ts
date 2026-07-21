@@ -40,10 +40,11 @@ export async function analyzeNativeSurface(packageInput: string | PackageFileInd
     const segments = rel.split("/"); // relPath is POSIX-separated, host-independent
     const basename = file.basename;
 
-    // iOS source anywhere in the tree, or an Objective-C/Swift/header file at
-    // any path (the old branch only set hasIos for files under an `ios/` dir,
-    // leaving the extension alternation dead).
-    if (segments.includes("ios") || /\.(m|mm|swift|h)$/.test(basename)) surface.hasIos = true;
+    // Anything under an `ios/` directory, or a strong iOS-source extension
+    // (`.swift`/`.mm`) anywhere. `.m`/`.h` alone are weak (C/C++ headers, MATLAB,
+    // node-gyp addons) and only count when under `ios/` — via the segments
+    // check — to avoid flagging every header-shipping package as iOS-native.
+    if (segments.includes("ios") || /\.(mm|swift)$/.test(basename)) surface.hasIos = true;
     if (segments.includes("android")) surface.hasAndroid = true;
     if (basename.endsWith(".podspec")) surface.hasPodspec = true;
     if (basename === "build.gradle" || basename === "build.gradle.kts") {

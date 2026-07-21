@@ -264,7 +264,7 @@ async function analyzeTreeBatched(
 
   // Phase B — batched AI assessment over the successfully-built packages.
   const okItems = built.filter((b): b is Extract<Built, { ok: true }> => b.ok);
-  const rawAssessments = okItems.length
+  const assessed = okItems.length
     ? await assessMany(
         provider,
         okItems.map((b) => b.signals),
@@ -274,6 +274,12 @@ async function analyzeTreeBatched(
         (done, total) => opts.onProgress?.("assess", done, total),
       )
     : [];
+  // assessMany returns results positionally aligned 1:1 with okItems. If a
+  // future change ever breaks that invariant (short/long/reordered array), a
+  // positional `assessed[i]` would silently mis-assign a verdict — so on any
+  // length mismatch, discard the batch and let phase C degrade every package to
+  // require_approval (the `!raw` path below) rather than trust a misalignment.
+  const rawAssessments = assessed.length === okItems.length ? assessed : [];
 
   // Phase C — finalize each (OSV-failure + team policy) and assemble in order.
   // Each item is isolated: a finalize/policy throw (or a missing assessment

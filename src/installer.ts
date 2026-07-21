@@ -16,6 +16,12 @@ export function buildInstallCommand(
   spec: string,
   opts: { ignoreScripts?: boolean } = {},
 ): string[] {
+  // Defense-in-depth (mirrors buildPlanResolveCommand): a spec starting with
+  // "-" would be parsed as an option by the package manager. Valid npm specs
+  // never start with a dash.
+  if (spec.startsWith("-")) {
+    throw new Error(`Refusing package spec that looks like a flag: ${spec}`);
+  }
   switch (pm) {
     case "pnpm":
       return ["pnpm", "add", spec, ...(opts.ignoreScripts ? ["--ignore-scripts"] : [])];

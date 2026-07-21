@@ -42,4 +42,11 @@ describe("checkNameSimilarity", () => {
     expect(checkNameSimilarity("reactjs")?.similarTo).toBe("react");
     expect(checkNameSimilarity("axios-js")?.similarTo).toBe("axios");
   });
+
+  // Regression (v2 P2.6): generic affixes must NOT flag legitimate official
+  // packages.
+  it("does not flag official -cli packages as typosquats", () => {
+    expect(checkNameSimilarity("react-native-cli")).toBeNull();
+    expect(checkNameSimilarity("expo-cli")).toBeNull();
+  });
 });

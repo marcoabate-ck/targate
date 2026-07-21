@@ -29,6 +29,20 @@ describe("isMaliciousRecord", () => {
     ).toBe(true);
   });
 
+  // Regression (v2 P1.2): "malicious code in" must be START-ANCHORED. An
+  // ordinary vuln advisory that mentions the phrase mid-sentence must NOT
+  // become an unoverridable hard block.
+  it("does NOT flag an advisory that mentions 'malicious code in' mid-sentence", () => {
+    expect(
+      isMaliciousRecord({
+        id: "GHSA-aaaa-bbbb-cccc",
+        summary: "Cross-site scripting (XSS) in some-lib",
+        details:
+          "A flaw allows an attacker to execute malicious code in the victim's browser context.",
+      }),
+    ).toBe(false);
+  });
+
   it("does not flag ordinary vulnerability advisories", () => {
     expect(
       isMaliciousRecord({

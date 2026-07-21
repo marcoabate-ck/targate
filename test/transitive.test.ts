@@ -204,25 +204,24 @@ describe("analyzeTransitiveDeps — batched AI path", () => {
     expect(phases.lastIndexOf("scan")).toBeLessThan(phases.indexOf("assess"));
   });
 
-  // Regression (P1.6): a short/misaligned batch response (or a per-item
-  // finalize throw) must degrade ONLY the affected package to require_approval
-  // — never reject the whole tree review and abort the install gate.
-  it("degrades only the missing package when the batch response is short", async () => {
+  // Regression (P1.6 + v2 #3): a misaligned batch response must never reject
+  // the whole tree review, AND a length mismatch means positional alignment
+  // can't be trusted — so the batch is discarded and EVERY package fail-safes
+  // to require_approval rather than risk a verdict landing on the wrong package.
+  it("discards a length-mismatched batch and degrades every package to require_approval", async () => {
     const fake = fakeProvider({});
     const results = await analyzeTransitiveDeps(packages, {
       ...batchOpts(fake),
-      // Return one FEWER assessment than requested; the last okItem has no
-      // aligned verdict.
+      // Return one FEWER assessment than requested → alignment can't hold.
       assessMany: async (_p: unknown, list: ReturnType<typeof makeSignals>[]) =>
         list.slice(0, list.length - 1).map(() => assessment({ decision: "allow" })),
     } as never);
 
     expect(results).toHaveLength(3);
-    expect(results[0].assessment.decision).toBe("allow");
-    expect(results[1].assessment.decision).toBe("allow");
-    const last = results[2];
-    expect(last.assessment.decision).toBe("require_approval"); // fail-safe degrade
-    expect(last.error).toBeTruthy();
+    for (const r of results) {
+      expect(r.assessment.decision).toBe("require_approval");
+      expect(r.error).toBeTruthy();
+    }
   });
 
   it("--no-ai-batch never calls assessBatch (isolated per-package path)", async () => {

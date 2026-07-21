@@ -19,14 +19,17 @@ targate add lodash
 Pre-install review — lodash@4.17.21
 ────────────────────────────────────────────────────────────
 Lodash modular utilities.
-license: MIT  ·  published: 5190 days ago  ·  deps: 0  ·  repo: git+https://github.com/lodash/lodash.git
+license: MIT  ·  published: 1977 days ago  ·  deps: 0  ·  repo: git+https://github.com/lodash/lodash.git
 
 Analysis
   ✓ no lifecycle scripts
   ✓ no known malicious-package records (OSV/OpenSSF)
   ✓ no typosquatting suspicion
   ✓ repository metadata present
+  ✓ OSV/OpenSSF lookup completed
   ✓ no native code
+  static findings:
+    - lodash.min.js: appears minified/obfuscated
 
 Decision: ALLOW   (risk: low, source: rules)
 ```

@@ -5,21 +5,74 @@ export interface FetchBudget {
   maxResponseBytes: number;
 }
 
+/**
+ * Parse a host as a "loose" IPv4 the way libc `inet_aton` / `getaddrinfo` does:
+ * 1–4 dot-separated parts, each decimal, octal (`0…`), or hex (`0x…`), with the
+ * final part filling the remaining low bytes (so `127.1` → 127.0.0.1,
+ * `2852039166` → 169.254.169.254). Returns the 4 octets, or null if the host is
+ * not an all-numeric IPv4 in any of those encodings. This is what closes the
+ * SSRF-guard bypass: an attacker can't smuggle a private IP as a decimal/hex
+ * literal that the old dotted-quad-only regex ignored.
+ */
+function parseLooseIpv4(host: string): [number, number, number, number] | null {
+  const parts = host.split(".");
+  if (parts.length < 1 || parts.length > 4) return null;
+  const nums: number[] = [];
+  for (const part of parts) {
+    let n: number;
+    if (/^0x[0-9a-f]+$/.test(part)) n = parseInt(part, 16);
+    else if (/^0[0-7]+$/.test(part)) n = parseInt(part, 8);
+    else if (/^(0|[1-9][0-9]*)$/.test(part)) n = parseInt(part, 10);
+    else return null; // a non-numeric label → this is a hostname, not an IP
+    if (!Number.isSafeInteger(n) || n < 0) return null;
+    nums.push(n);
+  }
+  const last = nums.length - 1;
+  // Every part except the last must fit in a byte; the last fills what remains.
+  for (let i = 0; i < last; i++) if (nums[i] > 255) return null;
+  const maxLast = 2 ** (8 * (4 - last)) - 1;
+  if (nums[last] > maxLast) return null;
+  let value = nums[last];
+  for (let i = 0; i < last; i++) value += nums[i] * 2 ** (8 * (3 - i));
+  if (value < 0 || value > 0xffffffff) return null;
+  return [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255];
+}
+
+function isPrivateV4([a, b]: [number, number, number, number]): boolean {
+  if (a === 10 || a === 127 || a === 0) return true;
+  if (a === 169 && b === 254) return true; // link-local incl. cloud metadata 169.254.169.254
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  return false;
+}
+
 /** True for literal IPs / names that point at the host or a private network. */
 export function isPrivateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host === "" ) return true;
-  // IPv4 (incl. IPv4-mapped IPv6 like ::ffff:169.254.169.254)
-  const v4 = host.match(/(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if (a === 10 || a === 127 || a === 0) return true;
-    if (a === 169 && b === 254) return true; // link-local incl. cloud metadata 169.254.169.254
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  let host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "") return true;
+  host = host.replace(/\.$/, ""); // a trailing dot resolves to the same address
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+
+  // IPv4-mapped IPv6, dotted (::ffff:169.254.169.254) OR hex (::ffff:a9fe:a9fe).
+  const mapped = host.match(/^::ffff:(.+)$/);
+  if (mapped) {
+    const inner = mapped[1];
+    const hex = inner.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hex) {
+      const hi = parseInt(hex[1], 16);
+      const lo = parseInt(hex[2], 16);
+      if (isPrivateV4([(hi >> 8) & 255, hi & 255, (lo >> 8) & 255, lo & 255])) return true;
+    }
+    const v4 = parseLooseIpv4(inner);
+    if (v4 && isPrivateV4(v4)) return true;
   }
-  // IPv6 loopback / unique-local / link-local
+
+  // Bare IPv4 in any encoding (dotted-quad, decimal, octal, hex, short-form).
+  const v4 = parseLooseIpv4(host);
+  if (v4) return isPrivateV4(v4);
+
+  // IPv6 loopback / unique-local / link-local.
   if (host === "::1" || host === "::") return true;
   if (/^f[cd][0-9a-f]{2}:/.test(host)) return true; // fc00::/7
   if (/^fe[89ab][0-9a-f]:/.test(host)) return true; // fe80::/10

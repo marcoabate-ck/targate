@@ -66,8 +66,14 @@ export function levenshtein(a: string, b: string): number {
   return prev[n];
 }
 
-/** Common affixes typosquatters bolt onto a popular name (`reactjs`, `js-lodash`). */
-const SQUAT_AFFIXES = ["js", "-js", ".js", "-npm", "npm-", "-official", "2", "-cli"];
+/**
+ * Common affixes typosquatters bolt onto a popular name (`reactjs`, `js-lodash`).
+ * Deliberately NARROW: generic affixes like `-cli`, `-official`, or `2` were
+ * dropped because they match legitimate official packages (`expo-cli`,
+ * `react-native-cli`) — a false positive there escalates a real install to
+ * require_approval.
+ */
+const SQUAT_AFFIXES = ["js", "-js", ".js", "-npm", "npm-"];
 
 /**
  * Check whether a package name is suspiciously close to a popular package.

@@ -68,24 +68,61 @@ export function reviewPodspec(fileName: string, content: string): string[] {
 
 const GRADLE_PATTERNS: Array<[RegExp, string]> = [
   [/Runtime\.getRuntime\(\)\.exec|ProcessBuilder|commandLine\s|\bexec\s*\{/, "executes external commands during the build"],
-  // `[^{}]` bounds the scan to a single brace block, so there is no nested
-  // quantifier to backtrack over (the old `.*…[^}]*…[^}]*` was O(n²) on
-  // crafted input). Comment stripping below removes the dotall false positive.
-  [/maven\s*\{[^{}]*?\burl\b[^{}]*?http:\/\//is, "uses an insecure http:// Maven repository"],
+  // A SINGLE `[^{}]*?` bounded to one brace block — no nested quantifier, so
+  // no O(n²) backtracking (the `\burl\b` gate was dropped: after comment
+  // stripping, any http:// inside a maven { } block is the insecure-repo
+  // signal). Comment stripping removes the dotall false positive.
+  [/maven\s*\{[^{}]*?http:\/\//is, "uses an insecure http:// Maven repository"],
   [/url\s+['"]http:\/\//, "downloads from an insecure http:// URL"],
   [/download(File)?\s*\(|new URL\(.*openStream/i, "downloads files during the build"],
   [/apply\s+from:\s*['"]https?:\/\//, "applies a remote Gradle script (executes remote code at build time)"],
 ];
 
 /**
- * Remove Gradle/Groovy comments so a commented-out line can't trip a finding.
- * The `//`-line rule requires the slashes NOT be preceded by `:` so it never
- * eats the `//` inside an `http://` URL.
+ * Remove Gradle/Groovy comments so a commented-out line can't trip a finding —
+ * WITHOUT ever treating comment syntax that lives inside a string literal as a
+ * comment. A regex stripper could be fooled by an attacker wrapping the
+ * block-comment open/close markers in string literals around a real finding,
+ * deleting the region in between and hiding it. This single-pass scanner tracks
+ * string state, so comment markers inside a quote are preserved (and a genuine
+ * `http://` in a URL string survives too). O(n), no backtracking.
  */
 function stripGradleComments(content: string): string {
-  return content
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/[^\n]*/gm, "$1");
+  let out = "";
+  let quote: string | null = null;
+  for (let i = 0; i < content.length; i++) {
+    const c = content[i];
+    const next = content[i + 1];
+    if (quote) {
+      out += c;
+      if (c === "\\") {
+        out += next ?? "";
+        i++;
+      } else if (c === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      out += c;
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      while (i < content.length && content[i] !== "\n") i++;
+      i--; // let the loop's i++ land on the newline so it is preserved
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      i += 2;
+      while (i < content.length && !(content[i] === "*" && content[i + 1] === "/")) i++;
+      i++; // skip the closing '/', loop's i++ skips the '*'
+      out += " ";
+      continue;
+    }
+    out += c;
+  }
+  return out;
 }
 
 export function reviewGradle(fileName: string, content: string): string[] {

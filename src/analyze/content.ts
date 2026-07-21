@@ -33,8 +33,11 @@ export function scanSource(relPath: string, source: string): FileScan {
         source,
       ),
     // No /i flag: `Function(` is the capital-F global; a lowercased match
-    // would flag every `function (` declaration.
-    evalUsage: /\beval\s*(?:\?\.)?\s*\(|\bFunction\s*\(|globalThis\.eval/.test(source),
+    // would flag every `function (` declaration. Covers direct `eval(`,
+    // optional-chained `eval?.(`, `Function(`, `globalThis.eval`, and the
+    // classic indirect form `(0, eval)(…)`.
+    evalUsage:
+      /\beval\s*(?:\?\.)?\s*\(|\bFunction\s*\(|globalThis\.eval|\(\s*0\s*,\s*eval\s*\)/.test(source),
     minified: source.length > 5000 && avgLineLength > 500,
   };
 }

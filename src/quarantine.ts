@@ -266,11 +266,14 @@ export async function quarantineTarball(
     strict: true,
     preservePaths: false,
     filter: (entryPath, entry) => {
-      // Throwing (not returning false) aborts the gunzip stream immediately, so
-      // a highly compressible bomb within the download cap can't keep inflating
-      // for CPU after the first limit trips. tar.x rejects → the .catch below
-      // cleans up and rethrows the ResourceLimitError.
-      if (archiveFailure) throw archiveFailure;
+      // Record the first breach and skip every remaining entry with `return
+      // false`; the post-loop `if (archiveFailure)` cleans up and throws. We do
+      // NOT throw from here: node-tar drives this filter synchronously from
+      // inside the gunzip stream, so a throw escapes as an uncaughtException
+      // (crashing the process) instead of rejecting tar.x. Disk is already
+      // bounded by the size caps below; the residual CPU-on-decompression is
+      // acceptable next to a hard crash on hostile input.
+      if (archiveFailure) return false;
       const portable = entryPath.replace(/\\/g, "/");
       const destination = path.resolve(root, portable);
       if (
@@ -278,7 +281,8 @@ export async function quarantineTarball(
         portable.split("/").includes("..") ||
         !isInside(root, destination)
       ) {
-        throw (archiveFailure = new ResourceLimitError("unsafe-path", `archive entry escapes quarantine: ${entryPath}`));
+        archiveFailure = new ResourceLimitError("unsafe-path", `archive entry escapes quarantine: ${entryPath}`);
+        return false;
       }
       const top = portable.split("/")[0];
       if (top) topLevelDirs.add(top);
@@ -290,15 +294,18 @@ export async function quarantineTarball(
       ) return false; // skipping a link is not a failure — just exclude it
       archiveFiles++;
       if (archiveFiles > limits.maxFiles) {
-        throw (archiveFailure = new ResourceLimitError("file-count", `archive exceeds ${limits.maxFiles} entries`));
+        archiveFailure = new ResourceLimitError("file-count", `archive exceeds ${limits.maxFiles} entries`);
+        return false;
       }
       const size = Number(entry.size ?? 0);
       if (!Number.isFinite(size) || size < 0 || size > limits.maxFileBytes) {
-        throw (archiveFailure = new ResourceLimitError("file-size", `archive entry ${entryPath} exceeds ${limits.maxFileBytes} bytes`));
+        archiveFailure = new ResourceLimitError("file-size", `archive entry ${entryPath} exceeds ${limits.maxFileBytes} bytes`);
+        return false;
       }
       archiveBytes += size;
       if (archiveBytes > limits.maxExtractedBytes) {
-        throw (archiveFailure = new ResourceLimitError("extracted-size", `archive exceeds ${limits.maxExtractedBytes} extracted bytes`));
+        archiveFailure = new ResourceLimitError("extracted-size", `archive exceeds ${limits.maxExtractedBytes} extracted bytes`);
+        return false;
       }
       return true;
     },
