@@ -11,3 +11,7 @@ allowBuilds:
 # code injection via RegExp.flags / Date.toISOString — fixed in 7.0.3.
 overrides:
   serialize-javascript@<7.0.3: '>=7.0.3'
+  # uuid <11.1.1 (pulled transitively by sockjs) silently accepts
+  # out-of-range writes to caller-provided buffers in v3/v5/v6. Force a
+  # patched line; dedups onto the 14.x already in the tree.
+  uuid@<11.1.1: '>=11.1.1'
