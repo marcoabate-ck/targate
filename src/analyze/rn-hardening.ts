@@ -68,16 +68,31 @@ export function reviewPodspec(fileName: string, content: string): string[] {
 
 const GRADLE_PATTERNS: Array<[RegExp, string]> = [
   [/Runtime\.getRuntime\(\)\.exec|ProcessBuilder|commandLine\s|\bexec\s*\{/, "executes external commands during the build"],
-  [/^(?!\s*\/\/).*maven\s*\{[^}]*url[^}]*http:\/\//ms, "uses an insecure http:// Maven repository"],
+  // `[^{}]` bounds the scan to a single brace block, so there is no nested
+  // quantifier to backtrack over (the old `.*…[^}]*…[^}]*` was O(n²) on
+  // crafted input). Comment stripping below removes the dotall false positive.
+  [/maven\s*\{[^{}]*?\burl\b[^{}]*?http:\/\//is, "uses an insecure http:// Maven repository"],
   [/url\s+['"]http:\/\//, "downloads from an insecure http:// URL"],
   [/download(File)?\s*\(|new URL\(.*openStream/i, "downloads files during the build"],
   [/apply\s+from:\s*['"]https?:\/\//, "applies a remote Gradle script (executes remote code at build time)"],
 ];
 
+/**
+ * Remove Gradle/Groovy comments so a commented-out line can't trip a finding.
+ * The `//`-line rule requires the slashes NOT be preceded by `:` so it never
+ * eats the `//` inside an `http://` URL.
+ */
+function stripGradleComments(content: string): string {
+  return content
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:])\/\/[^\n]*/gm, "$1");
+}
+
 export function reviewGradle(fileName: string, content: string): string[] {
+  const stripped = stripGradleComments(content);
   const findings: string[] = [];
   for (const [pattern, description] of GRADLE_PATTERNS) {
-    if (pattern.test(content)) findings.push(`${fileName}: ${description}`);
+    if (pattern.test(stripped)) findings.push(`${fileName}: ${description}`);
   }
   return findings;
 }

@@ -23,6 +23,28 @@ export const POLICY_FILENAMES = [
   `${POLICY_BASENAME}.json`,
 ] as const;
 
+/**
+ * Match a package against an allow-list. A bare `name` matches any version; a
+ * version-qualified `name@version` matches only that exact version. Scoped
+ * names (`@scope/pkg`) are handled — the qualifier `@` is the LAST one.
+ */
+export function allowListMatch(
+  entries: string[] | undefined,
+  name: string,
+  version: string,
+): boolean {
+  if (!entries?.length) return false;
+  for (const entry of entries) {
+    const at = entry.lastIndexOf("@");
+    if (at > 0) {
+      if (entry.slice(0, at) === name && entry.slice(at + 1) === version) return true;
+    } else if (entry === name) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Team dependency policy — schema from the workshop proposal (§9 phase 6). */
 export interface DependencyPolicy {
   blockRecentlyPublishedPackages?: boolean;
@@ -30,6 +52,13 @@ export interface DependencyPolicy {
   requireApprovalForNativeCode?: boolean;
   requireApprovalForLifecycleScripts?: boolean;
   blockMissingRepositoryForRuntimeDeps?: boolean;
+  /**
+   * Pre-approved packages that clear heuristic soft blocks. Entries are either
+   * a bare name (`react` — any version) or version-qualified (`react@18.2.0` —
+   * only that exact version), so a team can pin a reviewed version instead of
+   * blanket-trusting every future release of a name. Hard blocks are never
+   * cleared. See {@link allowListMatch}.
+   */
   allowKnownPackages?: string[];
   blockPackages?: string[];
   /**
@@ -382,7 +411,7 @@ export function applyPolicy(
     );
   }
 
-  if (p.allowKnownPackages?.includes(signals.package)) {
+  if (allowListMatch(p.allowKnownPackages, signals.package, signals.version)) {
     if (result.decision === "block" && isHardBlock(signals)) {
       // Hard block — the allow list cannot touch it. Leave it blocked.
       return {

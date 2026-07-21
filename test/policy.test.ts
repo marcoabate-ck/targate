@@ -1,7 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { applyPolicy, artifactMirrorFor, parsePolicy, PolicyError, type PolicyFile } from "../src/policy.js";
+import { allowListMatch, applyPolicy, artifactMirrorFor, parsePolicy, PolicyError, type PolicyFile } from "../src/policy.js";
 import type { RiskAssessment } from "../src/types.js";
 import { makeSignals } from "./helpers.js";
+
+// Regression (P1.4): allow-list entries used to match by name only, so a
+// hijacked release of an allow-listed name bypassed soft blocks. Entries can
+// now pin an exact version.
+describe("allowListMatch", () => {
+  it("matches a bare name at any version", () => {
+    expect(allowListMatch(["react"], "react", "18.2.0")).toBe(true);
+    expect(allowListMatch(["react"], "react", "99.0.0")).toBe(true);
+  });
+
+  it("matches a version-qualified entry only at that exact version", () => {
+    expect(allowListMatch(["react@18.2.0"], "react", "18.2.0")).toBe(true);
+    expect(allowListMatch(["react@18.2.0"], "react", "18.3.0")).toBe(false);
+  });
+
+  it("handles scoped names (the qualifier @ is the last one)", () => {
+    expect(allowListMatch(["@acme/lib"], "@acme/lib", "1.0.0")).toBe(true);
+    expect(allowListMatch(["@acme/lib@1.0.0"], "@acme/lib", "1.0.0")).toBe(true);
+    expect(allowListMatch(["@acme/lib@1.0.0"], "@acme/lib", "2.0.0")).toBe(false);
+  });
+
+  it("returns false for an empty or absent list", () => {
+    expect(allowListMatch(undefined, "react", "1.0.0")).toBe(false);
+    expect(allowListMatch([], "react", "1.0.0")).toBe(false);
+  });
+});
 
 function makeAssessment(overrides: Partial<RiskAssessment> = {}): RiskAssessment {
   return {

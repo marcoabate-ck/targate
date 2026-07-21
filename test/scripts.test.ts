@@ -79,4 +79,10 @@ describe("referencedScriptFiles", () => {
   it("ignores absolute paths", () => {
     expect(referencedScriptFiles("sh /etc/init.sh")).toEqual([]);
   });
+
+  // Regression (P1.5): TypeScript install hooks were invisible to the deep scan.
+  it("extracts TypeScript install-hook files", () => {
+    expect(referencedScriptFiles("tsx scripts/setup.ts")).toEqual(["scripts/setup.ts"]);
+    expect(referencedScriptFiles("node --import tsx build.mts")).toEqual(["build.mts"]);
+  });
 });

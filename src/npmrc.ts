@@ -140,6 +140,10 @@ export function authHeaderForUrl(url: string, config: NpmrcConfig): string | und
   } catch {
     return undefined;
   }
+  // Never transmit a registry credential over cleartext — matches npm, and
+  // stops a packument that points dist.tarball at an http URL on the token's
+  // host from leaking the Bearer/Basic secret on the wire.
+  if (parsed.protocol !== "https:") return undefined;
   // Candidate nerf-dart prefixes, most specific first:
   //   //host/a/b/ → //host/a/ → //host/
   const segments = parsed.pathname.split("/").filter(Boolean);

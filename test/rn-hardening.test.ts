@@ -101,6 +101,32 @@ describe("reviewGradle", () => {
       ),
     ).toEqual([]);
   });
+
+  // Regression (P1.8): the maven-http scan must still catch a real multi-line
+  // block, but no longer fire on a commented-out one (the old dotall broke the
+  // comment exclusion), and must not backtrack on pathological input.
+  it("flags an http maven repo split across lines", () => {
+    const findings = reviewGradle(
+      "android/build.gradle",
+      `repositories {\n  maven {\n    url 'http://insecure.example/maven'\n  }\n}`,
+    );
+    expect(findings.join(" ")).toContain("insecure http:// Maven repository");
+  });
+
+  it("does NOT flag a commented-out http maven repo", () => {
+    const findings = reviewGradle(
+      "android/build.gradle",
+      `repositories {\n  // maven { url 'http://insecure.example' }\n  mavenCentral()\n}`,
+    );
+    expect(findings.join(" ")).not.toContain("Maven repository");
+  });
+
+  it("does not catastrophically backtrack on a large unterminated block", () => {
+    const evil = `maven {\n` + "a=1\n".repeat(50_000); // no url, no http, no close
+    const start = performance.now();
+    reviewGradle("android/build.gradle", evil);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
 });
 
 describe("buildCompatNotes", () => {

@@ -274,27 +274,37 @@ async function analyzeTreeBatched(
     : [];
 
   // Phase C — finalize each (OSV-failure + team policy) and assemble in order.
+  // Each item is isolated: a finalize/policy throw (or a missing assessment
+  // from a short batch response) degrades ONLY that package to require_approval
+  // — it must never reject the whole tree review and abort the install gate.
   const finalByKey = new Map<string, TransitiveResult>();
   await Promise.all(
     okItems.map(async (b, i) => {
-      const finalized = await finalizeAssessment(b.signals, rawAssessments[i], {
-        failOnOsvError: opts.failOnOsvError,
-        policy: opts.policy,
-      });
-      const { assessment } = await applySourceAudit(
-        provider,
-        b.audit,
-        finalized,
-        b.signals,
-        opts.assess,
-      );
-      finalByKey.set(`${b.pkg.name}@${b.pkg.version}`, {
-        name: b.pkg.name,
-        version: b.pkg.version,
-        assessment,
-        hardBlock: isHardBlock(b.signals),
-        artifact: b.signals.artifact,
-      });
+      const key = `${b.pkg.name}@${b.pkg.version}`;
+      try {
+        const raw = rawAssessments[i];
+        if (!raw) throw new Error("batch assessment missing for this package");
+        const finalized = await finalizeAssessment(b.signals, raw, {
+          failOnOsvError: opts.failOnOsvError,
+          policy: opts.policy,
+        });
+        const { assessment } = await applySourceAudit(
+          provider,
+          b.audit,
+          finalized,
+          b.signals,
+          opts.assess,
+        );
+        finalByKey.set(key, {
+          name: b.pkg.name,
+          version: b.pkg.version,
+          assessment,
+          hardBlock: isHardBlock(b.signals),
+          artifact: b.signals.artifact,
+        });
+      } catch (err) {
+        finalByKey.set(key, errorResult(b.pkg, err instanceof Error ? err.message : String(err)));
+      }
     }),
   );
 

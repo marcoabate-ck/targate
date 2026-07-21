@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { CAPTURE_SCRIPT } from "./sandbox-capture.js";
 
 const DEFAULT_IMAGE = "node:20-alpine";
@@ -26,6 +27,9 @@ export interface SandboxOptions {
   /** Where to echo the live container log (default: "stdout"; "stderr" keeps
    *  --json stdout clean). */
   echo?: "stdout" | "stderr" | "none";
+  /** Container name (`docker run --name`). runSandbox always sets one so the
+   *  timeout can stop the CONTAINER, not just the attached client. */
+  containerName?: string;
 }
 
 export interface DnsQuery {
@@ -185,6 +189,13 @@ export function buildSandboxCommand(spec: string, opts: SandboxOptions = {}): st
     "--cap-drop=ALL",
     "--memory=1g",
     "--cpus=1",
+    // Cap process count so a fork bomb in a lifecycle script can't exhaust
+    // host PIDs before the memory limit bites.
+    "--pids-limit=512",
+    // Named so runSandbox's timeout can `docker kill` the container itself;
+    // killing the attached client alone would orphan it (miner/beacon keeps
+    // running with egress open past the deadline).
+    ...(opts.containerName ? ["--name", opts.containerName] : []),
     // Let the shim bind 127.0.0.1:53 without any capability — this keeps
     // --cap-drop=ALL fully intact (a strictly better story than --cap-add).
     // The sysctl is namespaced, affecting only this container.
@@ -327,7 +338,8 @@ export async function isDockerAvailable(): Promise<boolean> {
 
 /** Run the trial install in a disposable container and capture the log. */
 export function runSandbox(spec: string, opts: SandboxOptions = {}): Promise<SandboxResult> {
-  const command = buildSandboxCommand(spec, opts);
+  const containerName = opts.containerName ?? `targate-sandbox-${randomUUID()}`;
+  const command = buildSandboxCommand(spec, { ...opts, containerName });
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const echo = opts.echo ?? "stdout";
@@ -340,6 +352,14 @@ export function runSandbox(spec: string, opts: SandboxOptions = {}): Promise<San
 
     const timer = setTimeout(() => {
       timedOut = true;
+      // Stop the CONTAINER, not just the attached `docker run` client. A
+      // SIGKILL'd client cannot forward a stop, so without this a background
+      // process spawned by a lifecycle script keeps running (with egress) in
+      // the orphaned container past the deadline. `--rm` reaps it on kill.
+      const killer = spawn("docker", ["kill", containerName], { stdio: "ignore" });
+      killer.on("error", () => {
+        /* docker gone / already exited — the client kill below is the fallback */
+      });
       child.kill("SIGKILL");
     }, timeoutMs);
 
