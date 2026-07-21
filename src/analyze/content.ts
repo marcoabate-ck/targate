@@ -29,10 +29,12 @@ export function scanSource(relPath: string, source: string): FileScan {
     childProcess:
       /child_process|execSync|spawnSync|\bexecFile\b/.test(source),
     network:
-      /https?\.request|\bfetch\s*\(|require\(['"]https?['"]\)|net\.connect|axios|XMLHttpRequest|\bdns\.[a-z]/i.test(
+      /https?\.(?:request|get|create(?:Connection|Server))|\bfetch\s*\(|(?:\b(?:require|import)\s*\(|\bfrom)\s*['"](?:node:)?(?:https?|net|dns|http2|dgram|got|undici|node-fetch|superagent|needle|phin|axios|ky)['"]|net\.connect|\baxios\b|XMLHttpRequest|\bdns\.[a-z]|\bWebSocket\b/i.test(
         source,
       ),
-    evalUsage: /\beval\s*\(|new Function\s*\(/.test(source),
+    // No /i flag: `Function(` is the capital-F global; a lowercased match
+    // would flag every `function (` declaration.
+    evalUsage: /\beval\s*(?:\?\.)?\s*\(|\bFunction\s*\(|globalThis\.eval/.test(source),
     minified: source.length > 5000 && avgLineLength > 500,
   };
 }

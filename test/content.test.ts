@@ -2,7 +2,29 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { analyzeContent } from "../src/analyze/content.js";
+import { analyzeContent, scanSource } from "../src/analyze/content.js";
+
+// Regression (P1.5): network + eval detection had gaps that let exfil paths
+// slip past scanSource (which feeds the env+network hard-ish heuristics).
+describe("scanSource detection gaps", () => {
+  it.each([
+    ["node: import", "const https = require('node:https'); https.get(url)"],
+    ["https.get", "import https from 'https'; https.get(u)"],
+    ["got client", "const got = require('got'); got(url)"],
+    ["undici", "import { request } from 'undici';"],
+    ["WebSocket", "const ws = new WebSocket('wss://x')"],
+  ])("detects network usage: %s", (_label, src) => {
+    expect(scanSource("index.js", src).network).toBe(true);
+  });
+
+  it("detects bare Function() and indirect eval, but not a function declaration", () => {
+    expect(scanSource("a.js", "const f = Function('return 1')()").evalUsage).toBe(true);
+    expect(scanSource("b.js", "globalThis.eval(payload)").evalUsage).toBe(true);
+    expect(scanSource("c.js", "eval?.(payload)").evalUsage).toBe(true);
+    // A normal function declaration must NOT trip it.
+    expect(scanSource("d.js", "function build (opts) { return opts }").evalUsage).toBe(false);
+  });
+});
 
 let dir: string;
 

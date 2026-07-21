@@ -66,10 +66,14 @@ export function levenshtein(a: string, b: string): number {
   return prev[n];
 }
 
+/** Common affixes typosquatters bolt onto a popular name (`reactjs`, `js-lodash`). */
+const SQUAT_AFFIXES = ["js", "-js", ".js", "-npm", "npm-", "-official", "2", "-cli"];
+
 /**
  * Check whether a package name is suspiciously close to a popular package.
  * An exact match is fine (it IS the popular package); distance 1-2 on a
- * sufficiently long name is a typosquatting signal.
+ * sufficiently long name — or a popular name wrapped in a common affix — is a
+ * typosquatting signal.
  */
 export function checkNameSimilarity(
   name: string,
@@ -83,7 +87,17 @@ export function checkNameSimilarity(
     if (candidate.length < 4) continue;
     const distance = levenshtein(name, candidate);
     const threshold = candidate.length >= 10 ? 2 : 1;
-    if (distance <= threshold && (best === null || distance < best.distance)) {
+    // A flat distance cap misses the classic short-name suffix squat
+    // (`reactjs` vs `react`, `lodashjs` vs `lodash` — distance 2 on a name
+    // under 10 chars). Treat a popular name wrapped in a common affix as a
+    // hit regardless of length.
+    const isAffixSquat = SQUAT_AFFIXES.some(
+      (affix) => name === `${candidate}${affix}` || name === `${affix}${candidate}`,
+    );
+    if (
+      (distance <= threshold || isAffixSquat) &&
+      (best === null || distance < best.distance)
+    ) {
       best = { similarTo: candidate, distance };
     }
   }

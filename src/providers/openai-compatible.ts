@@ -67,6 +67,10 @@ export class OpenAiCompatibleProvider implements AiProvider {
       // The OpenAI SDK requires a non-empty string even when the server
       // (e.g. local Ollama) doesn't check it.
       apiKey: opts.apiKey && opts.apiKey.length > 0 ? opts.apiKey : "not-needed",
+      // Bound each call — a hostile or slow custom/ollama endpoint must not
+      // stall the pre-install gate for the SDK's ~10-minute default.
+      timeout: 120_000,
+      maxRetries: 2,
     });
   }
 

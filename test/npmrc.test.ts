@@ -140,6 +140,13 @@ describe("authHeaderForUrl (nerf-dart)", () => {
     expect(authHeaderForUrl("https://registry.npmjs.org/lodash", cfg)).toBeUndefined();
     expect(authHeaderForUrl("not a url", cfg)).toBeUndefined();
   });
+
+  // Regression (P1.3): never transmit a credential over cleartext, even if a
+  // packument points dist.tarball at an http URL on the token's host.
+  it("never returns a credential for an http (cleartext) URL", () => {
+    expect(authHeaderForUrl("http://npm.acme.com/private/@acme/lib", cfg)).toBeUndefined();
+    expect(authHeaderForUrl("http://npm.acme.com/private/lib/-/lib-1.0.0.tgz", cfg)).toBeUndefined();
+  });
 });
 
 describe("isInternalScope", () => {

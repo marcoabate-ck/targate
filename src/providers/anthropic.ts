@@ -21,6 +21,10 @@ import {
 } from "./validate.js";
 
 const DEFAULT_MODEL = "claude-opus-4-8";
+/** Bound each model call so a hung API can't stall the pre-install gate for
+ *  the SDK's ~10-minute default. */
+const REQUEST_TIMEOUT_MS = 120_000;
+const MAX_RETRIES = 2;
 
 /** Wrap a stable system prompt for ephemeral prompt caching (paid once per run). */
 const cachedSystem = (text: string) => [
@@ -44,7 +48,11 @@ export class AnthropicProvider implements AiProvider {
   private readonly client: Anthropic;
 
   constructor(opts: AnthropicProviderOptions = {}) {
-    this.client = opts.apiKey ? new Anthropic({ apiKey: opts.apiKey }) : new Anthropic();
+    this.client = new Anthropic({
+      ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
+      timeout: REQUEST_TIMEOUT_MS,
+      maxRetries: MAX_RETRIES,
+    });
     this.model = opts.model ?? DEFAULT_MODEL;
   }
 

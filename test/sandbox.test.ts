@@ -14,6 +14,23 @@ describe("buildSandboxCommand", () => {
     expect(dockerArgs).not.toContain("--volume");
     expect(dockerArgs).not.toContain("--network=host");
     expect(cmd.join(" ")).toContain("--foreground-scripts");
+    // Regression (P1.1b): cap process count so a fork bomb can't exhaust host
+    // PIDs before the memory limit bites.
+    expect(cmd).toContain("--pids-limit=512");
+  });
+
+  // Regression (P1.1): the container must be named so runSandbox's timeout can
+  // `docker kill` the CONTAINER, not just the attached client (which would
+  // orphan a background process with egress open past the deadline).
+  it("adds --name when a container name is supplied", () => {
+    const cmd = buildSandboxCommand("x", { containerName: "targate-sandbox-test" });
+    const i = cmd.indexOf("--name");
+    expect(i).toBeGreaterThan(-1);
+    expect(cmd[i + 1]).toBe("targate-sandbox-test");
+  });
+
+  it("omits --name when no container name is supplied (deterministic)", () => {
+    expect(buildSandboxCommand("x")).not.toContain("--name");
   });
 
   it("enables network capture by default via a namespaced sysctl (never --cap-add)", () => {

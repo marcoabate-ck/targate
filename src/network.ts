@@ -5,6 +5,49 @@ export interface FetchBudget {
   maxResponseBytes: number;
 }
 
+/** True for literal IPs / names that point at the host or a private network. */
+export function isPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || host === "" ) return true;
+  // IPv4 (incl. IPv4-mapped IPv6 like ::ffff:169.254.169.254)
+  const v4 = host.match(/(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 169 && b === 254) return true; // link-local incl. cloud metadata 169.254.169.254
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  }
+  // IPv6 loopback / unique-local / link-local
+  if (host === "::1" || host === "::") return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(host)) return true; // fc00::/7
+  if (/^fe[89ab][0-9a-f]:/.test(host)) return true; // fe80::/10
+  return false;
+}
+
+/**
+ * Guard a tarball/artifact URL taken from an untrusted packument before we
+ * fetch it: the registry controls `dist.tarball`, so a malicious or MITM'd
+ * response could point it at `http://169.254.169.254/…` (cloud metadata) or an
+ * internal host and turn targate into an SSRF proxy. Require https and refuse
+ * loopback/link-local/private-network hosts.
+ */
+export function assertSafeArtifactUrl(url: string, label = "artifact URL"): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`${label} is not a valid URL: ${url}`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(`${label} must use https, got ${parsed.protocol}//: ${url}`);
+  }
+  if (isPrivateHost(parsed.hostname)) {
+    throw new Error(`${label} resolves to a private/loopback host (${parsed.hostname}): refusing to fetch`);
+  }
+}
+
 /** Shared timeout wrapper. The signal remains attached while the body streams. */
 export async function fetchWithTimeout(
   input: string | URL,

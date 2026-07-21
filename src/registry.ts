@@ -2,7 +2,7 @@ import { authHeaderForUrl, DEFAULT_REGISTRY, getNpmrc, resolveRegistry } from ".
 import type { PublicArtifactEvidence } from "./quarantine.js";
 import { highestSemver } from "./semver.js";
 import type { PackageMetadata, RegistryReputation } from "./types.js";
-import { fetchWithTimeout, readResponseJson } from "./network.js";
+import { assertSafeArtifactUrl, fetchWithTimeout, readResponseJson } from "./network.js";
 import { networkBudget, type ResourceLimits } from "./resource-limits.js";
 
 export class PackageNotFoundError extends Error {
@@ -125,6 +125,9 @@ export async function fetchPackageMetadata(
   if (typeof tarballUrl !== "string" || tarballUrl.length === 0) {
     throw new Error(`${name}@${version} has no downloadable tarball on the npm registry`);
   }
+  // The registry controls this URL — refuse an SSRF pivot to metadata/internal
+  // hosts before we ever fetch it.
+  assertSafeArtifactUrl(tarballUrl, `${name}@${version} tarball URL`);
 
   const publishDate = doc.time?.[version];
   // Package age is measured from the FIRST publish of the package, not the

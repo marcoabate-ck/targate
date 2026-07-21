@@ -48,9 +48,14 @@ jobs:
       # Derive the published version from the tag (or the manual input); never
       # committed back — the release pipeline owns the version, not a hand edit.
       - name: Set version from the release ref
+        # The dispatch input is passed through env, never interpolated into the
+        # script body — `${{ }}` inside `run:` would let a crafted input inject
+        # shell. Read from the environment and quote instead.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
           else
             VERSION="${GITHUB_REF_NAME#v}"
           fi

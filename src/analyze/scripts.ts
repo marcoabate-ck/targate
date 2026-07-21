@@ -80,6 +80,9 @@ export function inspectScriptCommand(name: string, command: string): string[] {
  * analysis can prioritize install-time code.
  */
 export function referencedScriptFiles(command: string): string[] {
-  const matches = command.match(/[\w./-]+\.(?:js|cjs|mjs|sh)\b/g) ?? [];
+  // Include TypeScript variants (`tsx setup.ts`, `.mts`/`.cts`) — install
+  // hooks increasingly run these directly, and missing them kept their code
+  // out of the install-time deep scan.
+  const matches = command.match(/[\w./-]+\.(?:[cm]?[jt]s|sh)\b/g) ?? [];
   return matches.filter((m) => !m.startsWith("/"));
 }

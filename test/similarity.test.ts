@@ -35,4 +35,11 @@ describe("checkNameSimilarity", () => {
     // distance 2 from a short name should NOT flag
     expect(checkNameSimilarity("axi5o")).toBeNull();
   });
+
+  // Regression (P1.5): the flat distance-1 cap for short names missed the
+  // classic common-suffix squat (distance 2 on a <10-char name).
+  it("flags common-affix squats of short popular names", () => {
+    expect(checkNameSimilarity("reactjs")?.similarTo).toBe("react");
+    expect(checkNameSimilarity("axios-js")?.similarTo).toBe("axios");
+  });
 });
