@@ -64,8 +64,11 @@ export function runCommand(command: string[]): Promise<number> {
     const [rawBin, ...args] = command;
     // npm/pnpm/yarn are `.cmd` shims on Windows — spawn needs the extension
     // (matches runResolver in install-plan.ts). Without it the install spawn
-    // fails with ENOENT on win32.
-    const bin = process.platform === "win32" ? `${rawBin}.cmd` : rawBin;
+    // fails with ENOENT on win32. Only bare command names get the shim suffix:
+    // an absolute path or a name that already has an extension (e.g.
+    // process.execPath = node.exe) must be spawned as-is.
+    const isBareName = !rawBin.includes("/") && !rawBin.includes("\\") && !path.extname(rawBin);
+    const bin = process.platform === "win32" && isBareName ? `${rawBin}.cmd` : rawBin;
     const child = spawn(bin, args, { stdio: "inherit" });
     child.on("error", reject);
     child.on("exit", (code) => resolve(code ?? 1));
