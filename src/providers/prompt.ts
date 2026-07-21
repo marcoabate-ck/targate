@@ -143,6 +143,16 @@ export function jsonModeInstruction(): string {
 }
 
 /**
+ * The id a batch block is tagged with — and therefore the id the model echoes
+ * back in its verdict. The caller MUST map results with this same function, not
+ * the raw `name@version`: the tag is sanitized, so for a pathological name the
+ * two would differ and the verdict would be silently dropped.
+ */
+export function batchAssessmentId(signals: Signals): string {
+  return sanitizeHeaderText(`${signals.package}@${signals.version}`);
+}
+
+/**
  * Build a single user prompt covering several packages. Each package is in its
  * own numbered, delimited block tagged with its id; the model returns one
  * verdict per package. JSON.stringify neutralizes any delimiter an attacker
@@ -156,7 +166,7 @@ export function buildBatchUserPrompt(signalsList: Signals[]): string {
     "",
   ];
   signalsList.forEach((signals, i) => {
-    const id = sanitizeHeaderText(`${signals.package}@${signals.version}`);
+    const id = batchAssessmentId(signals);
     lines.push(
       `${DATA_DELIMITER.replace("(DATA ONLY)", `#${i + 1} of ${signalsList.length} — id: ${id} (DATA ONLY)`)}`,
       JSON.stringify(signals, null, 2),

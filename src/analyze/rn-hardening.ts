@@ -68,10 +68,11 @@ export function reviewPodspec(fileName: string, content: string): string[] {
 
 const GRADLE_PATTERNS: Array<[RegExp, string]> = [
   [/Runtime\.getRuntime\(\)\.exec|ProcessBuilder|commandLine\s|\bexec\s*\{/, "executes external commands during the build"],
-  // `[^{}]` bounds the scan to a single brace block, so there is no nested
-  // quantifier to backtrack over (the old `.*…[^}]*…[^}]*` was O(n²) on
-  // crafted input). Comment stripping below removes the dotall false positive.
-  [/maven\s*\{[^{}]*?\burl\b[^{}]*?http:\/\//is, "uses an insecure http:// Maven repository"],
+  // A SINGLE `[^{}]*?` bounded to one brace block — no nested quantifier, so
+  // no O(n²) backtracking (the `\burl\b` gate was dropped: after comment
+  // stripping, any http:// inside a maven { } block is the insecure-repo
+  // signal). Comment stripping removes the dotall false positive.
+  [/maven\s*\{[^{}]*?http:\/\//is, "uses an insecure http:// Maven repository"],
   [/url\s+['"]http:\/\//, "downloads from an insecure http:// URL"],
   [/download(File)?\s*\(|new URL\(.*openStream/i, "downloads files during the build"],
   [/apply\s+from:\s*['"]https?:\/\//, "applies a remote Gradle script (executes remote code at build time)"],

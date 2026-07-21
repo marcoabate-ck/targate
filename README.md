@@ -26,7 +26,10 @@ Analysis
   ✓ no known malicious-package records (OSV/OpenSSF)
   ✓ no typosquatting suspicion
   ✓ repository metadata present
+  ✓ OSV/OpenSSF lookup completed
   ✓ no native code
+  static findings:
+    - lodash.min.js: appears minified/obfuscated
 
 Decision: ALLOW   (risk: low, source: rules)
 ```

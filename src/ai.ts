@@ -11,7 +11,7 @@ import {
 import { DEFAULT_CONCURRENCY, mapLimit } from "./concurrency.js";
 import { resolveProvider, type ProviderSelection } from "./providers/index.js";
 import type { AiProvider, SourceAuditInput } from "./providers/types.js";
-import { SOURCE_AUDIT_PROMPT_VERSION } from "./providers/prompt.js";
+import { batchAssessmentId, SOURCE_AUDIT_PROMPT_VERSION } from "./providers/prompt.js";
 import { SOURCE_SELECTION_VERSION } from "./analyze/source-select.js";
 import {
   readCachedSourceAudit,
@@ -198,7 +198,9 @@ export async function assessManyWithCache(
     }
     await Promise.all(
       batch.map(async ({ index, signals }) => {
-        const raw = byId.get(`${signals.package}@${signals.version}`);
+        // Look up by the SAME (sanitized) id the prompt tagged the block with;
+        // the model echoes that id, so a raw name@version could miss.
+        const raw = byId.get(batchAssessmentId(signals));
         if (raw) {
           if (opts.cache) {
             cacheWrites.push({ key: keyFor(signals), assessment: raw, packageName: signals.package });
