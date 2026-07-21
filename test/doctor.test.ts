@@ -84,6 +84,9 @@ describe("individual checks", () => {
   it("node-version passes on the current runtime (≥22 required to run tests)", async () => {
     const r = await check("node-version").run(makeCtx());
     expect(r.status).toBe("pass");
+    // Regression (P2): the check enforces the FULL engine range, not just the
+    // major — Node 22.0–22.12 must not pass a >=22.13 requirement.
+    expect(r.message).toContain("22.13");
   });
 
   it("ai-provider reports info when nothing is configured", async () => {

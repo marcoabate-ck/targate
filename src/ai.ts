@@ -50,6 +50,7 @@ export async function assessWithCache(
         model: provider.model,
         reasoning: opts.reasoning ?? false,
         signals,
+        namespace: provider.cacheNamespace,
       })
     : null;
 
@@ -105,6 +106,7 @@ export async function auditSourceWithCache(
         digest,
         promptVersion: SOURCE_AUDIT_PROMPT_VERSION,
         selectionVersion: SOURCE_SELECTION_VERSION,
+        namespace: provider.cacheNamespace,
       })
     : null;
 
@@ -159,6 +161,7 @@ export async function assessManyWithCache(
       model: provider.model,
       reasoning: opts.reasoning ?? false,
       signals,
+      namespace: provider.cacheNamespace,
     });
 
   // 1. Serve cache hits; collect the misses.

@@ -16,7 +16,7 @@ targate add lodash
 `targate` analyzes the package first and only runs the real install if it passes:
 
 ```text
-Pre-install review — lodash@4.18.1
+Pre-install review — lodash@4.17.21
 ────────────────────────────────────────────────────────────
 Lodash modular utilities.
 license: MIT  ·  published: 5190 days ago  ·  deps: 0  ·  repo: git+https://github.com/lodash/lodash.git

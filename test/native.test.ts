@@ -30,6 +30,18 @@ describe("analyzeNativeSurface", () => {
     expect(hasNativeCode(surface)).toBe(false);
   });
 
+  // Regression (P2): iOS source at the package root (not under ios/) must set
+  // hasIos — the old code had a dead extension branch that only fired for ios/.
+  it("detects iOS source files outside an ios/ directory", async () => {
+    const pkg = await fixture({
+      "package.json": "{}",
+      "MyView.swift": "import UIKit",
+      "Helper.mm": "@implementation Helper @end",
+    });
+    const surface = await analyzeNativeSurface(pkg);
+    expect(surface.hasIos).toBe(true);
+  });
+
   it("detects a typical React Native native module", async () => {
     const pkg = await fixture({
       "package.json": "{}",

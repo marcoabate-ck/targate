@@ -83,6 +83,11 @@ describe("cacheKey", () => {
     expect(cacheKey({ ...base, provider: "deepseek", signals })).not.toBe(key);
     expect(cacheKey({ ...base, model: "other-model", signals })).not.toBe(key);
     expect(cacheKey({ ...base, reasoning: true, signals })).not.toBe(key);
+    // Regression (P2): two custom endpoints share the label "custom" + model,
+    // so the base URL namespace must keep their cache entries distinct.
+    const nsA = cacheKey({ ...base, provider: "custom", namespace: "http://a:1234/v1", signals });
+    const nsB = cacheKey({ ...base, provider: "custom", namespace: "http://b:1234/v1", signals });
+    expect(nsA).not.toBe(nsB);
     expect(
       cacheKey({ ...base, signals: makeSignals({ package: "left-pad", version: "1.3.1" }) }),
     ).not.toBe(key);

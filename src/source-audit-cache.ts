@@ -33,6 +33,8 @@ export interface SourceAuditCacheKeyInput {
   digest: string;
   promptVersion: string;
   selectionVersion: string;
+  /** Endpoint identity (custom base URL) — see cacheKey in ai-cache.ts. */
+  namespace?: string;
 }
 
 export function sourceAuditCacheKey(input: SourceAuditCacheKeyInput): string {
@@ -40,7 +42,7 @@ export function sourceAuditCacheKey(input: SourceAuditCacheKeyInput): string {
   // filesystem-safe key while keeping a readable prefix.
   const hash = createHash("sha256")
     .update(
-      `${input.provider}\0${input.model}\0${input.digest}\0${input.promptVersion}\0${input.selectionVersion}`,
+      `${input.provider}\0${input.namespace ?? ""}\0${input.model}\0${input.digest}\0${input.promptVersion}\0${input.selectionVersion}`,
     )
     .digest("hex")
     .slice(0, 32);

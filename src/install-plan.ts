@@ -86,6 +86,11 @@ export function buildPlanResolveCommand(
   root?: PlanPackageSpec,
 ): string[] {
   const spec = root?.spec;
+  // A spec beginning with "-" would be parsed as an option by the package
+  // manager (argv flag injection). Valid npm specs never start with a dash.
+  if (spec && spec.startsWith("-")) {
+    throw new Error(`Refusing package spec that looks like a flag: ${spec}`);
+  }
   switch (pm) {
     case "npm":
       return [
@@ -119,7 +124,10 @@ export function buildPlanResolveCommand(
 
 async function runResolver(command: string[], cwd: string): Promise<void> {
   const [rawBin, ...args] = command;
-  const bin = process.platform === "win32" ? `${rawBin}.cmd` : rawBin;
+  // Only bare command names (npm/pnpm/yarn) get the Windows `.cmd` shim suffix;
+  // an absolute path or a name with an extension (e.g. node.exe) spawns as-is.
+  const isBareName = !rawBin.includes("/") && !rawBin.includes("\\") && !path.extname(rawBin);
+  const bin = process.platform === "win32" && isBareName ? `${rawBin}.cmd` : rawBin;
   await execFileAsync(bin, args, { cwd, timeout: RESOLVE_TIMEOUT_MS });
 }
 

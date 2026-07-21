@@ -73,7 +73,7 @@ export const OPTION_DEFINITIONS = {
   provider: option("provider", "string", "name", "Use anthropic, deepseek, openai, ollama, or custom."),
   model: option("model", "string", "name", "Override the selected provider model."),
   baseUrl: option("base-url", "string", "url", "Set the API base URL (required for a custom provider)."),
-  apiKey: option("api-key", "string", "key", "Set an API key (environment variables are preferred)."),
+  apiKey: option("api-key", "string", "key", "Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs."),
   reasoning: option("reasoning", "boolean", undefined, "Enable model reasoning where supported."),
   baseRef: option("base-ref", "string", "ref", "Git ref to compare against (default: origin/main)."),
   failOnOsvError: option("fail-on-osv-error", "boolean", undefined, "Require approval when OSV is unreachable."),

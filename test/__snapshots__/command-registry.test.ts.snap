@@ -20,7 +20,7 @@ Options:
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
   --base-url <url>             Set the API base URL (required for a custom provider).
-  --api-key <key>              Set an API key (environment variables are preferred).
+  --api-key <key>              Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs.
   --reasoning                  Enable model reasoning where supported.
   --fail-on-osv-error          Require approval when OSV is unreachable.
   --no-reputation              Skip external reputation lookups.
@@ -65,7 +65,7 @@ Options:
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
   --base-url <url>             Set the API base URL (required for a custom provider).
-  --api-key <key>              Set an API key (environment variables are preferred).
+  --api-key <key>              Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs.
   --reasoning                  Enable model reasoning where supported.
   --fail-on-osv-error          Require approval when OSV is unreachable.
   --no-reputation              Skip external reputation lookups.
@@ -92,7 +92,7 @@ Options:
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
   --base-url <url>             Set the API base URL (required for a custom provider).
-  --api-key <key>              Set an API key (environment variables are preferred).
+  --api-key <key>              Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs.
   --reasoning                  Enable model reasoning where supported.
   --fail-on-osv-error          Require approval when OSV is unreachable.
   --no-reputation              Skip external reputation lookups.
@@ -132,7 +132,7 @@ Options:
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
   --base-url <url>             Set the API base URL (required for a custom provider).
-  --api-key <key>              Set an API key (environment variables are preferred).
+  --api-key <key>              Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs.
   --reasoning                  Enable model reasoning where supported.
   --fail-on-osv-error          Require approval when OSV is unreachable.
   --no-reputation              Skip external reputation lookups.
@@ -157,7 +157,7 @@ Options:
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
   --base-url <url>             Set the API base URL (required for a custom provider).
-  --api-key <key>              Set an API key (environment variables are preferred).
+  --api-key <key>              Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs.
   --reasoning                  Enable model reasoning where supported.
   --fail-on-osv-error          Require approval when OSV is unreachable.
   --no-reputation              Skip external reputation lookups.
@@ -181,7 +181,7 @@ Options:
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
   --base-url <url>             Set the API base URL (required for a custom provider).
-  --api-key <key>              Set an API key (environment variables are preferred).
+  --api-key <key>              Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs.
   --reasoning                  Enable model reasoning where supported.
   --help                       Show help for this command.
 
@@ -204,7 +204,7 @@ Options:
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
   --base-url <url>             Set the API base URL (required for a custom provider).
-  --api-key <key>              Set an API key (environment variables are preferred).
+  --api-key <key>              Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs.
   --reasoning                  Enable model reasoning where supported.
   --fail-on-osv-error          Require approval when OSV is unreachable.
   --no-reputation              Skip external reputation lookups.
@@ -250,7 +250,7 @@ Options:
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
   --base-url <url>             Set the API base URL (required for a custom provider).
-  --api-key <key>              Set an API key (environment variables are preferred).
+  --api-key <key>              Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs.
   --reasoning                  Enable model reasoning where supported.
   --fail-on-osv-error          Require approval when OSV is unreachable.
   --no-reputation              Skip external reputation lookups.
@@ -345,7 +345,7 @@ Options:
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
   --base-url <url>             Set the API base URL (required for a custom provider).
-  --api-key <key>              Set an API key (environment variables are preferred).
+  --api-key <key>              Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs.
   --reasoning                  Enable model reasoning where supported.
   --fail-on-osv-error          Require approval when OSV is unreachable.
   --no-reputation              Skip external reputation lookups.
@@ -372,7 +372,7 @@ Options:
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
   --base-url <url>             Set the API base URL (required for a custom provider).
-  --api-key <key>              Set an API key (environment variables are preferred).
+  --api-key <key>              Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs.
   --reasoning                  Enable model reasoning where supported.
   --fail-on-osv-error          Require approval when OSV is unreachable.
   --no-reputation              Skip external reputation lookups.
@@ -412,7 +412,7 @@ Options:
   --provider <name>            Use anthropic, deepseek, openai, ollama, or custom.
   --model <name>               Override the selected provider model.
   --base-url <url>             Set the API base URL (required for a custom provider).
-  --api-key <key>              Set an API key (environment variables are preferred).
+  --api-key <key>              Set an API key. Prefer an environment variable — a CLI value can be captured in shell history and CI logs.
   --reasoning                  Enable model reasoning where supported.
   --fail-on-osv-error          Require approval when OSV is unreachable.
   --no-reputation              Skip external reputation lookups.

@@ -26,6 +26,12 @@ export interface AiProvider {
   readonly name: string;
   /** Model identifier — part of the AI-cache key, so answers never leak across models. */
   readonly model: string;
+  /**
+   * Endpoint identity folded into the AI-cache key. `name` alone is "custom"
+   * for every OpenAI-compatible custom endpoint, so without this two different
+   * `--base-url` targets on the same model would share cached verdicts.
+   */
+  readonly cacheNamespace?: string;
   assess(signals: Signals): Promise<RiskAssessment>;
   /**
    * Assess several packages in one request. Returns one entry per verdict the

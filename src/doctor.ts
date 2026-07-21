@@ -9,6 +9,7 @@ import { isCiEnvironment } from "./approvals.js";
 import { execConfigDisabled } from "./config-loader.js";
 import { detectPackageManager } from "./installer.js";
 import { loadPolicy, PolicyError } from "./policy.js";
+import { compareSemver } from "./semver.js";
 import { resolveProvider, type ProviderSelection } from "./providers/index.js";
 import { authHeaderForUrl, DEFAULT_REGISTRY, loadNpmrc } from "./npmrc.js";
 import type { Signals } from "./types.js";
@@ -55,7 +56,9 @@ export interface DoctorReport {
   exitCode: 0 | 1;
 }
 
-export const MIN_NODE_MAJOR = 22; // mirrors package.json "engines" (>=22.13)
+/** Mirrors package.json "engines" (>=22.13). Full version, not just the major
+ *  — Node 22.0–22.12 violate the engine range and must fail the check. */
+export const MIN_NODE_VERSION = "22.13.0";
 
 const REGISTRY_PING = "https://registry.npmjs.org/-/ping";
 const OSV_QUERY = "https://api.osv.dev/v1/query";
@@ -140,10 +143,9 @@ export const DOCTOR_CHECKS: DoctorCheck[] = [
     label: "Node version",
     async run() {
       const version = process.versions.node;
-      const major = Number(version.split(".")[0]);
-      return major >= MIN_NODE_MAJOR
-        ? { status: "pass", message: `Node v${version} (>=${MIN_NODE_MAJOR} required)` }
-        : { status: "fail", message: `Node v${version} — targate requires Node >=${MIN_NODE_MAJOR}` };
+      return compareSemver(version, MIN_NODE_VERSION) >= 0
+        ? { status: "pass", message: `Node v${version} (>=${MIN_NODE_VERSION} required)` }
+        : { status: "fail", message: `Node v${version} — targate requires Node >=${MIN_NODE_VERSION}` };
     },
   },
   {

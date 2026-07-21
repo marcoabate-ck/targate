@@ -40,10 +40,10 @@ export async function analyzeNativeSurface(packageInput: string | PackageFileInd
     const segments = rel.split("/"); // relPath is POSIX-separated, host-independent
     const basename = file.basename;
 
-    if (segments[0] === "ios" || /\.(m|mm|swift|h)$/.test(basename)) {
-      if (segments[0] === "ios") surface.hasIos = true;
-    }
-    if (segments.includes("ios")) surface.hasIos = true;
+    // iOS source anywhere in the tree, or an Objective-C/Swift/header file at
+    // any path (the old branch only set hasIos for files under an `ios/` dir,
+    // leaving the extension alternation dead).
+    if (segments.includes("ios") || /\.(m|mm|swift|h)$/.test(basename)) surface.hasIos = true;
     if (segments.includes("android")) surface.hasAndroid = true;
     if (basename.endsWith(".podspec")) surface.hasPodspec = true;
     if (basename === "build.gradle" || basename === "build.gradle.kts") {

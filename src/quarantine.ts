@@ -116,6 +116,12 @@ function verifyEvidence(
     );
     return false;
   }
+  if (result.algorithm === "shasum") {
+    // Verified, but only against the legacy sha1 dist.shasum — collision-prone
+    // and weaker than SRI. Surface it so a sha1-only match is never mistaken
+    // for a strong, SRI-backed verification.
+    reasons.push(`${label} verified only via legacy sha1 (weaker than SRI — collision-prone)`);
+  }
   return true;
 }
 
@@ -260,7 +266,11 @@ export async function quarantineTarball(
     strict: true,
     preservePaths: false,
     filter: (entryPath, entry) => {
-      if (archiveFailure) return false;
+      // Throwing (not returning false) aborts the gunzip stream immediately, so
+      // a highly compressible bomb within the download cap can't keep inflating
+      // for CPU after the first limit trips. tar.x rejects → the .catch below
+      // cleans up and rethrows the ResourceLimitError.
+      if (archiveFailure) throw archiveFailure;
       const portable = entryPath.replace(/\\/g, "/");
       const destination = path.resolve(root, portable);
       if (
@@ -268,8 +278,7 @@ export async function quarantineTarball(
         portable.split("/").includes("..") ||
         !isInside(root, destination)
       ) {
-        archiveFailure = new ResourceLimitError("unsafe-path", `archive entry escapes quarantine: ${entryPath}`);
-        return false;
+        throw (archiveFailure = new ResourceLimitError("unsafe-path", `archive entry escapes quarantine: ${entryPath}`));
       }
       const top = portable.split("/")[0];
       if (top) topLevelDirs.add(top);
@@ -278,21 +287,18 @@ export async function quarantineTarball(
         entryType === "SymbolicLink" ||
         entryType === "Link" ||
         ("isSymbolicLink" in entry && entry.isSymbolicLink())
-      ) return false;
+      ) return false; // skipping a link is not a failure — just exclude it
       archiveFiles++;
       if (archiveFiles > limits.maxFiles) {
-        archiveFailure = new ResourceLimitError("file-count", `archive exceeds ${limits.maxFiles} entries`);
-        return false;
+        throw (archiveFailure = new ResourceLimitError("file-count", `archive exceeds ${limits.maxFiles} entries`));
       }
       const size = Number(entry.size ?? 0);
       if (!Number.isFinite(size) || size < 0 || size > limits.maxFileBytes) {
-        archiveFailure = new ResourceLimitError("file-size", `archive entry ${entryPath} exceeds ${limits.maxFileBytes} bytes`);
-        return false;
+        throw (archiveFailure = new ResourceLimitError("file-size", `archive entry ${entryPath} exceeds ${limits.maxFileBytes} bytes`));
       }
       archiveBytes += size;
       if (archiveBytes > limits.maxExtractedBytes) {
-        archiveFailure = new ResourceLimitError("extracted-size", `archive exceeds ${limits.maxExtractedBytes} extracted bytes`);
-        return false;
+        throw (archiveFailure = new ResourceLimitError("extracted-size", `archive exceeds ${limits.maxExtractedBytes} extracted bytes`));
       }
       return true;
     },
