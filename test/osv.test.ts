@@ -16,6 +16,19 @@ describe("isMaliciousRecord", () => {
     ).toBe(true);
   });
 
+  // Regression (P0.3): GitHub titles every npm malware advisory
+  // "Malicious code in <pkg>", which matched none of the old alternations and
+  // was silently downgraded to an ordinary advisory (allow_with_warnings).
+  it("flags the standard GitHub 'Malicious code in <pkg>' title", () => {
+    expect(
+      isMaliciousRecord({
+        id: "GHSA-xxxx-yyyy-zzzz",
+        summary: "Malicious code in some-evil-pkg (npm)",
+        details: "This package was published with a postinstall backdoor.",
+      }),
+    ).toBe(true);
+  });
+
   it("does not flag ordinary vulnerability advisories", () => {
     expect(
       isMaliciousRecord({

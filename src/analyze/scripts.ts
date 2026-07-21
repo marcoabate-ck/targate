@@ -41,7 +41,16 @@ export function isInstallTimeScript(name: string): boolean {
 
 const SUSPICIOUS_COMMAND_PATTERNS: Array<[RegExp, string]> = [
   [/curl|wget/i, "downloads content from the network"],
-  [/\bbash\b|\bsh\s+-c\b/, "invokes a shell"],
+  // A shell invoked as a command token — bare `sh`, `| sh`, `sh -c`, `bash`,
+  // `zsh`… The delimiter prefix and lookahead keep it from matching substrings
+  // like "bash" (covered separately), "push", or a `build.sh` filename.
+  [/(?:^|[|&;`($\s])(?:sh|bash|zsh|ksh|dash|ash|fish)(?=\s|$|[;&|`)])/, "invokes a shell"],
+  // Piping (or command-substituting) fetched content straight into an
+  // interpreter — `curl … | python`, `wget … | node`. Unambiguously executes
+  // remote bytes, so the label keeps the "invokes a shell" substring the
+  // hard-block predicate (rules.ts fetchesAndExecutes) keys on.
+  [/[|`]\s*(?:python[0-9.]*|ruby|perl|php|node|deno|bun|osascript)\b/, "invokes a shell or interpreter"],
+  [/\bsource\s+/, "invokes a shell"],
   [/base64/i, "uses base64 encoding/decoding"],
   [/\beval\b/, "uses eval"],
   [/\$\(.*\)/, "uses command substitution"],

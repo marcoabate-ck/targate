@@ -58,11 +58,16 @@ export function isMaliciousRecord(vuln: {
   // vulnerability advisories often use the word "malicious" for attacker
   // input ("a malicious payload"), which must not trigger a block.
   const summary = (vuln.summary ?? "").toLowerCase();
-  if (/\bmalware\b|malicious package|embedded malicious code/.test(summary)) {
+  // "Malicious code in <pkg>" is the exact title GitHub gives every GHSA npm
+  // malware advisory — the common case that the old `malicious package` /
+  // `embedded malicious code` alternation missed entirely.
+  if (
+    /\bmalware\b|malicious package|embedded malicious code|malicious code in\b/.test(summary)
+  ) {
     return true;
   }
   const details = (vuln.details ?? "").toLowerCase();
-  return /contain(s|ed) (malware|malicious code)|is malware|package (is|was) malicious/.test(
+  return /contain(s|ed) (malware|malicious code)|malicious code in\b|is malware|package (is|was) malicious/.test(
     details,
   );
 }
