@@ -292,7 +292,11 @@ export async function quarantineTarball(
   // ≤maxTarballBytes archive declaring multi-GB entries would burn unbounded
   // CPU. Pre-scan the gzip with a hard output cap that aborts early.
   try {
-    await assertDecompressedWithinCap(bytes, limits.maxExtractedBytes, "package tarball");
+    // Cap the whole gunzip output (tar framing included), so give headroom over
+    // the content-only extraction cap: 512-byte header per entry + a 1 KiB end
+    // marker. Keeps a legitimate near-max archive from tripping the pre-check.
+    const streamCap = limits.maxExtractedBytes + limits.maxFiles * 512 + 1024;
+    await assertDecompressedWithinCap(bytes, streamCap, "package tarball");
   } catch (err) {
     await rm(root, { recursive: true, force: true });
     throw err;

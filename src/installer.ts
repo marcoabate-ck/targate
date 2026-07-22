@@ -65,6 +65,10 @@ export async function confirm(question: string, defaultYes = false): Promise<boo
   }
 }
 
+/** cmd.exe metacharacters that are unsafe under spawn(..., {shell:true}) on
+ *  Windows. A registry-resolved `name@version` never contains these. */
+export const SHELL_METACHAR = /[&|<>^"%!()`\s]/;
+
 export function runCommand(command: string[]): Promise<number> {
   return new Promise((resolve, reject) => {
     const [rawBin, ...args] = command;
@@ -77,8 +81,15 @@ export function runCommand(command: string[]): Promise<number> {
     const winShim = process.platform === "win32" && isBareName;
     const bin = winShim ? `${rawBin}.cmd` : rawBin;
     // Since CVE-2024-27980's mitigation (Node >=18.20.2) Windows refuses to
-    // spawn a `.cmd`/`.bat` without shell:true (throws EINVAL). Args are npm
-    // specs/flags — the leading-dash spec guard blocks the argv-injection vector.
+    // spawn a `.cmd`/`.bat` without shell:true (throws EINVAL). shell:true means
+    // cmd.exe space-joins the args with NO per-arg quoting, so a shell
+    // metacharacter in any arg could inject — the dash-guard does NOT cover
+    // that. In-tree callers pass only registry-resolved `name@version` + fixed
+    // flags, but this is exported, so reject any metachar defensively.
+    if (winShim && args.some((a) => SHELL_METACHAR.test(a))) {
+      reject(new Error("refusing to run: an argument contains a shell metacharacter"));
+      return;
+    }
     const child = spawn(bin, args, { stdio: "inherit", shell: winShim });
     child.on("error", reject);
     child.on("exit", (code) => resolve(code ?? 1));

@@ -1,6 +1,6 @@
 import type { SecurityScore } from "../score.js";
 import type { Decision, PackageMetadata, RiskAssessment, Signals } from "../types.js";
-import { bold, cyan, dim, green, red, yellow } from "./colors.js";
+import { bold, clean, cyan, dim, green, red, yellow } from "./colors.js";
 import { renderScoreLines } from "./score.js";
 
 export const DECISION_LABEL: Record<Decision, string> = {
@@ -26,18 +26,18 @@ export function renderReport(
   const lines: string[] = [];
   const paint = decisionColor(assessment.decision);
   lines.push("");
-  lines.push(bold(`Pre-install review — ${metadata.name}@${metadata.version}`));
+  lines.push(bold(`Pre-install review — ${clean(metadata.name)}@${clean(metadata.version)}`));
   lines.push(dim("─".repeat(60)));
-  if (metadata.description) lines.push(dim(metadata.description));
+  if (metadata.description) lines.push(dim(clean(metadata.description)));
   lines.push(
     dim(
       [
-        metadata.license ? `license: ${metadata.license}` : null,
+        metadata.license ? `license: ${clean(metadata.license)}` : null,
         metadata.ageInDays !== undefined ? `published: ${metadata.ageInDays} days ago` : null,
         `deps: ${metadata.dependencyCount}`,
-        metadata.repositoryUrl ? `repo: ${metadata.repositoryUrl}` : "repo: MISSING",
+        metadata.repositoryUrl ? `repo: ${clean(metadata.repositoryUrl)}` : "repo: MISSING",
         metadata.registrySource && metadata.registrySource !== "default"
-          ? `registry: ${metadata.registryUrl} (${metadata.registrySource === "scope" ? "scoped" : "override"})`
+          ? `registry: ${clean(metadata.registryUrl)} (${metadata.registrySource === "scope" ? "scoped" : "override"})`
           : null,
       ].filter(Boolean).join("  ·  "),
     ),
@@ -60,12 +60,12 @@ export function renderReport(
     const line = `Deterministic verdict: ${DECISION_LABEL[deterministic.decision]} (rules) — the AI may only make this stricter`;
     lines.push(deterministic.decision === "block" ? red(line) : dim(line));
   }
-  lines.push("", assessment.summary, "", bold("Reasons"));
-  for (const reason of assessment.reasons) lines.push(`  • ${reason}`);
-  lines.push("", bold("Recommendation"), `  ${assessment.recommendedAction}`);
+  lines.push("", clean(assessment.summary), "", bold("Reasons"));
+  for (const reason of assessment.reasons) lines.push(`  • ${clean(reason)}`);
+  lines.push("", bold("Recommendation"), `  ${clean(assessment.recommendedAction)}`);
   if (assessment.suggestedAlternatives?.length) {
     lines.push("", bold("Suggested alternatives"));
-    for (const alternative of assessment.suggestedAlternatives) lines.push(`  • ${alternative}`);
+    for (const alternative of assessment.suggestedAlternatives) lines.push(`  • ${clean(alternative)}`);
   }
   lines.push("");
   return lines.join("\n");
@@ -96,7 +96,7 @@ export function renderSignalLines(signals: Signals): string[] {
       check(
         signals.hasLifecycleScripts,
         "no lifecycle scripts",
-        `lifecycle scripts: ${Object.keys(signals.lifecycleScripts).join(", ")}`,
+        `lifecycle scripts: ${clean(Object.keys(signals.lifecycleScripts).join(", "))}`,
       ),
   );
   lines.push(
@@ -104,7 +104,7 @@ export function renderSignalLines(signals: Signals): string[] {
       check(
         signals.knownMalicious,
         "no known malicious-package records (OSV/OpenSSF)",
-        `KNOWN MALICIOUS: ${signals.maliciousRecords.map((record) => record.id).join(", ")}`,
+        `KNOWN MALICIOUS: ${clean(signals.maliciousRecords.map((record) => record.id).join(", "))}`,
       ),
   );
   lines.push(
@@ -112,7 +112,7 @@ export function renderSignalLines(signals: Signals): string[] {
       check(
         signals.nameSimilarity !== null,
         "no typosquatting suspicion",
-        `name similar to "${signals.nameSimilarity?.similarTo}"`,
+        `name similar to "${clean(signals.nameSimilarity?.similarTo ?? "")}"`,
       ),
   );
   lines.push(
@@ -128,7 +128,7 @@ export function renderSignalLines(signals: Signals): string[] {
           ? yellow("⚠ OSV/OpenSSF lookup unavailable — malicious-package status UNKNOWN")
           : dim("✓ OSV/OpenSSF lookup completed")),
   );
-  for (const finding of signals.scriptCommandFindings) lines.push("  " + red(`! ${finding}`));
+  for (const finding of signals.scriptCommandFindings) lines.push("  " + red(`! ${clean(finding)}`));
   lines.push(
     "  " +
       (signals.analysisDegraded?.length
@@ -148,7 +148,7 @@ export function renderSignalLines(signals: Signals): string[] {
   if (signals.nativeSurface.androidPermissions.length > 0) {
     const dangerous = new Set(signals.rnHardening.dangerousPermissions);
     const rendered = signals.nativeSurface.androidPermissions
-      .map((permission) => (dangerous.has(permission) ? red(permission) : permission))
+      .map((permission) => (dangerous.has(permission) ? red(clean(permission)) : clean(permission)))
       .join(", ");
     lines.push("  " + yellow("⚠ Android permissions: ") + rendered);
   }
@@ -156,19 +156,19 @@ export function renderSignalLines(signals: Signals): string[] {
     ...signals.rnHardening.podspecFindings,
     ...signals.rnHardening.gradleFindings,
     ...signals.rnHardening.autolinkingFindings,
-  ]) lines.push("  " + yellow(`⚠ ${finding}`));
-  for (const note of signals.rnHardening.compatNotes) lines.push("  " + cyan(`ℹ ${note}`));
+  ]) lines.push("  " + yellow(`⚠ ${clean(finding)}`));
+  for (const note of signals.rnHardening.compatNotes) lines.push("  " + cyan(`ℹ ${clean(note)}`));
   if (signals.advisories.length > 0) {
     lines.push(
       "  " +
-        yellow(`⚠ vulnerability advisories: ${signals.advisories.map((advisory) => advisory.id).join(", ")}`),
+        yellow(`⚠ vulnerability advisories: ${clean(signals.advisories.map((advisory) => advisory.id).join(", "))}`),
     );
   }
   lines.push(...renderReputationLines(signals.reputation, signals.package));
   if (signals.content.suspiciousFiles.length > 0) {
     lines.push("  " + dim("static findings:"));
     for (const finding of signals.content.suspiciousFiles.slice(0, 8)) {
-      lines.push("    " + dim(`- ${finding}`));
+      lines.push("    " + dim(`- ${clean(finding)}`));
     }
   }
   return lines;
@@ -180,7 +180,7 @@ function renderReputationLines(
 ): string[] {
   const lines: string[] = [];
   const push = (line: string) => lines.push("  " + line);
-  if (reputation.deprecated !== false) push(yellow(`⚠ version is DEPRECATED: "${reputation.deprecated}"`));
+  if (reputation.deprecated !== false) push(yellow(`⚠ version is DEPRECATED: "${clean(String(reputation.deprecated))}"`));
   if (reputation.hasProvenance) push(dim("✓ npm provenance attestation present"));
   if (reputation.downloads.status === "ok") {
     const weekly = reputation.downloads.weeklyDownloads;
@@ -196,12 +196,12 @@ function renderReputationLines(
   else if (reputation.repo.status === "rate-limited") push(yellow("⚠ GitHub lookup rate-limited — archived status UNKNOWN (set GITHUB_TOKEN to raise the limit)"));
   else if (reputation.repo.status === "unavailable") push(yellow("⚠ GitHub unreachable — archived status UNKNOWN"));
   if (reputation.maintainerChange?.changed) {
-    push(yellow(`⚠ maintainer change since previous release: ${reputation.maintainerChange.detail ?? ""}`));
+    push(yellow(`⚠ maintainer change since previous release: ${clean(reputation.maintainerChange.detail ?? "")}`));
   }
   const intel = reputation.maintainerIntel;
   if (intel && intel.status !== "skipped") {
     if (intel.newMaintainerNoTrackRecord.length > 0) {
-      push(red(`! new maintainer(s) with no other published packages: ${intel.newMaintainerNoTrackRecord.join(", ")}`));
+      push(red(`! new maintainer(s) with no other published packages: ${clean(intel.newMaintainerNoTrackRecord.join(", "))}`));
     }
     if (intel.status === "unavailable") push(yellow("⚠ maintainer portfolio lookup unavailable — track record UNKNOWN"));
     else {
@@ -209,11 +209,11 @@ function renderReputationLines(
         if (maintainer.status !== "ok") continue;
         const notable = (maintainer.topPackages ?? []).map((item) => item.name)
           .filter((name) => name !== packageName).slice(0, 2).join(", ");
-        push(dim(`✓ maintainer ${maintainer.name}: ${maintainer.packageCount ?? "?"} package(s)${notable ? ` (notable: ${notable})` : ""}`));
+        push(dim(`✓ maintainer ${clean(maintainer.name)}: ${maintainer.packageCount ?? "?"} package(s)${notable ? ` (notable: ${clean(notable)})` : ""}`));
       }
     }
   }
   if (reputation.releaseGapAnomaly) push(yellow(`⚠ fresh release after ${reputation.releaseAfterInactivityDays} days of inactivity`));
-  if (reputation.repositoryMismatch) push(yellow(`⚠ repository mismatch: ${reputation.repositoryMismatchDetail ?? ""}`));
+  if (reputation.repositoryMismatch) push(yellow(`⚠ repository mismatch: ${clean(reputation.repositoryMismatchDetail ?? "")}`));
   return lines;
 }

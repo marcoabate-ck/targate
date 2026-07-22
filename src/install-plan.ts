@@ -5,6 +5,7 @@ import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { SHELL_METACHAR } from "./installer.js";
 import { extractLockfileArtifacts, lockfileName } from "./lockfile.js";
 import type { TreePackage } from "./transitive.js";
 import type { PackageManager } from "./types.js";
@@ -130,7 +131,12 @@ async function runResolver(command: string[], cwd: string): Promise<void> {
   const winShim = process.platform === "win32" && isBareName;
   const bin = winShim ? `${rawBin}.cmd` : rawBin;
   // shell:true is required to exec a `.cmd` on Node >=18.20.2 (CVE-2024-27980),
-  // else EINVAL. Specs are dash-guarded; args carry no shell metacharacters.
+  // else EINVAL — but under shell:true cmd.exe does no per-arg quoting, so a
+  // shell metacharacter in any arg could inject. Reject defensively (in-tree
+  // args are registry-resolved name@version + fixed flags, which never match).
+  if (winShim && args.some((a) => SHELL_METACHAR.test(a))) {
+    throw new Error("refusing to resolve: an argument contains a shell metacharacter");
+  }
   await execFileAsync(bin, args, { cwd, timeout: RESOLVE_TIMEOUT_MS, shell: winShim });
 }
 
