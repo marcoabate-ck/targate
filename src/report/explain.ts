@@ -1,7 +1,7 @@
 import type { SecurityScore } from "../score.js";
 import type { PackageMetadata, RiskAssessment, Signals } from "../types.js";
 import { DECISION_LABEL, decisionColor, renderSignalLines } from "./assessment.js";
-import { bold, cyan, dim, yellow } from "./colors.js";
+import { bold, clean, cyan, dim, yellow } from "./colors.js";
 import { renderScoreLines } from "./score.js";
 
 export function residualRisks(signals: Signals): string[] {
@@ -35,23 +35,23 @@ export function renderExplanation(
   const adjustments = assessment.reasons.filter((reason) => /^\[(policy|team)\]/.test(reason));
   const engineReasons = assessment.reasons.filter((reason) => !/^\[(policy|team)\]/.test(reason));
   lines.push("");
-  lines.push(bold(`Why ${metadata.name}@${metadata.version} → `) + paint(bold(DECISION_LABEL[assessment.decision])));
+  lines.push(bold(`Why ${clean(metadata.name)}@${clean(metadata.version)} → `) + paint(bold(DECISION_LABEL[assessment.decision])));
   lines.push(dim(`(risk: ${assessment.risk} · source: ${assessment.source}${options.fromLastRun ? ` · from last ${options.fromLastRun.command} run, ${options.fromLastRun.timestamp}` : ""})`));
-  lines.push(dim("─".repeat(60)), assessment.summary, "");
+  lines.push(dim("─".repeat(60)), clean(assessment.summary), "");
   if (assessment.source === "ai" && assessment.deterministic) {
     const deterministic = assessment.deterministic;
     lines.push(bold("Deterministic verdict (rules engine)"));
     lines.push(`  ${decisionColor(deterministic.decision)(DECISION_LABEL[deterministic.decision])}` + dim(` (risk: ${deterministic.risk})`));
-    for (const reason of deterministic.reasons) lines.push(dim(`  • ${reason}`));
+    for (const reason of deterministic.reasons) lines.push(dim(`  • ${clean(reason)}`));
     lines.push(dim("  The AI interprets these signals but can only make the verdict stricter."), "");
   }
   lines.push(bold(assessment.source === "ai" ? "AI reasoning" : "Main reasons"));
   if (engineReasons.length === 0) lines.push(dim("  (no findings — nothing raised a flag)"));
-  engineReasons.forEach((reason, index) => lines.push(`  ${index + 1}. ${reason}`));
+  engineReasons.forEach((reason, index) => lines.push(`  ${index + 1}. ${clean(reason)}`));
   lines.push("");
   if (adjustments.length > 0) {
     lines.push(bold("Team & policy adjustments"));
-    for (const adjustment of adjustments) lines.push(`  • ${adjustment}`);
+    for (const adjustment of adjustments) lines.push(`  • ${clean(adjustment)}`);
     lines.push("");
   }
   if (options.approval) {

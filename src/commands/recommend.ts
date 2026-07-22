@@ -6,7 +6,7 @@ import {
   RecommendSearchError,
   type Recommendation,
 } from "../recommend.js";
-import { bold, cyan, dim, green, red, yellow } from "../report.js";
+import { bold, clean, cyan, dim, green, red, yellow } from "../report.js";
 import type { Decision } from "../types.js";
 
 export interface RecommendCommandOptions {
@@ -113,16 +113,16 @@ export async function recommendCommand(opts: RecommendCommandOptions): Promise<n
     ]
       .filter(Boolean)
       .join(dim("  ·  "));
-    console.log(`  ${bold(`${i + 1}. ${r.name}@${r.version}`)}   ${meta}`);
-    if (r.description) console.log(dim(`     ${r.description.slice(0, 100)}`));
-    for (const deduction of topDeductions(r, 3)) console.log(dim(`       - ${deduction}`));
+    console.log(`  ${bold(`${i + 1}. ${clean(r.name)}@${clean(r.version)}`)}   ${meta}`);
+    if (r.description) console.log(dim(`     ${clean(r.description).slice(0, 100)}`));
+    for (const deduction of topDeductions(r, 3)) console.log(dim(`       - ${clean(deduction)}`));
     console.log("");
   });
 
   if (report.rejected.length > 0) {
     console.log(bold("Excluded:"));
     for (const rej of report.rejected) {
-      console.log(red(`  ✗ ${rej.name}${rej.version ? `@${rej.version}` : ""}`) + dim(` — ${rej.reason}`));
+      console.log(red(`  ✗ ${clean(rej.name)}${rej.version ? `@${clean(rej.version)}` : ""}`) + dim(` — ${clean(rej.reason)}`));
     }
     console.log("");
   }

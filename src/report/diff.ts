@@ -1,6 +1,6 @@
 import type { VersionDiff } from "../diff.js";
 import type { RiskLevel } from "../types.js";
-import { bold, dim, green, red, yellow } from "./colors.js";
+import { bold, clean, dim, green, red, yellow } from "./colors.js";
 
 const RISK_COLOR: Record<RiskLevel, (text: string) => string> = { low: green, medium: yellow, high: red };
 
@@ -8,7 +8,7 @@ export function renderVersionDiff(diff: VersionDiff): string {
   const lines: string[] = [];
   const push = (line = "") => lines.push(line);
   push("");
-  push(bold(`Version diff — ${diff.package} ${diff.from.version} → ${diff.to.version}`) + dim(` (${diff.direction})`));
+  push(bold(`Version diff — ${clean(diff.package)} ${clean(diff.from.version)} → ${clean(diff.to.version)}`) + dim(` (${diff.direction})`));
   const dates = [
     diff.from.publishDate ? `from: ${diff.from.publishDate.slice(0, 10)}` : null,
     diff.to.publishDate ? `to: ${diff.to.publishDate.slice(0, 10)}` : null,
@@ -18,53 +18,53 @@ export function renderVersionDiff(diff: VersionDiff): string {
   const lifecycle = diff.lifecycleScripts;
   if (lifecycle.added.length || lifecycle.removed.length || lifecycle.changed.length) {
     push(bold("Lifecycle scripts"));
-    for (const script of lifecycle.added) push(red(`  + ${script.hook}: ${script.after}`));
-    for (const script of lifecycle.changed) push(yellow(`  ~ ${script.hook}: ${script.before}  →  ${script.after}`));
-    for (const script of lifecycle.removed) push(dim(`  - ${script.hook}: ${script.before}`));
+    for (const script of lifecycle.added) push(red(`  + ${clean(script.hook)}: ${clean(script.after)}`));
+    for (const script of lifecycle.changed) push(yellow(`  ~ ${clean(script.hook)}: ${clean(script.before)}  →  ${clean(script.after)}`));
+    for (const script of lifecycle.removed) push(dim(`  - ${clean(script.hook)}: ${clean(script.before)}`));
     push();
   }
   if (diff.newScriptFindings.length) {
     push(bold("New suspicious script commands"));
-    for (const finding of diff.newScriptFindings) push(red(`  ! ${finding}`));
+    for (const finding of diff.newScriptFindings) push(red(`  ! ${clean(finding)}`));
     push();
   }
   const dependencies = diff.dependencies;
   if (dependencies.added.length || dependencies.removed.length || dependencies.changed.length) {
     push(bold("Dependencies"));
-    for (const dependency of dependencies.added) push((dependency.nonRegistrySpec ? red : green)(`  + ${dependency.name}${dependency.afterRange ? `@${dependency.afterRange}` : ""}`));
-    for (const dependency of dependencies.changed) push((dependency.nonRegistrySpec ? red : yellow)(`  ~ ${dependency.name}: ${dependency.beforeRange}  →  ${dependency.afterRange}`));
-    for (const dependency of dependencies.removed) push(dim(`  - ${dependency.name}${dependency.beforeRange ? `@${dependency.beforeRange}` : ""}`));
+    for (const dependency of dependencies.added) push((dependency.nonRegistrySpec ? red : green)(`  + ${clean(dependency.name)}${dependency.afterRange ? `@${clean(dependency.afterRange)}` : ""}`));
+    for (const dependency of dependencies.changed) push((dependency.nonRegistrySpec ? red : yellow)(`  ~ ${clean(dependency.name)}: ${clean(dependency.beforeRange ?? "")}  →  ${clean(dependency.afterRange ?? "")}`));
+    for (const dependency of dependencies.removed) push(dim(`  - ${clean(dependency.name)}${dependency.beforeRange ? `@${clean(dependency.beforeRange)}` : ""}`));
     push();
   }
   if (diff.maintainers.added.length || diff.maintainers.removed.length) {
     push(bold("Maintainers"));
-    for (const maintainer of diff.maintainers.added) push(yellow(`  + ${maintainer}`));
-    for (const maintainer of diff.maintainers.removed) push(dim(`  - ${maintainer}`));
+    for (const maintainer of diff.maintainers.added) push(yellow(`  + ${clean(maintainer)}`));
+    for (const maintainer of diff.maintainers.removed) push(dim(`  - ${clean(maintainer)}`));
     push();
   }
   if (diff.repositoryChanged) {
     push(bold("Repository"));
-    push(yellow(`  ${diff.repositoryChanged.before ?? "(none)"}  →  ${diff.repositoryChanged.after ?? "(none)"}`));
+    push(yellow(`  ${clean(diff.repositoryChanged.before ?? "(none)")}  →  ${clean(diff.repositoryChanged.after ?? "(none)")}`));
     push();
   }
   const native = diff.nativeSurface;
   if (native.added.length || native.newBinaries.length || native.newAndroidPermissions.length) {
     push(bold("Native surface"));
-    for (const label of native.added) push(yellow(`  + ${label}`));
-    for (const binary of native.newBinaries) push(red(`  + binary: ${binary}`));
-    for (const permission of native.newAndroidPermissions) push(red(`  + permission: ${permission}`));
+    for (const label of native.added) push(yellow(`  + ${clean(label)}`));
+    for (const binary of native.newBinaries) push(red(`  + binary: ${clean(binary)}`));
+    for (const permission of native.newAndroidPermissions) push(red(`  + permission: ${clean(permission)}`));
     push();
   }
   if (diff.advisories.added.length || diff.advisories.resolved.length) {
     push(bold("Advisories"));
-    for (const advisory of diff.advisories.added) push(yellow(`  + ${advisory.id}${advisory.summary ? ` — ${advisory.summary}` : ""}`));
-    for (const advisory of diff.advisories.resolved) push(green(`  - resolved: ${advisory.id}`));
+    for (const advisory of diff.advisories.added) push(yellow(`  + ${clean(advisory.id)}${advisory.summary ? ` — ${clean(advisory.summary)}` : ""}`));
+    for (const advisory of diff.advisories.resolved) push(green(`  - resolved: ${clean(advisory.id)}`));
     push();
   }
   if (diff.provenanceLost || diff.deprecatedAdded) {
     push(bold("Reputation"));
     if (diff.provenanceLost) push(yellow("  ! npm provenance attestation lost"));
-    if (diff.deprecatedAdded) push(yellow(`  ! now deprecated: ${diff.deprecatedAdded}`));
+    if (diff.deprecatedAdded) push(yellow(`  ! now deprecated: ${clean(String(diff.deprecatedAdded))}`));
     push();
   }
   if (diff.size && (diff.size.unpackedSizeDelta ?? 0) !== 0) {
@@ -80,7 +80,7 @@ export function renderVersionDiff(diff: VersionDiff): string {
   const anyChange = lifecycle.added.length || lifecycle.removed.length || lifecycle.changed.length || diff.newScriptFindings.length || dependencies.added.length || dependencies.removed.length || dependencies.changed.length || diff.maintainers.added.length || diff.maintainers.removed.length || diff.repositoryChanged || native.added.length || native.newBinaries.length || native.newAndroidPermissions.length || diff.advisories.added.length || diff.advisories.resolved.length || diff.provenanceLost || diff.deprecatedAdded || diff.score.delta !== 0;
   if (!anyChange) push(dim("No noteworthy changes between these versions."));
   push(bold("Diff risk: ") + RISK_COLOR[diff.diffRisk](bold(diff.diffRisk.toUpperCase())));
-  for (const reason of diff.riskReasons) push(`  • ${reason.replace(/^\[(high|medium)\] /, "")}`);
+  for (const reason of diff.riskReasons) push(`  • ${clean(reason.replace(/^\[(high|medium)\] /, ""))}`);
   push();
   return lines.join("\n");
 }

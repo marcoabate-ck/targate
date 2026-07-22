@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { ArtifactSignal } from "./types.js";
 
@@ -136,7 +137,7 @@ export async function recordArtifactObservations(
   }
   const file = artifactLedgerPath(cwd);
   await mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
+  const temp = `${file}.${randomUUID()}.tmp`;
   const doc: ArtifactLedgerFile = { schemaVersion: SCHEMA_VERSION, artifacts };
   await writeFile(temp, `${JSON.stringify(doc, null, 2)}\n`, { mode: 0o600 });
   await rename(temp, file);

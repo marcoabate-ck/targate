@@ -115,13 +115,15 @@ function sanitizeHeaderText(value: string, maxLength = 200): string {
     // Drop bidi overrides / zero-width chars (they survive \s and can reorder
     // or hide header text without being visible).
     .replace(/[\u200B\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "")
-    // Collapse any literal delimiter fragment so a path cannot spoof the fence.
-    .replace(/={3,}/g, "=")
     // Strip `$` (not escape to `$$`): some call sites use this value as a
     // String.replace REPLACEMENT (where `$&`/`$\``/`$'` re-expand) while others
     // interpolate it directly (where `$$` would show literally). Stripping is
     // correct in BOTH contexts; the fidelity loss is cosmetic.
     .replace(/\$/g, "")
+    // Collapse delimiter fragments LAST \u2014 after the control/bidi/`$` removals
+    // above, so a value like `=$=$=$=` can't reconstruct a `=====` run once its
+    // separators are gone (`=$=$=` -> strip `$` -> `=====` -> collapse -> `=`).
+    .replace(/={3,}/g, "=")
     .replace(/\s+/g, " ")
     .trim();
   return flattened.length > maxLength ? `${flattened.slice(0, maxLength)}\u2026` : flattened;

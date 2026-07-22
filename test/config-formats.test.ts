@@ -138,6 +138,23 @@ describe("approvals formats", () => {
     expect(approvals["core-js@3.49.0"]?.mode).toBe("no-scripts");
   });
 
+  // Regression (v4 LOW): a `__proto__` key in a committed approvals.json must
+  // not pollute a prototype, and normal keys must still load.
+  it("ignores a __proto__ key in approvals.json without polluting Object.prototype", async () => {
+    const cwd = await scratch();
+    await mkdir(path.join(cwd, ".targate"));
+    await writeFile(
+      path.join(cwd, ".targate", "approvals.json"),
+      JSON.stringify({
+        "__proto__": { mode: "normal", approvedAt: "2026-01-01T00:00:00Z", polluted: true },
+        "safe@1.0.0": { mode: "normal", approvedAt: "2026-01-01T00:00:00Z" },
+      }),
+    );
+    const approvals = await loadApprovals(cwd);
+    expect(approvals["safe@1.0.0"]?.mode).toBe("normal");
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
   it("reads ts approvals", async () => {
     const cwd = await scratch();
     await mkdir(path.join(cwd, ".targate"));

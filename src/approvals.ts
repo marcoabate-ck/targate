@@ -1,11 +1,23 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { execConfigDisabled, isExecConfigFile, loadConfigFile } from "./config-loader.js";
 import type { ApprovalMode } from "./trust-decision.js";
 import { isApprovalApplicable } from "./trust-decision.js";
 import type { Decision, RiskAssessment, RiskLevel } from "./types.js";
 import { TARGATE_VERSION } from "./version.js";
+
+/**
+ * Write a committed trust-state file atomically (tmp + rename) so a crash or a
+ * concurrent second process can never truncate `approvals.json`/`denials.json`
+ * and silently drop the team's committed approvals.
+ */
+export async function atomicWrite(file: string, content: string): Promise<void> {
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  await writeFile(tmp, content);
+  await rename(tmp, file);
+}
 
 export const APPROVALS_DIR = ".targate";
 export const APPROVALS_BASENAME = "approvals";
@@ -154,6 +166,7 @@ export async function loadApprovals(cwd: string = process.cwd()): Promise<Approv
         continue;
       }
       for (const [key, record] of Object.entries(doc)) {
+        if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
         if (isApprovalApplicable(record)) merged[key] = record as ApprovalRecord;
         else console.error(`[targate] ignoring invalid approval ${file}#${key}`);
       }
@@ -227,7 +240,7 @@ export async function recordApproval(
   const sorted = Object.fromEntries(
     Object.entries(existing).sort(([a], [b]) => a.localeCompare(b)),
   );
-  await writeFile(file, JSON.stringify(sorted, null, 2) + "\n");
+  await atomicWrite(file, JSON.stringify(sorted, null, 2) + "\n");
   return record;
 }
 
@@ -256,6 +269,6 @@ export async function removeApproval(
   const sorted = Object.fromEntries(
     Object.entries(existing).sort(([a], [b]) => a.localeCompare(b)),
   );
-  await writeFile(file, JSON.stringify(sorted, null, 2) + "\n");
+  await atomicWrite(file, JSON.stringify(sorted, null, 2) + "\n");
   return true;
 }

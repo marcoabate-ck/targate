@@ -1,9 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { execConfigDisabled, isExecConfigFile, loadConfigFile } from "./config-loader.js";
 import type { ApprovalContext } from "./approvals.js";
-import { APPROVALS_DIR } from "./approvals.js";
+import { APPROVALS_DIR, atomicWrite } from "./approvals.js";
 import { isValidIsoTimestamp } from "./persisted-validation.js";
 
 /**
@@ -89,6 +89,7 @@ export async function loadDenials(cwd: string = process.cwd()): Promise<DenialsM
         continue;
       }
       for (const [key, record] of Object.entries(doc)) {
+        if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
         if (isDenialApplicable(record)) merged[key] = record;
         else console.error(`[targate] ignoring invalid denial ${file}#${key}`);
       }
@@ -129,7 +130,7 @@ async function writeDenials(file: string, cwd: string, denials: DenialsMap): Pro
   const sorted = Object.fromEntries(
     Object.entries(denials).sort(([a], [b]) => a.localeCompare(b)),
   );
-  await writeFile(file, JSON.stringify(sorted, null, 2) + "\n");
+  await atomicWrite(file, JSON.stringify(sorted, null, 2) + "\n");
 }
 
 export interface RecordDenialExtras {

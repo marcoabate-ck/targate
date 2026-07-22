@@ -1,0 +1,60 @@
+import { describe, expect, it } from "vitest";
+import { clean } from "../src/report/colors.js";
+import { renderReport } from "../src/report/assessment.js";
+import { makeMetadata, makeSignals } from "./helpers.js";
+import type { RiskAssessment } from "../src/types.js";
+
+const ESC = String.fromCharCode(27); // U+001B
+const BEL = String.fromCharCode(7); // U+0007
+const NEL = String.fromCharCode(0x85); // C1 newline
+const DEL = String.fromCharCode(0x7f);
+
+// Regression (v4 #1): attacker-controlled metadata is rendered to the terminal;
+// raw ANSI escapes / CR / LF would let a package forge reassuring lines, scroll
+// away the verdict, or hide findings. `clean` must neutralize them.
+describe("clean (terminal sanitizer)", () => {
+  it("strips ANSI CSI colour sequences", () => {
+    expect(clean(`${ESC}[31mred${ESC}[0m`)).toBe("red");
+  });
+
+  it("strips ANSI OSC sequences", () => {
+    expect(clean(`${ESC}]0;title${BEL}rest`)).toBe("rest");
+  });
+
+  it("flattens CR/LF and other controls to spaces", () => {
+    expect(clean("a\r\nb\tc")).toBe("a  b c");
+    expect(clean(`a${ESC}b`)).toBe("a b"); // lone ESC
+  });
+
+  it("neutralizes C1 (NEL) and DEL", () => {
+    expect(clean(`a${NEL}b${DEL}c`)).toBe("a b c");
+  });
+
+  it("passes ordinary text through unchanged", () => {
+    expect(clean("lodash 4.17.21 — utilities")).toBe("lodash 4.17.21 — utilities");
+  });
+});
+
+describe("renderReport does not let hostile metadata forge output", () => {
+  it("sanitizes a description carrying ANSI + a fake checklist line", () => {
+    const metadata = makeMetadata({
+      name: "evil",
+      version: "1.0.0",
+      description: `x\r\n  ${ESC}[32m✓ TOTALLY SAFE (forged)${ESC}[0m\r\nmore`,
+    });
+    const assessment: RiskAssessment = {
+      risk: "high",
+      decision: "block",
+      summary: "blocked",
+      reasons: ["remote code execution"],
+      recommendedAction: "do not install",
+      source: "rules",
+    };
+    const out = renderReport(metadata, makeSignals({ package: "evil" }), assessment);
+    // No raw ESC and no bare CR injected by the description survive.
+    expect(out).not.toContain(ESC + "[32m");
+    expect(out).not.toContain("\r");
+    // The forged text never becomes its own standalone line.
+    expect(out.split("\n").some((l) => l.trim() === "✓ TOTALLY SAFE (forged)")).toBe(false);
+  });
+});
