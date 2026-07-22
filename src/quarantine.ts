@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { lstat, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { createGunzip } from "node:zlib";
 import * as tar from "tar";
 import { authHeaderForUrl, getNpmrc } from "./npmrc.js";
 import type { ArtifactSignal, ArtifactTrust } from "./types.js";
-import { fetchWithTimeout, readResponseBuffer } from "./network.js";
+import { fetchArtifactGuarded, readResponseBuffer } from "./network.js";
 import {
   ResourceLimitError,
   resolveResourceLimits,
@@ -116,11 +118,12 @@ function verifyEvidence(
     );
     return false;
   }
-  if (result.algorithm === "shasum") {
-    // Verified, but only against the legacy sha1 dist.shasum — collision-prone
-    // and weaker than SRI. Surface it so a sha1-only match is never mistaken
-    // for a strong, SRI-backed verification.
-    reasons.push(`${label} verified only via legacy sha1 (weaker than SRI — collision-prone)`);
+  if (result.algorithm === "shasum" || result.algorithm === "sha1") {
+    // Verified, but only against sha1 — collision-prone, weaker than a modern
+    // SRI. Covers BOTH the legacy `dist.shasum` field (algorithm "shasum") and
+    // a `sha1-…` SRI in `dist.integrity` (algorithm "sha1"): either way it must
+    // not be mistaken for strong verification.
+    reasons.push(`${label} verified only via sha1 (weaker than a modern SRI — collision-prone)`);
   }
   return true;
 }
@@ -189,6 +192,35 @@ export function verifyArtifactIdentity(
 }
 
 /**
+ * Stream-decompress a gzip buffer purely to bound its OUTPUT size, destroying
+ * the stream (and rejecting) the moment it exceeds `cap`. Used as a
+ * decompression-bomb pre-check before extraction. A non-gzip / corrupt buffer
+ * resolves quietly — tar.x will surface the real error downstream.
+ */
+async function assertDecompressedWithinCap(bytes: Buffer, cap: number, label: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const gunzip = createGunzip();
+    let total = 0;
+    let settled = false;
+    const done = (err?: Error): void => {
+      if (settled) return;
+      settled = true;
+      gunzip.destroy();
+      err ? reject(err) : resolve();
+    };
+    gunzip.on("data", (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > cap) {
+        done(new ResourceLimitError("extracted-size", `${label} decompresses beyond ${cap} bytes (possible decompression bomb)`));
+      }
+    });
+    gunzip.on("end", () => done());
+    gunzip.on("error", () => done()); // not gzip / corrupt — defer to tar.x
+    Readable.from(bytes).pipe(gunzip);
+  });
+}
+
+/**
  * Download the package tarball into an isolated temp directory, derive and
  * verify its artifact identity, and extract it WITHOUT running lifecycle
  * scripts. A mismatch remains inspectable but is carried as `mutated`, which
@@ -214,10 +246,13 @@ export async function quarantineTarball(
   const limits = resolveResourceLimits(options.resourceLimits);
   let res: Response;
   try {
-    res = await fetchWithTimeout(
+    // Guarded: validates the initial URL AND every redirect hop against the
+    // SSRF host guard, and drops the credential on a cross-origin hop.
+    res = await fetchArtifactGuarded(
       tarballUrl,
       auth ? { headers: { authorization: auth } } : {},
       { timeoutMs: limits.networkTimeoutMs, maxResponseBytes: limits.maxTarballBytes },
+      `${options.packageName}@${options.version} tarball URL`,
     );
   } catch (err) {
     await rm(root, { recursive: true, force: true });
@@ -252,6 +287,17 @@ export async function quarantineTarball(
 
   await writeFile(tarballPath, bytes);
 
+  // Decompression-bomb guard: the per-entry caps below stop DISK writes but
+  // node-tar still inflates the gzip stream to skip an oversized body, so a
+  // ≤maxTarballBytes archive declaring multi-GB entries would burn unbounded
+  // CPU. Pre-scan the gzip with a hard output cap that aborts early.
+  try {
+    await assertDecompressedWithinCap(bytes, limits.maxExtractedBytes, "package tarball");
+  } catch (err) {
+    await rm(root, { recursive: true, force: true });
+    throw err;
+  }
+
   let archiveFailure: ResourceLimitError | undefined;
   let archiveFiles = 0;
   let archiveBytes = 0;
@@ -284,14 +330,17 @@ export async function quarantineTarball(
         archiveFailure = new ResourceLimitError("unsafe-path", `archive entry escapes quarantine: ${entryPath}`);
         return false;
       }
-      const top = portable.split("/")[0];
-      if (top) topLevelDirs.add(top);
       const entryType = "type" in entry ? entry.type : undefined;
       if (
         entryType === "SymbolicLink" ||
         entryType === "Link" ||
         ("isSymbolicLink" in entry && entry.isSymbolicLink())
       ) return false; // skipping a link is not a failure — just exclude it
+      // Record the top-level dir only for entries we actually keep, so a
+      // planted top-level symlink can't inflate the set and force the
+      // "package" fallback (an availability nuisance).
+      const top = portable.split("/")[0];
+      if (top) topLevelDirs.add(top);
       archiveFiles++;
       if (archiveFiles > limits.maxFiles) {
         archiveFailure = new ResourceLimitError("file-count", `archive exceeds ${limits.maxFiles} entries`);

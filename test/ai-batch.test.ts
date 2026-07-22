@@ -51,7 +51,10 @@ describe("assessManyWithCache", () => {
     expect(out[1].decision).toBe("allow");
   });
 
-  it("falls back for every package when the whole batch call throws", async () => {
+  // Regression (v3 P3): a whole-batch outage degrades every item to
+  // deterministic rules DIRECTLY — it must NOT fan out into N isolated
+  // provider.assess calls (each with its own retry/timeout budget).
+  it("degrades the whole batch to rules without re-hitting the provider", async () => {
     const list = [makeSignals({ package: "a" }), makeSignals({ package: "b" })];
     const assess = vi.fn(async () => verdict());
     const assessBatch = vi.fn(async () => {
@@ -59,8 +62,9 @@ describe("assessManyWithCache", () => {
     });
     const p: AiProvider = { name: "fake", model: "m", assess, assessBatch };
     const out = await assessManyWithCache(p, list, opts);
-    expect(assess).toHaveBeenCalledTimes(2);
+    expect(assess).not.toHaveBeenCalled(); // no per-item fan-out
     expect(out).toHaveLength(2);
+    expect(out.every((r) => r.source === "rules")).toBe(true);
   });
 
   it("reports per-package progress across cache hits, batch items and fallbacks", async () => {

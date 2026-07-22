@@ -205,6 +205,8 @@ targate doctor --ping    # also one real (paid) AI completion, end to end
 Checks: Node version (≥22.13), package manager (lockfile + binary), npm registry reachability, **registry configuration** (`.npmrc` default/override/scoped registries and whether credentials are configured — presence only, values are never printed), OSV/OpenSSF reachability, AI provider resolution (and `--ping` for a live completion), GitHub API quota, team policy validity, executable-config mode, `.targate/` and user-cache writability, and CI mode.
 
 ```text
+# abbreviated — a real run also prints Package manager, Executable config and
+# User cache dir rows, and a trailing "--ping" hint
 targate doctor
 
   ✓ Node version                     Node v22.13.0 (>=22.13.0 required)

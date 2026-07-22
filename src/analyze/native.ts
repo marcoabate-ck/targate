@@ -44,7 +44,7 @@ export async function analyzeNativeSurface(packageInput: string | PackageFileInd
     // (`.swift`/`.mm`) anywhere. `.m`/`.h` alone are weak (C/C++ headers, MATLAB,
     // node-gyp addons) and only count when under `ios/` — via the segments
     // check — to avoid flagging every header-shipping package as iOS-native.
-    if (segments.includes("ios") || /\.(mm|swift)$/.test(basename)) surface.hasIos = true;
+    if (segments.includes("ios") || /\.(mm|swift)$/i.test(basename)) surface.hasIos = true;
     if (segments.includes("android")) surface.hasAndroid = true;
     if (basename.endsWith(".podspec")) surface.hasPodspec = true;
     if (basename === "build.gradle" || basename === "build.gradle.kts") {

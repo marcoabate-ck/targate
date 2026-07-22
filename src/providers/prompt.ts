@@ -108,17 +108,23 @@ const DATA_DELIMITER = "===== UNTRUSTED PACKAGE ANALYSIS SIGNALS (DATA ONLY) ===
  */
 function sanitizeHeaderText(value: string, maxLength = 200): string {
   const flattened = value
+    // C0 + DEL + C1 controls -> space. C1 (esp. U+0085 NEL) matters because JS
+    // \s does not match it, so it would otherwise survive as a pseudo-newline.
     // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001F\u007F]+/g, " ")
-    // Also collapse any literal delimiter fragment so a path cannot spoof the fence.
+    .replace(/[\u0000-\u001F\u007F-\u009F]+/g, " ")
+    // Drop bidi overrides / zero-width chars (they survive \s and can reorder
+    // or hide header text without being visible).
+    .replace(/[\u200B\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "")
+    // Collapse any literal delimiter fragment so a path cannot spoof the fence.
     .replace(/={3,}/g, "=")
-    // Strip `$`: the sanitized value is used as the REPLACEMENT string in
-    // String.replace(), where `$&`/`` $` ``/`$'` would re-expand into delimiter
-    // fragments after this sanitization runs.
+    // Strip `$` (not escape to `$$`): some call sites use this value as a
+    // String.replace REPLACEMENT (where `$&`/`$\``/`$'` re-expand) while others
+    // interpolate it directly (where `$$` would show literally). Stripping is
+    // correct in BOTH contexts; the fidelity loss is cosmetic.
     .replace(/\$/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return flattened.length > maxLength ? `${flattened.slice(0, maxLength)}…` : flattened;
+  return flattened.length > maxLength ? `${flattened.slice(0, maxLength)}\u2026` : flattened;
 }
 
 export function buildUserPrompt(signals: Signals): string {

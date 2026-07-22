@@ -1,3 +1,5 @@
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { ResourceLimitError } from "./resource-limits.js";
 
 export interface FetchBudget {
@@ -54,8 +56,9 @@ export function isPrivateHost(hostname: string): boolean {
   host = host.replace(/\.$/, ""); // a trailing dot resolves to the same address
   if (host === "localhost" || host.endsWith(".localhost")) return true;
 
-  // IPv4-mapped IPv6, dotted (::ffff:169.254.169.254) OR hex (::ffff:a9fe:a9fe).
-  const mapped = host.match(/^::ffff:(.+)$/);
+  // IPv4-mapped (::ffff:…) and deprecated IPv4-compatible (::…) IPv6, in dotted
+  // (::ffff:169.254.169.254 / ::169.254.169.254) OR hex (::ffff:a9fe:a9fe) form.
+  const mapped = host.match(/^::(?:ffff:)?(.+)$/);
   if (mapped) {
     const inner = mapped[1];
     const hex = inner.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
@@ -86,6 +89,30 @@ export function isPrivateHost(hostname: string): boolean {
  * internal host and turn targate into an SSRF proxy. Require https and refuse
  * loopback/link-local/private-network hosts.
  */
+/**
+ * Resolve a hostname and reject if ANY resolved address is private/loopback —
+ * catches a public-looking name that points at an internal host (DNS
+ * rebinding's first half). NOTE: a determined rebinding attacker can still
+ * change the record between this lookup and the socket's own resolution
+ * (TOCTOU); fully closing that needs connection pinning to the vetted address.
+ * See docs/threat-model.md. IP-literal hosts are already covered by
+ * assertSafeArtifactUrl and skip the lookup.
+ */
+export async function assertHostResolvesPublic(hostname: string, label = "artifact URL"): Promise<void> {
+  if (isIP(hostname)) return; // literal — assertSafeArtifactUrl already checked it
+  let addrs: { address: string }[];
+  try {
+    addrs = await lookup(hostname, { all: true });
+  } catch {
+    return; // resolution failure surfaces at connect time; don't mask it here
+  }
+  for (const { address } of addrs) {
+    if (isPrivateHost(address)) {
+      throw new Error(`${label}: host ${hostname} resolves to a private/loopback address (${address})`);
+    }
+  }
+}
+
 export function assertSafeArtifactUrl(url: string, label = "artifact URL"): void {
   let parsed: URL;
   try {
@@ -132,6 +159,44 @@ export async function fetchWithTimeout(
       );
     }
     throw err;
+  }
+}
+
+/**
+ * Fetch an artifact whose URL came from an untrusted packument, following
+ * redirects MANUALLY and re-validating every hop with `assertSafeArtifactUrl`.
+ * Node's default `redirect: "follow"` would let a registry return a valid
+ * public https URL and then 302 to `http://169.254.169.254/…` — an SSRF the
+ * one-shot guard on the initial URL cannot catch. The Authorization header is
+ * dropped on any cross-origin hop so a redirect can't exfiltrate the registry
+ * credential to another host.
+ */
+export async function fetchArtifactGuarded(
+  url: string,
+  init: RequestInit,
+  budget: FetchBudget,
+  label = "artifact URL",
+  maxHops = 5,
+): Promise<Response> {
+  let current = url;
+  let currentInit: RequestInit = { ...init, redirect: "manual" };
+  let origin = new URL(url).origin;
+  for (let hop = 0; ; hop++) {
+    assertSafeArtifactUrl(current, label);
+    await assertHostResolvesPublic(new URL(current).hostname, label);
+    const res = await fetchWithTimeout(current, currentInit, budget);
+    if (res.status < 300 || res.status >= 400) return res;
+    const location = res.headers.get("location");
+    if (!location) return res; // 3xx without Location — let the caller handle it
+    if (hop >= maxHops) {
+      throw new Error(`${label}: too many redirects (>${maxHops})`);
+    }
+    const next = new URL(location, current);
+    const headers = new Headers(currentInit.headers);
+    if (next.origin !== origin) headers.delete("authorization");
+    current = next.toString();
+    currentInit = { ...currentInit, headers };
+    origin = next.origin;
   }
 }
 

@@ -116,6 +116,28 @@ describe("network and quarantine budgets", () => {
     })).rejects.toMatchObject({ kind: "tarball-size" });
   });
 
+  // Regression (v3 P1.1): a redirect to a private/metadata host must be refused,
+  // not followed. Node's default redirect:"follow" would otherwise turn a
+  // valid-looking public tarball URL into an SSRF via a 302.
+  it("refuses a tarball redirect to a private/metadata host (SSRF)", async () => {
+    const fetchMock = vi.fn(async (url: string) =>
+      url.includes("169.254.169.254")
+        ? new Response("secret", { status: 200 })
+        : new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data/" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      quarantineTarball("https://registry.test/pkg.tgz", {
+        packageName: "pkg",
+        version: "1.0.0",
+        registryUrl: "https://registry.test",
+        registry: {},
+      }),
+    ).rejects.toThrow(/private\/loopback|https/);
+    // The internal host was never actually fetched.
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("169.254.169.254"))).toBe(false);
+  });
+
   it("ignores archive symlinks and keeps extracted real paths inside quarantine", async () => {
     const work = path.join(dir, "source");
     await mkdir(path.join(work, "package"), { recursive: true });
@@ -180,6 +202,16 @@ describe("network and quarantine budgets", () => {
     const bytes = await tarballWith({ "a.js": "a".repeat(400), "b.js": "b".repeat(400) });
     await expect(
       quarantineWithLimits(bytes, { maxFileBytes: 1000, maxExtractedBytes: 500 }),
+    ).rejects.toMatchObject({ kind: "extracted-size" });
+  });
+
+  // Regression (v3 P2.1): a highly-compressible payload that inflates past the
+  // extracted-size cap must be rejected by the decompression-bomb pre-check
+  // (before node-tar burns CPU inflating it), not hang.
+  it("rejects a decompression bomb via the pre-extraction gunzip cap", async () => {
+    const bytes = await tarballWith({ "big.js": "a".repeat(2_000_000) }); // compresses tiny
+    await expect(
+      quarantineWithLimits(bytes, { maxExtractedBytes: 1000, maxFileBytes: 50_000_000, maxFiles: 100 }),
     ).rejects.toMatchObject({ kind: "extracted-size" });
   });
 

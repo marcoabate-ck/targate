@@ -72,4 +72,22 @@ describe("extractLockfileArtifacts fail-closed", () => {
   it("throws on a pnpm lockfile that is a YAML scalar", () => {
     expect(() => extractLockfileArtifacts("pnpm", "123")).toThrow(LockfileParseError);
   });
+
+  // Regression (v3 P3): a pathologically-deep v1 dependencies chain must throw
+  // LockfileParseError, not overflow the stack with a raw RangeError.
+  it("throws LockfileParseError (not RangeError) on a pathologically deep v1 tree", () => {
+    // Build the JSON as a string directly: V8's JSON.parse is iterative (no
+    // stack overflow), so the deep tree parses fine — it's the recursive WALK
+    // that must be depth-capped. (Building via a nested object + JSON.stringify
+    // would overflow in the test setup, not in the code under test.)
+    const n = 800; // > MAX_V1_DEPTH (500)
+    const open = '{"version":"1.0.0","dependencies":{"d":';
+    const deep =
+      '{"lockfileVersion":1,"dependencies":{"root":' +
+      open.repeat(n) +
+      '{"version":"1.0.0"}' +
+      "}}".repeat(n) +
+      "}}";
+    expect(() => extractLockfileArtifacts("npm", deep)).toThrow(LockfileParseError);
+  });
 });
