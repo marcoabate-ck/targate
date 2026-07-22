@@ -127,8 +127,11 @@ async function runResolver(command: string[], cwd: string): Promise<void> {
   // Only bare command names (npm/pnpm/yarn) get the Windows `.cmd` shim suffix;
   // an absolute path or a name with an extension (e.g. node.exe) spawns as-is.
   const isBareName = !rawBin.includes("/") && !rawBin.includes("\\") && !path.extname(rawBin);
-  const bin = process.platform === "win32" && isBareName ? `${rawBin}.cmd` : rawBin;
-  await execFileAsync(bin, args, { cwd, timeout: RESOLVE_TIMEOUT_MS });
+  const winShim = process.platform === "win32" && isBareName;
+  const bin = winShim ? `${rawBin}.cmd` : rawBin;
+  // shell:true is required to exec a `.cmd` on Node >=18.20.2 (CVE-2024-27980),
+  // else EINVAL. Specs are dash-guarded; args carry no shell metacharacters.
+  await execFileAsync(bin, args, { cwd, timeout: RESOLVE_TIMEOUT_MS, shell: winShim });
 }
 
 async function copyResolutionConfig(cwd: string, staged: string): Promise<void> {

@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { assertSafeArtifactUrl, isPrivateHost } from "../src/network.js";
+import { describe, expect, it, vi } from "vitest";
+import { assertHostResolvesPublic, assertSafeArtifactUrl, isPrivateHost } from "../src/network.js";
+
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn(async (host: string) =>
+    host === "rebind.evil"
+      ? [{ address: "169.254.169.254", family: 4 }]
+      : [{ address: "93.184.216.34", family: 4 }],
+  ),
+}));
 
 // Regression (P1.2): dist.tarball is registry-controlled; a malicious or MITM'd
 // packument could point it at cloud metadata or an internal host, turning
@@ -68,5 +76,21 @@ describe("assertSafeArtifactUrl", () => {
 
   it("rejects an internal host tarball", () => {
     expect(() => assertSafeArtifactUrl("https://10.0.0.5/pkg.tgz")).toThrow(/private\/loopback/);
+  });
+});
+
+// Regression (v3 P1.2): a public-looking hostname that RESOLVES to a private
+// address must be rejected (DNS rebinding, first half).
+describe("assertHostResolvesPublic", () => {
+  it("rejects a hostname resolving to a private address", async () => {
+    await expect(assertHostResolvesPublic("rebind.evil")).rejects.toThrow(/private\/loopback/);
+  });
+
+  it("allows a hostname resolving to a public address", async () => {
+    await expect(assertHostResolvesPublic("example.com")).resolves.toBeUndefined();
+  });
+
+  it("skips the lookup for an IP literal", async () => {
+    await expect(assertHostResolvesPublic("93.184.216.34")).resolves.toBeUndefined();
   });
 });

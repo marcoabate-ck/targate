@@ -42,6 +42,13 @@ describe("analyzeNativeSurface", () => {
     expect(surface.hasIos).toBe(true);
   });
 
+  // Regression (v3 P3): the iOS extension match must be case-insensitive.
+  it("detects iOS source with uppercase extensions", async () => {
+    const pkg = await fixture({ "package.json": "{}", "Legacy.MM": "@implementation X @end" });
+    const surface = await analyzeNativeSurface(pkg);
+    expect(surface.hasIos).toBe(true);
+  });
+
   it("detects a typical React Native native module", async () => {
     const pkg = await fixture({
       "package.json": "{}",

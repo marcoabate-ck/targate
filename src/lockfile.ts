@@ -85,10 +85,18 @@ interface NpmV1Dependency {
 /** npm lockfileVersion 1 (npm 6) has no `packages` map — only a nested
  *  `dependencies` tree. Walk it recursively so a v1 lockfile is vetted instead
  *  of silently yielding zero packages. */
+const MAX_V1_DEPTH = 500;
+
 function walkNpmV1Dependencies(
   deps: Record<string, NpmV1Dependency>,
   artifacts: Map<string, LockedPackageArtifact>,
+  depth = 0,
 ): void {
+  // Depth cap: a pathological `dependencies` chain would otherwise overflow the
+  // stack with a raw RangeError instead of the documented LockfileParseError.
+  if (depth > MAX_V1_DEPTH) {
+    throw new LockfileParseError(`npm lockfile dependencies nested beyond ${MAX_V1_DEPTH} levels`, "npm");
+  }
   for (const [name, meta] of Object.entries(deps)) {
     if (name && meta && typeof meta.version === "string") {
       mergeArtifact(artifacts, {
@@ -99,7 +107,7 @@ function walkNpmV1Dependencies(
       });
     }
     if (meta && typeof meta.dependencies === "object" && meta.dependencies) {
-      walkNpmV1Dependencies(meta.dependencies, artifacts);
+      walkNpmV1Dependencies(meta.dependencies, artifacts, depth + 1);
     }
   }
 }

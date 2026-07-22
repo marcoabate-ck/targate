@@ -74,8 +74,12 @@ export function runCommand(command: string[]): Promise<number> {
     // an absolute path or a name that already has an extension (e.g.
     // process.execPath = node.exe) must be spawned as-is.
     const isBareName = !rawBin.includes("/") && !rawBin.includes("\\") && !path.extname(rawBin);
-    const bin = process.platform === "win32" && isBareName ? `${rawBin}.cmd` : rawBin;
-    const child = spawn(bin, args, { stdio: "inherit" });
+    const winShim = process.platform === "win32" && isBareName;
+    const bin = winShim ? `${rawBin}.cmd` : rawBin;
+    // Since CVE-2024-27980's mitigation (Node >=18.20.2) Windows refuses to
+    // spawn a `.cmd`/`.bat` without shell:true (throws EINVAL). Args are npm
+    // specs/flags — the leading-dash spec guard blocks the argv-injection vector.
+    const child = spawn(bin, args, { stdio: "inherit", shell: winShim });
     child.on("error", reject);
     child.on("exit", (code) => resolve(code ?? 1));
   });

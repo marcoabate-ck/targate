@@ -37,6 +37,19 @@ describe("artifact identity verification", () => {
     expect(artifact.digest).toBe(sri(bytes));
   });
 
+  // Regression (v3 P2.2): a sha1 SRI in dist.integrity (not just the legacy
+  // dist.shasum field) must surface the weak-checksum caveat.
+  it("surfaces a weak-checksum reason when only a sha1 SRI verifies", () => {
+    const sha1 = `sha1-${createHash("sha1").update(bytes).digest("base64")}`;
+    const artifact = verifyArtifactIdentity(bytes, "https://mirror/pkg.tgz", {
+      packageName: "pkg",
+      version: "1.0.0",
+      registryUrl: "https://mirror",
+      registry: { integrity: sha1 },
+    });
+    expect(artifact.reasons.some((r) => /sha1/i.test(r))).toBe(true);
+  });
+
   it("marks a private tarball and metadata replaced together as mutated", () => {
     const artifact = verifyArtifactIdentity(bytes, "https://mirror/pkg.tgz", {
       packageName: "pkg",

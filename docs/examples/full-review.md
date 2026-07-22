@@ -2,7 +2,7 @@
 
 A plain `npm install <pkg>` resolves the package and **runs its lifecycle scripts immediately** — you find out what it did afterward, if at all. `targate add <pkg>` runs the same install only *after* an analysis, and never at all if the package is blocked.
 
-The runs below are real `targate` output (rules engine only, `--no-ai`, `--dry-run` so nothing is installed). Your version numbers and day counts will differ as packages and advisories move.
+The runs below illustrate `targate` output (rules engine only, `--no-ai`, `--dry-run` so nothing is installed) and are lightly abbreviated for readability — the real command also prints an `artifact identity` line and reputation lines. Your version numbers and day counts will differ as packages and advisories move.
 
 > The examples use `--no-ai` so the output is fully deterministic and reproducible. With an AI provider configured (`source: ai`), the model weighs the same signals contextually, but every deterministic verdict remains a floor it can never downgrade. See [Decision policy](../decisions.md).
 

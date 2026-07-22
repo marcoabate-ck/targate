@@ -190,11 +190,15 @@ export async function assessManyWithCache(
   const cacheWrites: AssessmentCacheWrite[] = [];
   await mapLimit(batches, concurrency, async (batch) => {
     let byId = new Map<string, RiskAssessment>();
+    let batchFailed = false;
     try {
       const batchResults = await provider.assessBatch(batch.map((m) => m.signals));
       byId = new Map(batchResults.map((r) => [r.package, r.assessment]));
     } catch {
-      byId = new Map(); // whole-batch failure -> every item falls back below
+      // Whole-batch failure (provider outage). Degrade the WHOLE batch to
+      // deterministic rules right here — re-hitting the provider once per item
+      // would fan out N more timing-out calls before the same fallback.
+      batchFailed = true;
     }
     await Promise.all(
       batch.map(async ({ index, signals }) => {
@@ -206,10 +210,13 @@ export async function assessManyWithCache(
             cacheWrites.push({ key: keyFor(signals), assessment: raw, packageName: signals.package });
           }
           results[index] = clampDecision(raw, signals);
+        } else if (batchFailed) {
+          const fallback = evaluateRules(signals);
+          fallback.reasons.push(`(AI reasoning unavailable via ${provider.name} — used deterministic rules)`);
+          results[index] = fallback;
         } else {
-          // Missing/misaligned item -> isolated call (clamps + caches inside).
-          // A provider outage must degrade THIS package to deterministic rules
-          // (like assessRisk), never reject and abort the whole tree review.
+          // Missing/misaligned single item (batch itself succeeded) -> isolated
+          // call, still degrading to rules if that one call fails.
           try {
             results[index] = await assessWithCache(provider, signals, opts);
           } catch (err) {

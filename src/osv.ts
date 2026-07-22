@@ -71,8 +71,10 @@ export function isMaliciousRecord(vuln: {
   }
   const details = (vuln.details ?? "").toLowerCase();
   // No unanchored "malicious code in" here — details is long prose where the
-  // false match is most likely.
-  return /contain(s|ed) (malware|malicious code)|is malware|package (is|was) malicious/.test(
+  // false match is most likely. The "fully compromised" clause is GitHub's
+  // standard malware boilerplate — a backstop if the summary is ever prefixed
+  // (e.g. "[MAL] Malicious code in x") and the start-anchor above misses.
+  return /contain(s|ed) (malware|malicious code)|is malware|package (is|was) malicious|should be considered (fully )?compromised/.test(
     details,
   );
 }
