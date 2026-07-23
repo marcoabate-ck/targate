@@ -220,7 +220,21 @@ async function cmdWorkflowStatus(o: Opts, cwd: string): Promise<number> {
     console.log(`Run: ${meta.runId}`);
     console.log(`Status: ${meta.status}`);
     console.log(`Approval: ${meta.approval.required ? `required${meta.approval.approvedAt ? " (approved)" : " — PENDING"}` : "not required"}`);
-    for (const w of meta.workers) console.log(`  ${w.role}: ${w.status}`);
+
+    // Per-role view: show every worker that started/finished, then any planned
+    // role that has not started yet as "queued".
+    const started = new Set(meta.workers.map((w) => w.role));
+    const label = (w: (typeof meta.workers)[number]) => (w.state === "running" ? "running" : (w.status ?? "done"));
+    const width = Math.max(0, ...meta.plannedFlow.concat(meta.workers.map((w) => w.role)).map((r) => r.length));
+    for (const w of meta.workers) {
+      console.log(`  ${w.role.padEnd(width)}  ${label(w)}${w.workerId.endsWith("-1") ? "" : ` (${w.workerId})`}`);
+    }
+    for (const role of meta.plannedFlow) {
+      if (!started.has(role)) console.log(`  ${role.padEnd(width)}  queued`);
+    }
+
+    const active = meta.workers.filter((w) => w.state === "running").length;
+    console.log(`Local concurrency: ${active}/${meta.maxConcurrency}`);
   }
   return meta.status === "awaiting-approval" || meta.status === "failed" ? 2 : 0;
 }

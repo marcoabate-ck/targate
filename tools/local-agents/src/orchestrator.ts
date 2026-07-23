@@ -90,6 +90,8 @@ export async function runWorkerInRun(
 
   let attempt = 0;
   const maxRetries = config.orchestration.maxTransientRetries;
+  // Mark the worker in-flight so `workflow status` shows who is running now.
+  await runStore.upsertWorker({ workerId: assignment.workerId, role: assignment.role, state: "running" }, iso(deps));
   for (;;) {
     attempt++;
     await runStore.appendEvent({
@@ -130,16 +132,17 @@ export async function runWorkerInRun(
       data: { status: outcome.result.status, findings: outcome.result.findings.length },
     });
 
-    // Record in metadata.
-    const meta = await runStore.readMetadata();
-    meta.workers.push({
-      workerId: assignment.workerId,
-      role: assignment.role,
-      status: outcome.result.status,
-      resultFile,
-    });
-    meta.updatedAt = iso(deps);
-    await runStore.writeMetadata(meta);
+    // Record final state in metadata (merges over the "running" entry).
+    await runStore.upsertWorker(
+      {
+        workerId: assignment.workerId,
+        role: assignment.role,
+        state: "done",
+        status: outcome.result.status,
+        resultFile,
+      },
+      iso(deps),
+    );
 
     return outcome.result;
   }
@@ -164,6 +167,8 @@ export async function orchestrateSingle(opts: SingleRunOptions): Promise<{ runId
     status: "running",
     task: opts.task,
     model: opts.config.runtime.model,
+    maxConcurrency: opts.config.orchestration.maxConcurrency,
+    plannedFlow: [opts.role],
     approval: { required: false },
     workers: [],
   };
@@ -243,6 +248,8 @@ export async function startWorkflow(opts: WorkflowOptions): Promise<WorkflowResu
     status: "running",
     task: opts.task,
     model: opts.config.runtime.model,
+    maxConcurrency: opts.config.orchestration.maxConcurrency,
+    plannedFlow: flow,
     approval,
     workers: [],
   };

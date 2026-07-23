@@ -22,6 +22,8 @@ function meta(runId: string): RunMetadata {
     status: "created",
     task: "t",
     model: "m",
+    maxConcurrency: 1,
+    plannedFlow: ["discovery"],
     approval: { required: false },
     workers: [],
   };
@@ -59,6 +61,27 @@ describe("RunStore", () => {
 
     const reread = await store.readMetadata();
     expect(reread.runId).toBe(id);
+  });
+
+  it("upserts a worker from running to done without duplicating it", async () => {
+    const id = makeRunId("2026-07-22T00:00:00.000Z", "up");
+    const store = new RunStore(root, id);
+    await store.init(meta(id));
+
+    await store.upsertWorker({ workerId: "discovery-1", role: "discovery", state: "running" }, "2026-07-22T00:00:01.000Z");
+    let m = await store.readMetadata();
+    expect(m.workers).toHaveLength(1);
+    expect(m.workers[0].state).toBe("running");
+    expect(m.workers[0].status).toBeUndefined();
+
+    await store.upsertWorker(
+      { workerId: "discovery-1", role: "discovery", state: "done", status: "completed", resultFile: "workers/discovery-1.json" },
+      "2026-07-22T00:00:02.000Z",
+    );
+    m = await store.readMetadata();
+    expect(m.workers).toHaveLength(1); // merged, not duplicated
+    expect(m.workers[0].state).toBe("done");
+    expect(m.workers[0].status).toBe("completed");
   });
 
   it("lists runs newest-first", async () => {

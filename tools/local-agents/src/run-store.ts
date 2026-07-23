@@ -21,9 +21,16 @@ export interface RunMetadata {
   status: "created" | "running" | "awaiting-approval" | "completed" | "failed" | "cancelled";
   task: string;
   model: string;
+  /** Configured worker concurrency, for the status display. */
+  maxConcurrency: number;
+  /** Roles the flow intends to run, in order — lets status show what is queued. */
+  plannedFlow: string[];
   approval: ApprovalRecord;
   workers: WorkerSummaryRef[];
 }
+
+/** Lifecycle state of a worker within a run. */
+export type WorkerState = "running" | "done";
 
 export interface ApprovalRecord {
   required: boolean;
@@ -36,8 +43,12 @@ export interface ApprovalRecord {
 export interface WorkerSummaryRef {
   workerId: string;
   role: string;
-  status: WorkerResult["status"];
-  resultFile: string;
+  /** "running" while in flight; "done" once a result is recorded. */
+  state: WorkerState;
+  /** Final worker status; present once state is "done". */
+  status?: WorkerResult["status"];
+  /** Result file path; present once state is "done". */
+  resultFile?: string;
 }
 
 export interface RunEvent {
@@ -92,6 +103,16 @@ export class RunStore {
     await mkdir(path.dirname(this.file(name)), { recursive: true });
     await writeFile(this.file(name), content);
     return name;
+  }
+
+  /** Insert or merge a worker entry by workerId, stamping updatedAt. */
+  async upsertWorker(entry: WorkerSummaryRef, updatedAt: string): Promise<void> {
+    const meta = await this.readMetadata();
+    const i = meta.workers.findIndex((w) => w.workerId === entry.workerId);
+    if (i >= 0) meta.workers[i] = { ...meta.workers[i], ...entry };
+    else meta.workers.push(entry);
+    meta.updatedAt = updatedAt;
+    await this.writeMetadata(meta);
   }
 
   async writeWorkerResult(result: WorkerResult): Promise<string> {
