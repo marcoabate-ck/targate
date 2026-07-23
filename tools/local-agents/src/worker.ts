@@ -23,6 +23,7 @@ import { isConnectionError } from "./readiness.js";
 import {
   failureResult,
   normalizeWorkerResult,
+  WORKER_BODY_JSON_SCHEMA,
   type NormalizeContext,
   type UsageMetrics,
   type WorkerResult,
@@ -103,6 +104,10 @@ export function buildClaudeArgs(opts: {
     opts.disallowedTools.join(","),
     // No MCP servers in a worker unless one is explicitly injected.
     "--strict-mcp-config",
+    // Enforce the result SHAPE at the CLI layer — small local models otherwise
+    // answer in prose. The runner still normalises the parsed body.
+    "--json-schema",
+    JSON.stringify(WORKER_BODY_JSON_SCHEMA),
     "--settings",
     opts.settingsPath,
     "--append-system-prompt",
@@ -181,6 +186,9 @@ export function extractJsonObject(text: string): unknown | null {
 
 interface ClaudeWrapper {
   result?: string;
+  /** Present when --json-schema is used: the validated object lives here, not
+   *  in `result` (which is only the assistant's trailing text, e.g. "Done."). */
+  structured_output?: unknown;
   is_error?: boolean;
   subtype?: string;
   num_turns?: number;
@@ -196,7 +204,10 @@ function usageFrom(wrapper: ClaudeWrapper | null): UsageMetrics | undefined {
   if (u.inputTokens !== undefined || u.outputTokens !== undefined) {
     u.totalTokens = (u.inputTokens ?? 0) + (u.outputTokens ?? 0);
   }
-  if (typeof wrapper.total_cost_usd === "number") u.costUsd = wrapper.total_cost_usd;
+  // Local (Ollama) runs incur no API cost; the Anthropic-compatible wrapper
+  // still fabricates a dollar figure. Zero it so reports never show a
+  // misleading cost for a free local run. (This engine is Ollama-only.)
+  u.costUsd = 0;
   if (typeof wrapper.num_turns === "number") u.numTurns = wrapper.num_turns;
   return u;
 }
@@ -359,8 +370,14 @@ export async function runWorker(
   const usage = usageFrom(wrapper);
   ctx.usage = usage;
 
+  // With --json-schema the validated object is in `structured_output`; use it
+  // directly. Otherwise fall back to extracting JSON from the result text.
+  const structured = wrapper?.structured_output;
   const bodyText = typeof wrapper?.result === "string" ? wrapper.result : stdout;
-  const body = extractJsonObject(bodyText);
+  const body =
+    structured && typeof structured === "object" && !Array.isArray(structured)
+      ? structured
+      : extractJsonObject(bodyText);
 
   // A connection error to the local endpoint is the "Ollama is down" case:
   // give it an explicit, actionable message rather than a generic one.

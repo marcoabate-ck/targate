@@ -37,6 +37,10 @@ const READ_TOOLS = new Set([
   "LS",
   "NotebookRead",
   "TodoWrite",
+  // Harness tool used by `--json-schema` to return the validated result. It
+  // has no filesystem/exec side effects — denying it (fail-closed default)
+  // breaks structured output and triggers a costly retry storm.
+  "StructuredOutput",
 ]);
 
 const WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit"]);

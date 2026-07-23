@@ -32,6 +32,8 @@ export interface DoctorContext {
   configFile: string | null;
   /** --ping: fire one real (local) completion through a worker dry run. */
   ping: boolean;
+  /** Environment to inspect (defaults to process.env). */
+  env?: NodeJS.ProcessEnv;
   /** Injectable HTTP for tests. */
   fetchFn?: typeof fetch;
   now?: () => number;
@@ -188,6 +190,23 @@ export const DOCTOR_CHECKS: DoctorCheck[] = [
         status: "info",
         message: `${where} — model=${ctx.config.runtime.model}, maxConcurrency=${ctx.config.orchestration.maxConcurrency}, approval=${ctx.config.approval.mode}`,
       };
+    },
+  },
+  {
+    id: "keep-alive",
+    label: "Ollama model keep-alive",
+    async run(ctx) {
+      // Server-side setting; on a single-machine localhost setup the client
+      // shell usually shares it. A warning, not a hard requirement.
+      const raw = (ctx.env ?? process.env).OLLAMA_KEEP_ALIVE;
+      const rec = "set OLLAMA_KEEP_ALIVE=30m for the Ollama server to avoid reloading the model on every worker";
+      if (!raw) {
+        return { status: "warn", message: `OLLAMA_KEEP_ALIVE is unset — ${rec}` };
+      }
+      if (raw === "0" || raw === "0s") {
+        return { status: "warn", message: `OLLAMA_KEEP_ALIVE=${raw} unloads the model immediately — ${rec}` };
+      }
+      return { status: "info", message: `OLLAMA_KEEP_ALIVE=${raw}` };
     },
   },
   {

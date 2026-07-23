@@ -94,6 +94,23 @@ pnpm local-agents run implementer --task "..." --dry-run   # show plan, spawn no
 
 ## 7. Automatic Opus workflow
 
+**When to delegate (usage rules).** Delegating to a local worker moves grunt-work
+tokens off the lead but costs a slow local round-trip, so it only pays for
+**broad** work:
+
+- Delegate **discovery** only for broad exploration (many files / large context,
+  ≳8 files or ≳50k tokens). For a small, known target the lead reads it directly
+  — the round-trip costs more than it saves. `assessDelegation()` in `policy.ts`
+  codifies this.
+- Run workers in the **background**; never block on them interactively.
+- Keep each task **tightly scoped** — fewer turns → fewer tokens → faster.
+- **Review is the lead's job** (§8); reviewer workers are opt-in.
+- Set `OLLAMA_KEEP_ALIVE=30m` (server-side) so consecutive workers skip the
+  ~21 GB cold load. `doctor` warns when it is unset.
+- Local runs are free: `usage.costUsd` is always `0` (never trust a fabricated
+  figure); judge cost by duration and tokens instead.
+
+
 ```bash
 pnpm local-agents workflow start --task-file task.md --security   # signal flags
 pnpm local-agents workflow status <run-id>
@@ -256,10 +273,13 @@ publish it standalone, move the directory to its own repo, keep `src/` and
 Use the local-agent infrastructure for this task.
 
 Decide whether Discovery is required and whether user approval is necessary.
-Delegate repository exploration and other high-context work to local workers.
+Delegate repository exploration and other high-context work to local workers,
+but ONLY when it is broad (many files / large context). For a small, known
+target, read it yourself — a local round-trip costs more than it saves.
+Run workers in the background and keep each task tightly scoped.
 Use parallel workers only for independent tasks.
 Keep writing workers isolated.
-Review all structured results.
+Review all structured results, and perform the final architectural and security
+review yourself — do not delegate review to a local worker.
 Do not load raw worker logs unless necessary.
-Perform the final architectural and security review yourself.
 ```
