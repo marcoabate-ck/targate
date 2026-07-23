@@ -50,7 +50,10 @@ describe("worktree isolation", () => {
     const wt = await createWorktree({ repoRoot: repo, runId: "r1", workerId: "w1" });
     expect(wt.branch).toBe(worktreeBranch("r1", "w1"));
     const trees = await listWorktrees(repo);
-    expect(trees.some((t) => t.includes(path.join("r1", "w1")))).toBe(true);
+    // git prints worktree paths with forward slashes on every platform, so
+    // compare separator-agnostically (path.join would use "\" on Windows).
+    const norm = (p: string) => p.replace(/\\/g, "/");
+    expect(trees.some((t) => norm(t).includes("r1/w1"))).toBe(true);
 
     const result = await cleanupWorktrees(repo, [wt]);
     expect(result.removed).toHaveLength(1);
