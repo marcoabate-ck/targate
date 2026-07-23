@@ -12,3 +12,6 @@ dist/
 .local-agent-runs/
 .local-agent-worktrees/
 .la-worker-*.settings.json
+
+# Standalone release binaries (built by scripts/build-binaries.sh).
+dist-bin/
