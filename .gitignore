@@ -7,3 +7,8 @@ dist/
 .targate/ai-cache.json
 .targate/last-run.json
 .targate/monitor-baseline.json
+
+# Local-agent orchestration: run artifacts, worktrees, and worker temp files.
+.local-agent-runs/
+.local-agent-worktrees/
+.la-worker-*.settings.json

@@ -1,0 +1,44 @@
+# Local-agent orchestration config (repository policy).
+#
+# This file is DATA read by the generic engine in tools/local-agents — the
+# engine itself is repo-agnostic. Everything here has a safe default; delete a
+# key to fall back to it. Environment variables override individual fields:
+#   LOCAL_AGENT_MODEL, LOCAL_AGENT_BASE_URL, LOCAL_AGENT_AUTH_TOKEN,
+#   LOCAL_AGENT_MAX_CONCURRENCY, LOCAL_AGENT_TIMEOUT_MS.
+version: 1
+
+runtime:
+  provider: ollama
+  baseUrl: http://localhost:11434
+  authToken: ollama
+  model: qwen3.6:35b-a3b-coding-nvfp4
+
+orchestration:
+  # One 35B/21GB worker at a time by default. Raise only if you have the RAM;
+  # the engine still clamps to what memory can fit and logs when it does.
+  maxConcurrency: 1
+  defaultTimeoutMs: 900000
+  preserveRawOutput: true
+  runDirectory: .local-agent-runs
+  maxCorrectionCycles: 2
+  maxTransientRetries: 2
+  # Extra parent env vars workers may inherit. Secrets are ALWAYS filtered out
+  # even if listed here — this cannot be used to leak a credential.
+  envAllowlist: []
+
+roles:
+  discovery:
+    readOnly: true
+  implementer:
+    readOnly: false
+  tester:
+    readOnly: false
+  reviewer:
+    readOnly: true
+
+approval:
+  # adaptive: mandatory triggers (security, dependencies, destructive, broad
+  # architecture, CI/release, API breaks) always force human approval; other
+  # large/uncertain tasks do too. Use "always" to gate everything, "never" to
+  # disable gating (not recommended for a security-sensitive repo).
+  mode: adaptive

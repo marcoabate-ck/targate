@@ -39,6 +39,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "local-agents": "node --import tsx tools/local-agents/src/cli.ts",
+    "local-agents:typecheck": "tsc --noEmit -p tools/local-agents/tsconfig.json",
     "prepublishOnly": "pnpm run typecheck && pnpm test && pnpm run build && pnpm run pack:check"
   },
   "dependencies": {
