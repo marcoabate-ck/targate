@@ -1,3 +1,9 @@
+# Workspace members. The repo root (targate) is the implicit workspace root;
+# tools/* holds internal, private tooling packages (e.g. @targate/local-agents,
+# the local-agent orchestration engine).
+packages:
+  - "tools/*"
+
 # pnpm 11 approves dependency build scripts here, not in package.json.
 # esbuild (transitive via vitest) ships a postinstall that links its
 # platform binary; without this it is skipped and CI fails with

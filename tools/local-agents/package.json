@@ -1,0 +1,27 @@
+{
+  "name": "@targate/local-agents",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generic local-agent orchestration: an Opus lead delegates bounded tasks to disposable Claude Code workers backed by a local Ollama model. Reusable across repositories; not coupled to targate.",
+  "type": "module",
+  "bin": {
+    "local-agents": "./src/cli.ts"
+  },
+  "main": "./src/index.ts",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "local-agents": "node --import tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}
