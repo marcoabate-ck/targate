@@ -80,11 +80,19 @@ function classifyTier(s: TaskSignals): RiskTier {
   return "small";
 }
 
+/**
+ * Default role flows. Review is intentionally the LEAD's job — Opus reviews the
+ * workers' structured results and performs the final correctness/security pass
+ * itself, which is both higher quality and far faster than a full review on the
+ * local model. The `reviewer` role stays available for explicit use
+ * (`run reviewer`, or a `--flow` that names it), and the correction loop still
+ * engages when a reviewer worker is added to a flow.
+ */
 const FLOWS: Record<RiskTier, string[]> = {
   trivial: [], // lead handles directly
-  small: ["implementer", "reviewer"],
-  medium: ["discovery", "implementer", "tester", "reviewer"],
-  large: ["discovery", "implementer", "tester", "reviewer"],
+  small: ["implementer"],
+  medium: ["discovery", "implementer", "tester"],
+  large: ["discovery", "implementer", "tester"],
 };
 
 /**

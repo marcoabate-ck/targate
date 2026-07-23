@@ -65,6 +65,14 @@ ollama pull qwen3.6:35b-a3b-coding-nvfp4
 The doctor **never pulls automatically** — if the model is missing it prints the
 exact command above.
 
+**Performance note.** The model is a 3B-active MoE (~21 GB): per-token generation
+is quick, but a *cold load* on each worker and the model's thinking tokens
+dominate latency on large tasks. Keep it warm across workers with
+`OLLAMA_KEEP_ALIVE=30m`, and keep worker tasks bounded (a diff or a module, not
+"review the whole repo"). Long tasks need the full default timeout — a short
+`--timeout` just triggers the transient-timeout retry path. This is why review is
+left to the lead (see §8).
+
 ## 5. Configuration
 
 `local-agents.config.yaml` (or `.yml` / `.json`) at the repo root. Declarative
@@ -101,12 +109,20 @@ blocked worker, or unresolved critical/high findings).
 
 ## 8. Agent roles
 
-| Role | Writes? | Purpose |
-|------|---------|---------|
-| `discovery` | no | Map code, patterns, security boundaries; propose a minimal plan. |
-| `implementer` | yes (scoped) | Implement an approved plan with minimal targeted changes. |
-| `tester` | yes (scoped) | Add focused tests; run approved validation commands. |
-| `reviewer` | no | Classify findings by severity with file:line refs. |
+| Role | Writes? | In default flow? | Purpose |
+|------|---------|------------------|---------|
+| `discovery` | no | yes (medium+) | Map code, patterns, security boundaries; propose a minimal plan. |
+| `implementer` | yes (scoped) | yes | Implement an approved plan with minimal targeted changes. |
+| `tester` | yes (scoped) | yes (medium+) | Add focused tests; run approved validation commands. |
+| `reviewer` | no | **no — opt-in** | Classify findings by severity with file:line refs. |
+
+**Review is the lead's job by default.** The default flows end at `tester`; Opus
+reviews the workers' structured results and performs the final correctness /
+security pass itself — higher quality and far faster than a full review on the
+local 35B model. The `reviewer` role stays available for explicit use
+(`run reviewer`, or `--flow discovery,implementer,tester,reviewer`); when a
+reviewer worker is in the flow, the bounded correction loop still engages on its
+critical/high findings.
 
 ## 9. Approval rules
 

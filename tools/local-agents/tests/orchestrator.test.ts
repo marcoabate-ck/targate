@@ -102,7 +102,9 @@ describe("startWorkflow — approval gate", () => {
     const meta = await store.readMetadata();
     expect(meta.approval.approvedBy).toBe("marco");
     const roles = meta.workers.map((w) => w.role);
-    expect(roles).toEqual(expect.arrayContaining(["discovery", "implementer", "tester", "reviewer"]));
+    // Review is the lead's job → reviewer is not in the default flow.
+    expect(roles).toEqual(expect.arrayContaining(["discovery", "implementer", "tester"]));
+    expect(roles).not.toContain("reviewer");
   });
 });
 
@@ -117,7 +119,8 @@ describe("startWorkflow — small task, no approval", () => {
     });
     expect(wf.decision.approvalRequired).toBe(false);
     expect(wf.status).toBe("completed");
-    expect(wf.results.map((r) => r.role)).toEqual(["implementer", "reviewer"]);
+    // Default small flow is implementer only; the lead reviews.
+    expect(wf.results.map((r) => r.role)).toEqual(["implementer"]);
   });
 });
 
@@ -130,6 +133,7 @@ describe("correction loop", () => {
       config,
       signals: { likelyFiles: 1 },
       approval: { approvedBy: "auto" },
+      flowOverride: ["implementer", "reviewer"], // opt the reviewer worker in
       deps: {
         runWorkerFn: async (a) => {
           if (a.role === "reviewer" && a.workerId === "reviewer-1") {
@@ -157,6 +161,7 @@ describe("correction loop", () => {
       config: { ...config, orchestration: { ...config.orchestration, maxCorrectionCycles: 1 } },
       signals: { likelyFiles: 1 },
       approval: { approvedBy: "auto" },
+      flowOverride: ["implementer", "reviewer"], // opt the reviewer worker in
       deps: {
         runWorkerFn: async (a) =>
           a.role === "reviewer"
