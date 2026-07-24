@@ -258,7 +258,7 @@ Options:
   --sign                       Sign an approval with the human operator's SSH key.
   --update-lockfile            Stage and review a lockfile update before installing.
   --frozen-lockfile            Deprecated no-op; immutable installs are the default.
-  --image <image>              Docker image (default: node:20-alpine).
+  --image <image>              Docker image (default: node:22-alpine).
   --timeout <seconds>          Kill the sandbox after this many seconds (default: 300).
   --network <mode>             Sandbox network mode: open or none.
   --no-capture                 Disable sandbox network observation.
@@ -436,7 +436,7 @@ Usage:
   targate sandbox <package>[@version]
 
 Options:
-  --image <image>              Docker image (default: node:20-alpine).
+  --image <image>              Docker image (default: node:22-alpine).
   --timeout <seconds>          Kill the sandbox after this many seconds (default: 300).
   --network <mode>             Sandbox network mode: open or none.
   --no-capture                 Disable sandbox network observation.
