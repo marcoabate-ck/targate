@@ -175,7 +175,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     const mode: ApprovalRecord["mode"] = opts.allowScripts ? "normal" : "no-scripts";
     let confirmed = opts.assumeYes;
     if (interactive) {
-      if (!opts.json) console.log(renderReport(metadata, signals, assessment, score));
+      if (!opts.json) console.log(renderReport(metadata, signals, assessment, score, { deep: opts.deep }));
       confirmed = await confirm(
         `Record approval for ${metadata.name}@${metadata.version} (${mode}) in .targate/approvals.json? It is not installed now.`,
         true,
@@ -223,7 +223,7 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     }
   } else if (!opts.json) {
     // Nothing to prompt for; still show the report for context.
-    console.log(renderReport(metadata, signals, assessment, score));
+    console.log(renderReport(metadata, signals, assessment, score, { deep: opts.deep }));
   }
 
   if (opts.json) {

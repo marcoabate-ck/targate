@@ -17,11 +17,10 @@ on:
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
-# Allow the deploy job to publish to Pages via OIDC.
+# Least privilege by default: only the deploy job gets Pages/OIDC write (below).
+# The build job (which also runs on PRs) needs nothing beyond read.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # One in-flight deploy at a time; don't cancel a running publish.
 concurrency:
@@ -81,6 +80,10 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
+    # Elevated permissions scoped to this job only — the Pages OIDC deploy.
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

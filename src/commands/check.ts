@@ -245,7 +245,7 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   await persistAnalysisRun("add", analysis, assessment, session.cwd);
 
   if (!opts.json) {
-    console.log(renderReport(metadata, signals, assessment, score));
+    console.log(renderReport(metadata, signals, assessment, score, { deep: opts.deep }));
     if (deepResults) {
       const flagged = deepResults.filter((r) => r.assessment.decision !== "allow");
       console.log(

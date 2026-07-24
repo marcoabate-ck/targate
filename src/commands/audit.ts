@@ -126,7 +126,7 @@ export async function auditCommand(opts: AuditOptions): Promise<number> {
   }
 
   if (!opts.json) {
-    console.log(renderReport(metadata, signals, assessment, score));
+    console.log(renderReport(metadata, signals, assessment, score, { deep: opts.deep }));
     console.log(bold("\nAI source-code audit"));
     for (const line of renderAuditFindings(analysis.sourceAudit)) console.log(line);
     console.log(

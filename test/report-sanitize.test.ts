@@ -58,3 +58,37 @@ describe("renderReport does not let hostile metadata forge output", () => {
     expect(out.split("\n").some((l) => l.trim() === "✓ TOTALLY SAFE (forged)")).toBe(false);
   });
 });
+
+// Regression (review): a shallow ALLOW must not read as "the whole install is
+// safe" — surface that only the named package was analyzed. A --deep run vets
+// the tree, so the note is suppressed; non-allow verdicts don't get it either.
+describe("renderReport transitive-coverage caveat", () => {
+  const NOTE = /only lodash was analyzed — its transitive dependencies were not/;
+  const metadata = makeMetadata({ name: "lodash", version: "4.17.21" });
+  const signals = makeSignals({ package: "lodash" });
+  const assess = (decision: RiskAssessment["decision"]): RiskAssessment => ({
+    risk: decision === "block" ? "high" : "low",
+    decision,
+    summary: "s",
+    reasons: ["r"],
+    recommendedAction: "a",
+    source: "rules",
+  });
+
+  it("shows the note on a shallow ALLOW", () => {
+    expect(renderReport(metadata, signals, assess("allow"), undefined)).toMatch(NOTE);
+  });
+
+  it("shows the note on a shallow ALLOW WITH WARNINGS", () => {
+    expect(renderReport(metadata, signals, assess("allow_with_warnings"), undefined)).toMatch(NOTE);
+  });
+
+  it("suppresses the note under --deep", () => {
+    expect(renderReport(metadata, signals, assess("allow"), undefined, { deep: true })).not.toMatch(NOTE);
+  });
+
+  it("does not show it on non-allow verdicts", () => {
+    expect(renderReport(metadata, signals, assess("require_approval"), undefined)).not.toMatch(NOTE);
+    expect(renderReport(metadata, signals, assess("block"), undefined)).not.toMatch(NOTE);
+  });
+});
