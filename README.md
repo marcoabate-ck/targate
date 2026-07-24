@@ -36,6 +36,52 @@ Decision: ALLOW   (risk: low, source: rules)
 
 Preview a package without installing anything with `--dry-run`, or record a committable approval without installing via `targate approve <package>`. A full positive-and-negative walkthrough — including a package that gets **blocked** — is in [docs/examples/full-review.md](docs/examples/full-review.md).
 
+## Install
+
+`targate` ships four ways — all install the same CLI. The `brew`, install-script, and direct-download methods go live with the first tagged release.
+
+**npm** — every platform, needs Node ≥ 22.13:
+
+```bash
+npm install -g targate      # or ad-hoc: npx targate add <package>
+```
+
+**Homebrew** — macOS & Linux, standalone binary (no Node required):
+
+```bash
+brew install marcoabate-ck/targate/targate
+```
+
+**winget** — Windows:
+
+```powershell
+winget install MarcoAbate.targate
+```
+
+**Install script** — macOS & Linux; detects your OS/arch, downloads the binary, and verifies its SHA-256 before installing:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/marcoabate-ck/targate/main/install.sh | sh
+```
+
+**Direct download** — grab a standalone binary from the [latest release](https://github.com/marcoabate-ck/targate/releases/latest) and verify it against the release `SHA256SUMS`:
+
+| Platform | Asset |
+|----------|-------|
+| macOS arm64 | `targate-darwin-arm64` |
+| macOS x64 | `targate-darwin-x64` |
+| Linux arm64 | `targate-linux-arm64` |
+| Linux x64 | `targate-linux-x64` |
+| Windows x64 | `targate-windows-x64.exe` |
+
+```bash
+# verify then install (example: macOS arm64)
+grep targate-darwin-arm64 SHA256SUMS | shasum -a 256 -c -
+install -m 0755 targate-darwin-arm64 /usr/local/bin/targate
+```
+
+The standalone binaries bundle the JS runtime, but `targate` still calls your `git` and package manager at runtime — keep those installed.
+
 ## How it works
 
 ```

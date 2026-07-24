@@ -75,6 +75,11 @@ describe("hook-guard (real subprocess)", () => {
     expect(r.decision === "deny" || r.code === 2).toBe(true);
   });
 
+  it("allows the StructuredOutput harness tool (used by --json-schema)", async () => {
+    const r = await invoke({ tool_name: "StructuredOutput", tool_input: { status: "completed", summary: "x" } }, true);
+    expect(r.decision).toBe("allow");
+  });
+
   it("denies an unknown tool", async () => {
     const r = await invoke({ tool_name: "Frobnicate", tool_input: {} }, false);
     expect(r.decision).toBe("deny");

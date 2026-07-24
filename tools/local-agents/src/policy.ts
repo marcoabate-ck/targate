@@ -133,6 +133,55 @@ export function decide(signals: TaskSignals, mode: ApprovalMode = "adaptive"): P
   };
 }
 
+/**
+ * Whether delegating an exploration/discovery task to a local worker is worth
+ * it, versus the lead doing it inline. Delegation moves grunt-work tokens off
+ * the lead but costs a slow local round-trip, so it only pays for BROAD
+ * exploration. For a small, known target the lead reads it directly — the
+ * round-trip would cost more than it saves (a lesson learned the hard way).
+ *
+ * This is a codified recommendation, not a hard gate: the lead still decides.
+ */
+export interface DelegationEstimate {
+  /** Rough number of files the exploration will need to read. */
+  estimatedFiles?: number;
+  /** Rough total context the exploration will ingest, in tokens. */
+  estimatedContextTokens?: number;
+  /** The lead already knows the exact (small) set of files to read. */
+  knownTargets?: boolean;
+}
+
+export interface DelegationDecision {
+  delegate: boolean;
+  reason: string;
+}
+
+/** Broad enough to be worth offloading to a local worker. */
+const DELEGATE_FILES_THRESHOLD = 8;
+const DELEGATE_TOKENS_THRESHOLD = 50_000;
+
+export function assessDelegation(estimate: DelegationEstimate): DelegationDecision {
+  const files = estimate.estimatedFiles ?? 0;
+  const tokens = estimate.estimatedContextTokens ?? 0;
+
+  if (estimate.knownTargets && files <= 3) {
+    return {
+      delegate: false,
+      reason: "known small target — the lead reads it directly for less than a worker round-trip",
+    };
+  }
+  if (files >= DELEGATE_FILES_THRESHOLD || tokens >= DELEGATE_TOKENS_THRESHOLD) {
+    return {
+      delegate: true,
+      reason: `broad exploration (~${files} files, ~${tokens} tokens) — offload the context to a local worker`,
+    };
+  }
+  return {
+    delegate: false,
+    reason: `narrow scope (~${files} files, ~${tokens} tokens) — cheaper for the lead to read inline than to pay the round-trip`,
+  };
+}
+
 /** Stable hash of an approved plan, recorded so drift can be detected. */
 export function planHash(planText: string): string {
   return "sha256:" + createHash("sha256").update(planText, "utf8").digest("hex");

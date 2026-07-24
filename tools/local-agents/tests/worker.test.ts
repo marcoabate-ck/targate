@@ -47,7 +47,29 @@ describe("runWorker", () => {
     expect(out.result.summary).toBe("did the thing");
     expect(out.result.usage?.source).toBe("runtime");
     expect(out.result.usage?.inputTokens).toBe(100);
+    // Local runs are free — cost is zeroed regardless of the wrapper figure.
+    expect(out.result.usage?.costUsd).toBe(0);
     expect(out.transient).toBe(false);
+  });
+
+  it("reads the validated body from structured_output (--json-schema path)", async () => {
+    // With --json-schema, `result` is only trailing text; the object is in
+    // `structured_output`.
+    const stdout = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "Done.",
+      structured_output: { status: "completed", summary: "mapped the pipeline", filesRead: ["package.json"] },
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+    const out = await runWorker(assignment(), config, {
+      ...base(),
+      spawnFn: fakeSpawn({ stdout, exitCode: 0 }),
+    });
+    expect(out.result.status).toBe("completed");
+    expect(out.result.summary).toBe("mapped the pipeline");
+    expect(out.result.filesRead).toEqual(["package.json"]);
   });
 
   it("treats a malformed body as a failure, not success", async () => {
@@ -139,6 +161,11 @@ describe("buildClaudeArgs / buildGuardSettings", () => {
     expect(args).toContain("-p");
     expect(args).toContain("--no-session-persistence");
     expect(args).toContain("--strict-mcp-config");
+    expect(args).toContain("--json-schema");
+    // The schema argument must be valid JSON describing an object.
+    const schema = JSON.parse(args[args.indexOf("--json-schema") + 1]);
+    expect(schema.type).toBe("object");
+    expect(schema.required).toContain("status");
     expect(args[args.indexOf("--model") + 1]).toBe("m");
     expect(args[args.indexOf("--permission-mode") + 1]).toBe("bypassPermissions");
     expect(args.filter((a) => a === "--add-dir")).toHaveLength(2);

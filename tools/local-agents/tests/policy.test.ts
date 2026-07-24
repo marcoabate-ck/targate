@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decide, planChanged, planHash } from "../src/policy.js";
+import { assessDelegation, decide, planChanged, planHash } from "../src/policy.js";
 
 describe("decide — mandatory approval triggers", () => {
   const triggers = [
@@ -48,6 +48,25 @@ describe("decide — modes", () => {
     const d = decide({ securitySensitive: true }, "never");
     expect(d.approvalRequired).toBe(false);
     expect(d.notes.join(" ")).toMatch(/mandatory trigger/);
+  });
+});
+
+describe("assessDelegation", () => {
+  it("keeps a small known target inline (lead reads it directly)", () => {
+    const d = assessDelegation({ estimatedFiles: 2, knownTargets: true });
+    expect(d.delegate).toBe(false);
+    expect(d.reason).toMatch(/known small target/);
+  });
+  it("delegates broad exploration by file count", () => {
+    expect(assessDelegation({ estimatedFiles: 12 }).delegate).toBe(true);
+  });
+  it("delegates broad exploration by context size", () => {
+    expect(assessDelegation({ estimatedContextTokens: 80_000 }).delegate).toBe(true);
+  });
+  it("keeps a narrow scope inline", () => {
+    const d = assessDelegation({ estimatedFiles: 3, estimatedContextTokens: 10_000 });
+    expect(d.delegate).toBe(false);
+    expect(d.reason).toMatch(/narrow scope/);
   });
 });
 

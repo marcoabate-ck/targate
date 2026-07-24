@@ -76,6 +76,17 @@ describe("doctor", () => {
     expect(report.checks[0].status).toBe("fail");
   });
 
+  it("warns when OLLAMA_KEEP_ALIVE is unset and reports it when set", async () => {
+    const unset = { ...ctx(stub({})), env: {} as NodeJS.ProcessEnv };
+    const warn = await runDoctor(unset, pick(["keep-alive"]));
+    expect(warn.checks[0].status).toBe("warn");
+
+    const set = { ...ctx(stub({})), env: { OLLAMA_KEEP_ALIVE: "30m" } as NodeJS.ProcessEnv };
+    const info = await runDoctor(set, pick(["keep-alive"]));
+    expect(info.checks[0].status).toBe("info");
+    expect(info.checks[0].message).toMatch(/30m/);
+  });
+
   it("confirms secret isolation and a writable run dir", async () => {
     const report = await runDoctor(ctx(stub({})), pick(["secret-isolation", "run-dir"]));
     expect(report.summary.fail).toBe(0);

@@ -176,6 +176,58 @@ export interface WorkerReportedBody {
   errors?: unknown;
 }
 
+/**
+ * JSON Schema for the model-controlled worker body, passed to Claude Code via
+ * `--json-schema` so the CLI enforces the output SHAPE instead of relying only
+ * on a prompt instruction (small local models routinely answer in prose). The
+ * runner still parses and normalises the result, so this is enforcement, not a
+ * replacement for validation.
+ */
+export const WORKER_BODY_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    status: { type: "string", enum: [...WORKER_STATUSES] },
+    summary: { type: "string" },
+    filesRead: { type: "array", items: { type: "string" } },
+    filesChanged: { type: "array", items: { type: "string" } },
+    commandsExecuted: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          command: { type: "string" },
+          exitCode: { type: ["integer", "null"] },
+        },
+        required: ["command"],
+      },
+    },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          severity: { type: "string", enum: [...FINDING_SEVERITIES] },
+          summary: { type: "string" },
+          file: { type: "string" },
+          line: { type: "integer" },
+        },
+        required: ["severity", "summary"],
+      },
+    },
+    questions: { type: "array", items: { type: "string" } },
+    errors: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { message: { type: "string" }, kind: { type: "string" } },
+        required: ["message"],
+      },
+    },
+  },
+  required: ["status", "summary"],
+  additionalProperties: true,
+} as const;
+
 export interface NormalizeContext {
   runId: string;
   workerId: string;

@@ -8,16 +8,62 @@ description: Install the targate CLI and gate your first package.
 
 ## Requirements
 
-- **Node.js ≥ 22.13** (the toolchain requires it).
-- A package manager: npm, pnpm, or yarn. targate detects which one your project uses from its lockfile.
+- A package manager: npm, pnpm, or yarn. targate detects which one your project uses from its lockfile, and calls it (plus `git`) at runtime — keep both installed.
+- **Node.js ≥ 22.13** for the npm install method. The standalone binaries (Homebrew, install script, direct download) bundle their own runtime and do **not** require Node.
 - Optional: an AI provider (hosted or local). Without one, targate runs on its deterministic rules engine.
 
 ## Install
+
+targate ships four ways — all give you the same `targate` CLI. The `brew`, install-script, and direct-download methods go live with the first tagged release.
+
+### npm — every platform (needs Node ≥ 22.13)
 
 ```bash
 npm install -g targate
 # or run ad-hoc, no global install:
 npx targate add <package>
+```
+
+### Homebrew — macOS & Linux
+
+Standalone binary, no Node required:
+
+```bash
+brew install marcoabate-ck/targate/targate
+```
+
+### winget — Windows
+
+```powershell
+winget install MarcoAbate.targate
+```
+
+### Install script — macOS & Linux
+
+Detects your OS/arch, downloads the matching binary, and verifies its SHA-256 before installing:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/marcoabate-ck/targate/main/install.sh | sh
+```
+
+Override the target with environment variables when needed: `TARGATE_VERSION`, `TARGATE_INSTALL_DIR`.
+
+### Direct download
+
+Grab a standalone binary from the [latest release](https://github.com/marcoabate-ck/targate/releases/latest) and verify it against the release `SHA256SUMS` (a `SHA256SUMS.minisig` minisign signature is published too):
+
+| Platform | Asset |
+|----------|-------|
+| macOS arm64 | `targate-darwin-arm64` |
+| macOS x64 | `targate-darwin-x64` |
+| Linux arm64 | `targate-linux-arm64` |
+| Linux x64 | `targate-linux-x64` |
+| Windows x64 | `targate-windows-x64.exe` |
+
+```bash
+# verify then install (example: macOS arm64)
+grep targate-darwin-arm64 SHA256SUMS | shasum -a 256 -c -
+install -m 0755 targate-darwin-arm64 /usr/local/bin/targate
 ```
 
 ## Gate your first package

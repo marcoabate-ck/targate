@@ -2,6 +2,7 @@ name: Release
 
 # Cut a release by pushing a semver tag, e.g. `git tag v1.0.0 && git push --tags`.
 # The published version is taken from the tag — package.json is not bumped by hand.
+# workflow_dispatch republishes to npm for a given version (no GitHub Release).
 on:
   push:
     tags: ["v*"]
@@ -11,15 +12,240 @@ on:
         description: "Version to publish (e.g. 1.0.0), without the leading v"
         required: true
 
-# Provenance publishing needs an OIDC token; everything else is read-only.
+# Least privilege by default; jobs elevate only what they need.
 permissions:
   contents: read
-  id-token: write
+
+# Never run two releases for the same ref at once, and never cancel a release
+# that may already be mid-publish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: verify + publish
+  # Single source of truth for the version: the tag (or the dispatch input),
+  # resolved and validated ONCE and consumed by every downstream job.
+  version:
+    name: resolve version
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - id: resolve
+        # The dispatch input is read from env, never interpolated into the
+        # script body — `${{ }}` inside `run:` would let a crafted input inject
+        # shell. Read from the environment and quote instead.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          # Strict semver, no leading v.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)*$'; then
+            echo "::error::invalid version '$VERSION' (expected semver like 1.2.3)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved release version: $VERSION"
+
+  # Full gate, then compile the standalone binaries and checksum/sign them.
+  # The release re-runs the gate independently — it never trusts another
+  # workflow to have verified the tag.
+  build:
+    name: gate + build binaries
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Pinned bun version → the embedded runtime (and thus the binaries) are
+      # reproducible across runs.
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - run: pnpm install --frozen-lockfile
+
+      # A failure here stops the release before anything is built or published.
+      - run: pnpm typecheck
+      - run: pnpm format:check
+      - run: pnpm docs:check
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm pack:check
+      - name: Runtime dependency audit
+        run: pnpm audit --prod --audit-level high
+
+      # Embed the resolved version into the binaries (package.json is not on
+      # disk inside a bun single-file binary — see src/version.ts), then compile.
+      - name: Build standalone binaries
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          VERSION="$VERSION" bash scripts/build-binaries.sh
+
+      # Native smoke test of the one target this runner can execute. Loads the
+      # binary end to end (catches the "package.json not found" class of bug);
+      # offline, so it stays deterministic.
+      - name: Smoke-test the linux-x64 binary
+        run: |
+          ./dist-bin/targate-linux-x64 --help >/dev/null
+          echo "linux-x64 binary loads and runs"
+
+      # Detached signature over the aggregate checksums. Skipped gracefully when
+      # the signing key is not configured, so the pipeline works before setup.
+      - name: Sign checksums (minisign)
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+        if: ${{ env.MINISIGN_SECRET_KEY != '' }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y minisign
+          umask 077
+          printf '%s' "$MINISIGN_SECRET_KEY" > minisign.key
+          echo "$MINISIGN_PASSWORD" | minisign -S -s minisign.key -m dist-bin/SHA256SUMS
+          rm -f minisign.key
+          echo "Signed SHA256SUMS → SHA256SUMS.minisig"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: |
+            dist-bin/targate-*
+            dist-bin/SHA256SUMS
+            dist-bin/SHA256SUMS.minisig
+          if-no-files-found: error
+          retention-days: 7
+
+  # Publish the GitHub Release with the binaries, checksums, signature, and
+  # auto-generated notes. Tag pushes only — a manual dispatch republishes npm
+  # without cutting a GitHub Release.
+  github-release:
+    name: github release
+    needs: [version, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: dist-bin
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: v${{ needs.version.outputs.version }}
+          generate_release_notes: true
+          # Not fail-on-unmatched: the .minisig is absent until signing is
+          # configured, and the build job already guarantees the binaries exist.
+          fail_on_unmatched_files: false
+          files: |
+            dist-bin/targate-*
+            dist-bin/SHA256SUMS
+            dist-bin/SHA256SUMS.minisig
+
+  # Render the multi-platform formula from our own checksums and push it to the
+  # tap repo. Skipped gracefully until the tap App credentials are configured.
+  homebrew:
+    name: update homebrew tap
+    needs: [version, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - id: guard
+        env:
+          APP_ID: ${{ secrets.HOMEBREW_TAP_APP_ID }}
+        run: |
+          if [ -n "$APP_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "HOMEBREW_TAP_APP_ID not set — skipping Homebrew tap update"
+          fi
+
+      - if: steps.guard.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - if: steps.guard.outputs.enabled == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: dist-bin
+
+      - if: steps.guard.outputs.enabled == 'true'
+        id: apptoken
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.HOMEBREW_TAP_APP_ID }}
+          private-key: ${{ secrets.HOMEBREW_TAP_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homebrew-targate
+
+      - if: steps.guard.outputs.enabled == 'true'
+        name: Render and push the formula
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ steps.apptoken.outputs.token }}
+        run: bash scripts/update-homebrew.sh
+
+  # Update the winget manifest (bump version/URL/SHA) and open the PR to
+  # microsoft/winget-pkgs. The package must be onboarded once by hand first
+  # (`wingetcreate new`, InstallerType: portable); this only bumps versions.
+  # Skipped gracefully until WINGET_TOKEN is configured.
+  winget:
+    name: publish to winget
+    needs: [version, github-release]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - id: guard
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if [ -n "$WINGET_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "WINGET_TOKEN not set — skipping winget publish"
+          fi
+
+      - if: steps.guard.outputs.enabled == 'true'
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: MarcoAbate.targate
+          version: ${{ needs.version.outputs.version }}
+          installers-regex: 'targate-windows-x64\.exe$'
+          release-tag: ${{ github.ref_name }}
+          token: ${{ secrets.WINGET_TOKEN }}
+
+  # Existing npm publish — unchanged behaviour (provenance via OIDC), but now
+  # consuming the shared version output instead of re-deriving it.
+  npm:
+    name: publish to npm
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -34,33 +260,12 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - run: pnpm install --frozen-lockfile
-
-      # Full gate set — a failure here stops the release before anything is published.
-      - run: pnpm typecheck
-      - run: pnpm format:check
-      - run: pnpm docs:check
-      - run: pnpm test
       - run: pnpm build
-      - run: pnpm pack:check
-      - name: Runtime dependency audit
-        run: pnpm audit --prod --audit-level high
 
-      # Derive the published version from the tag (or the manual input); never
-      # committed back — the release pipeline owns the version, not a hand edit.
-      - name: Set version from the release ref
-        # The dispatch input is passed through env, never interpolated into the
-        # script body — `${{ }}` inside `run:` would let a crafted input inject
-        # shell. Read from the environment and quote instead.
+      - name: Set version from the resolved release version
         env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-        run: |
-          if [ -n "$INPUT_VERSION" ]; then
-            VERSION="$INPUT_VERSION"
-          else
-            VERSION="${GITHUB_REF_NAME#v}"
-          fi
-          echo "Publishing version ${VERSION}"
-          npm version "${VERSION}" --no-git-tag-version --allow-same-version
+          VERSION: ${{ needs.version.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to npm (with provenance)
         run: npm publish --provenance --access public
