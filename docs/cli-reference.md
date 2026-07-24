@@ -25,6 +25,10 @@
 
 Package installation requires the explicit `targate add <package>` command. Bare package names and unknown commands fail before analysis; they are never interpreted as packages. `targate <command> --help` renders the command-specific options from the same registry as this table, and flags belonging to another command are rejected.
 
+**Global flags:** `targate --help` / `-h` prints the command list above; `targate --version` / `-v` prints the installed version.
+
+**Experimental commands:** `graph`, `recommend`, and `monitor` ship as **experimental** — outside the [1.0 stability guarantee](../README.md#stability--compatibility), their flags and output may change in a minor release. Every other command is part of the stable surface.
+
 ## Command details
 
 ### targate diff

@@ -29,6 +29,8 @@ bumped by hand.
 - **Published-artifact gate** — `pnpm pack:check` asserts the npm tarball ships
   only `dist/**` + `README.md` + `LICENSE` + `package.json` and that the bin
   runs; wired into CI and `prepublishOnly`.
+- **`targate --version` / `-v`** — prints the installed version (the standalone
+  binaries embed it at build time).
 
 ### Changed
 
@@ -36,6 +38,25 @@ bumped by hand.
   `peerDependencies`) on **checksum-verified** bytes is now approvable
   `require_approval` drift instead of a `mutated` hard block; real identity /
   hidden-install-hook / unverified-byte cases remain hard blocks.
+- A shallow `ALLOW` / `ALLOW WITH WARNINGS` now states that **only the named
+  package was analyzed**, not its transitive tree (suppressed under `--deep`), so
+  a clean verdict is not read as "the whole install is safe".
+- `graph`, `recommend`, and `monitor` are now labeled **experimental** (in help
+  and the CLI reference) — outside the 1.0 stability guarantee.
+
+### Security
+
+- **Installer signature is mandatory and fail-closed.** `install.sh` now verifies
+  a minisign signature over the checksums with the embedded public key (and then
+  the SHA-256) before installing; a missing `minisign`, a missing signature, or a
+  bad signature aborts. Non-`https` `TARGATE_BASE_URL` is rejected.
+- **Hardened sandbox.** The trial install runs as a **non-root** user on a
+  **read-only** root filesystem (only two tmpfs work dirs writable); base image
+  bumped to `node:22-alpine` (Node 20 is EOL); a spec starting with `-` is rejected.
+- **Supply chain of the tool itself.** Every GitHub Actions `uses:` is pinned to a
+  commit SHA; Dependabot now covers the npm dependency tree; the Pages workflow was
+  reduced to least privilege; and a CI coverage gate guards `src/network.ts` (SSRF /
+  redirect handling) and `src/signing.ts`.
 
 ### Packaging
 

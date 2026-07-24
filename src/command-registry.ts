@@ -593,7 +593,7 @@ export function renderGlobalHelp(): string {
   const optionLines = [...uniqueOptions.values()]
     .map((definition) => `  ${optionLabel(definition).padEnd(28)} ${definition.summary}`)
     .join("\n");
-  return `targate — gate every dependency before it runs (AI-gated pre-install security)\n\nUsage:\n${commandLines}\n\nOptions:\n${optionLines}\n  -h, --help                  Show global or command-specific help.\n\nRun \`targate <command> --help\` for command-specific options and examples.`;
+  return `targate — gate every dependency before it runs (AI-gated pre-install security)\n\nUsage:\n${commandLines}\n\nOptions:\n${optionLines}\n  -h, --help                  Show global or command-specific help.\n  -v, --version               Print the targate version.\n\nRun \`targate <command> --help\` for command-specific options and examples.`;
 }
 
 export function renderCommandHelp(command: CommandDefinition): string {
