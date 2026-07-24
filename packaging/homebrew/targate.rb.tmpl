@@ -1,0 +1,40 @@
+# Homebrew formula template. Rendered by scripts/update-homebrew.sh on release
+# (placeholders substituted with the version and the SHA-256 sums of the release
+# binaries) and pushed to the tap repository. Do not edit the generated formula
+# by hand — edit this template.
+class Targate < Formula
+  desc "AI-assisted pre-install security gate for npm packages"
+  homepage "https://github.com/__REPO__"
+  version "__VERSION__"
+  license "MIT"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/__REPO__/releases/download/v__VERSION__/targate-darwin-arm64"
+      sha256 "__SHA_DARWIN_ARM64__"
+    else
+      url "https://github.com/__REPO__/releases/download/v__VERSION__/targate-darwin-x64"
+      sha256 "__SHA_DARWIN_X64__"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "https://github.com/__REPO__/releases/download/v__VERSION__/targate-linux-arm64"
+      sha256 "__SHA_LINUX_ARM64__"
+    else
+      url "https://github.com/__REPO__/releases/download/v__VERSION__/targate-linux-x64"
+      sha256 "__SHA_LINUX_X64__"
+    end
+  end
+
+  def install
+    # The release asset is a single standalone binary named per platform;
+    # install it as `targate`.
+    bin.install Dir["targate-*"].first => "targate"
+  end
+
+  test do
+    system bin/"targate", "--help"
+  end
+end

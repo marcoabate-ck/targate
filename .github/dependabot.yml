@@ -1,0 +1,15 @@
+version: 2
+# Keep GitHub Actions current so third-party actions used by the release and CI
+# workflows (and their transitive references) stay patched. Grouped into one PR
+# per week to keep review load low. Pin actions to a SHA in the workflows for
+# stronger supply-chain guarantees; Dependabot will then bump the SHAs here.
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
