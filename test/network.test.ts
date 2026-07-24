@@ -1,5 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
-import { assertHostResolvesPublic, assertSafeArtifactUrl, isPrivateHost } from "../src/network.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  assertHostResolvesPublic,
+  assertSafeArtifactUrl,
+  fetchArtifactGuarded,
+  isPrivateHost,
+} from "../src/network.js";
 
 vi.mock("node:dns/promises", () => ({
   lookup: vi.fn(async (host: string) =>
@@ -92,5 +97,117 @@ describe("assertHostResolvesPublic", () => {
 
   it("skips the lookup for an IP literal", async () => {
     await expect(assertHostResolvesPublic("93.184.216.34")).resolves.toBeUndefined();
+  });
+});
+
+// Regression (review A1.2): fetchArtifactGuarded follows redirects MANUALLY and
+// re-validates every hop. The subtle guarantees — a 3xx to a private/metadata
+// host is rejected, the Authorization header is dropped on a cross-origin hop
+// (registry-credential exfiltration) but kept same-origin, and a redirect loop
+// is bounded — had no coverage. These lock them in.
+describe("fetchArtifactGuarded", () => {
+  const budget = { timeoutMs: 1000, maxResponseBytes: 4096 };
+  let calls: { url: string; auth: string | null }[];
+
+  /** Build a minimal Response; a 3xx carries its Location header. */
+  function make(status: number, location?: string): Response {
+    const headers = new Headers();
+    if (location) headers.set("location", location);
+    return new Response(status >= 200 && status < 300 ? "ok" : null, { status, headers });
+  }
+
+  /** Stub global fetch with a per-URL router, recording the Authorization sent. */
+  function route(router: (url: string) => Response): void {
+    calls = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, auth: new Headers(init?.headers).get("authorization") });
+        return router(url);
+      }),
+    );
+  }
+
+  beforeEach(() => {
+    calls = [];
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns a terminal 2xx response without following anything", async () => {
+    route(() => make(200));
+    const res = await fetchArtifactGuarded("https://a.example.com/pkg.tgz", {}, budget);
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("rejects a redirect to the cloud-metadata / private host", async () => {
+    route((url) =>
+      url.startsWith("https://a.example.com")
+        ? make(302, "https://169.254.169.254/latest/meta-data/")
+        : make(200),
+    );
+    await expect(
+      fetchArtifactGuarded("https://a.example.com/pkg.tgz", {}, budget),
+    ).rejects.toThrow(/private\/loopback/);
+    // The metadata host was never actually fetched — rejected at validation.
+    expect(calls).toHaveLength(1);
+  });
+
+  it("drops the Authorization header on a cross-origin hop", async () => {
+    route((url) =>
+      url === "https://a.example.com/pkg.tgz"
+        ? make(302, "https://b.example.com/pkg.tgz")
+        : make(200),
+    );
+    const res = await fetchArtifactGuarded(
+      "https://a.example.com/pkg.tgz",
+      { headers: { authorization: "Bearer registry-secret" } },
+      budget,
+    );
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].auth).toBe("Bearer registry-secret");
+    expect(calls[1].auth).toBeNull(); // credential must not leak to another origin
+  });
+
+  it("keeps the Authorization header on a same-origin redirect", async () => {
+    route((url) =>
+      url === "https://a.example.com/pkg.tgz"
+        ? make(302, "https://a.example.com/pkg-2.tgz")
+        : make(200),
+    );
+    const res = await fetchArtifactGuarded(
+      "https://a.example.com/pkg.tgz",
+      { headers: { authorization: "Bearer registry-secret" } },
+      budget,
+    );
+    expect(res.status).toBe(200);
+    expect(calls[1].auth).toBe("Bearer registry-secret");
+  });
+
+  it("throws once the redirect chain exceeds maxHops", async () => {
+    let n = 0;
+    route(() => make(302, `https://a.example.com/hop-${n++}.tgz`));
+    await expect(
+      fetchArtifactGuarded("https://a.example.com/pkg.tgz", {}, budget, "artifact URL", 1),
+    ).rejects.toThrow(/too many redirects/);
+  });
+
+  it("returns a 3xx that carries no Location for the caller to handle", async () => {
+    route(() => make(302));
+    const res = await fetchArtifactGuarded("https://a.example.com/pkg.tgz", {}, budget);
+    expect(res.status).toBe(302);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("rejects a non-https initial URL before any fetch", async () => {
+    route(() => make(200));
+    await expect(
+      fetchArtifactGuarded("http://a.example.com/pkg.tgz", {}, budget),
+    ).rejects.toThrow(/https/);
+    expect(calls).toHaveLength(0);
   });
 });
