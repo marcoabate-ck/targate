@@ -49,6 +49,18 @@ describe("cli routing and validation", () => {
     expect(stdout).toContain("gate every dependency before it runs");
   });
 
+  // Regression: the standalone binaries embed a version and bug_report.yml asks
+  // users to run `targate --version`, but the CLI had no such flag (it printed
+  // "Unknown command: --version"). Surfaced by the release-binary dry-run.
+  it("prints the version and exits 0 with --version / -v", async () => {
+    for (const flag of ["--version", "-v"]) {
+      const { code, stdout } = await runCli(flag);
+      expect(code, flag).toBe(0);
+      // package.json version on the src/tsx path (a semver-ish token).
+      expect(stdout.trim(), flag).toMatch(/^\d+\.\d+\.\d+/);
+    }
+  });
+
   it("prints command-specific help", async () => {
     const { code, stdout } = await runCli("add", "--help");
     expect(code).toBe(0);
