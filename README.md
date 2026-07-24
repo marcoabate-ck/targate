@@ -60,7 +60,7 @@ brew install marcoabate-ck/targate/targate
 winget install MarcoAbate.targate
 ```
 
-**Install script** — macOS & Linux; detects your OS/arch, downloads the binary, and verifies its SHA-256 before installing:
+**Install script** — macOS & Linux; detects your OS/arch, downloads the binary, and **verifies a minisign signature over the checksums and then the SHA-256** before installing. It fails closed: no `minisign`, a missing signature, or a bad signature aborts the install (needs [`minisign`](https://jedisct1.github.io/minisign/) on `PATH`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/marcoabate-ck/targate/main/install.sh | sh
