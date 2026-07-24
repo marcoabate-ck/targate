@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -24,6 +24,19 @@ import { TARGATE_VERSION } from "../src/version.js";
 import type { RiskAssessment } from "../src/types.js";
 
 const execFileAsync = promisify(execFile);
+
+/** These tests shell out to the real `ssh-keygen` and `git`. On a host missing
+ *  either (some minimal CI images / Windows without git), skip rather than hard
+ *  fail — the behavior is exercised wherever both are on PATH. */
+function onPath(bin: string): boolean {
+  try {
+    execFileSync(process.platform === "win32" ? "where" : "which", [bin], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const hasSigningTools = onPath("ssh-keygen") && onPath("git");
 
 let dir: string;
 let cwd: string;
@@ -150,7 +163,7 @@ describe("signed approvals (ssh-keygen)", () => {
     await execFileAsync("git", ["config", "user.email", identity], { cwd: dir });
   }
 
-  it("signs on record and verifies against allowed-signers; tampering invalidates", async () => {
+  it.skipIf(!hasSigningTools)("signs on record and verifies against allowed-signers; tampering invalidates", async () => {
     const keyPath = await makeKeyAndSigners("alice@example.com");
     await gitIdentity("alice@example.com");
     vi.stubEnv("TARGATE_SIGNING_KEY", keyPath);
@@ -190,7 +203,7 @@ describe("signed approvals (ssh-keygen)", () => {
     await expect(resolveSigningKey(dir)).rejects.toThrow(/does not exist/);
   });
 
-  it("enforceSignedApprovals keeps only verified entries; policy off is a no-op", async () => {
+  it.skipIf(!hasSigningTools)("enforceSignedApprovals keeps only verified entries; policy off is a no-op", async () => {
     const keyPath = await makeKeyAndSigners("alice@example.com");
     await gitIdentity("alice@example.com");
     vi.stubEnv("TARGATE_SIGNING_KEY", keyPath);
@@ -257,7 +270,7 @@ describe("targate history", () => {
     expect(JSON.parse(logs.join("\n")).total).toBe(1);
   });
 
-  it("--verify exits 2 when a signature is invalid", async () => {
+  it.skipIf(!hasSigningTools)("--verify exits 2 when a signature is invalid", async () => {
     const keyPath = path.join(dir, "testkey");
     await execFileAsync("ssh-keygen", ["-t", "ed25519", "-f", keyPath, "-N", "", "-q"]);
     const pub = await readFile(`${keyPath}.pub`, "utf8");
