@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { CAPTURE_SCRIPT } from "./sandbox-capture.js";
 
-const DEFAULT_IMAGE = "node:20-alpine";
+const DEFAULT_IMAGE = "node:22-alpine";
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**

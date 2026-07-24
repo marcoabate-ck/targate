@@ -88,7 +88,7 @@ export const OPTION_DEFINITIONS = {
   updateLockfile: option("update-lockfile", "boolean", undefined, "Stage and review a lockfile update before installing."),
   frozenLockfile: option("frozen-lockfile", "boolean", undefined, "Deprecated no-op; immutable installs are the default.", { deprecated: true }),
   allowScripts: option("allow-scripts", "boolean", undefined, "Allow lifecycle scripts where the command supports it."),
-  image: option("image", "string", "image", "Docker image (default: node:20-alpine)."),
+  image: option("image", "string", "image", "Docker image (default: node:22-alpine)."),
   timeout: option("timeout", "string", "seconds", "Kill the sandbox after this many seconds (default: 300)."),
   network: option("network", "string", "mode", "Sandbox network mode: open or none."),
   format: option("format", "string", "format", "Select the output or scaffold format."),

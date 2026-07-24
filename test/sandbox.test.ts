@@ -8,8 +8,8 @@ describe("buildSandboxCommand", () => {
     expect(cmd).toContain("--rm");
     expect(cmd).toContain("--cap-drop=ALL");
     expect(cmd).toContain("--security-opt=no-new-privileges");
-    expect(cmd).toContain("node:20-alpine");
-    const dockerArgs = cmd.slice(0, cmd.indexOf("node:20-alpine"));
+    expect(cmd).toContain("node:22-alpine");
+    const dockerArgs = cmd.slice(0, cmd.indexOf("node:22-alpine"));
     expect(dockerArgs).not.toContain("-v");
     expect(dockerArgs).not.toContain("--volume");
     expect(dockerArgs).not.toContain("--network=host");
