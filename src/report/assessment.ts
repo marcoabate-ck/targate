@@ -22,6 +22,7 @@ export function renderReport(
   signals: Signals,
   assessment: RiskAssessment,
   score?: SecurityScore,
+  opts: { deep?: boolean } = {},
 ): string {
   const lines: string[] = [];
   const paint = decisionColor(assessment.decision);
@@ -66,6 +67,21 @@ export function renderReport(
   if (assessment.suggestedAlternatives?.length) {
     lines.push("", bold("Suggested alternatives"));
     for (const alternative of assessment.suggestedAlternatives) lines.push(`  • ${clean(alternative)}`);
+  }
+  // Shallow runs analyze ONLY the named package — a clean verdict says nothing
+  // about its transitive tree. Say so on the allow-ish paths so an ALLOW is not
+  // read as "the whole install is safe". A --deep run vets the tree, so skip it.
+  if (
+    !opts.deep &&
+    (assessment.decision === "allow" || assessment.decision === "allow_with_warnings")
+  ) {
+    lines.push(
+      "",
+      dim(
+        `Note: only ${clean(metadata.name)} was analyzed — its transitive dependencies were not. ` +
+          "Re-run with --deep, or use `targate install`, to vet the whole tree.",
+      ),
+    );
   }
   lines.push("");
   return lines.join("\n");

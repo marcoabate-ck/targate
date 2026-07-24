@@ -38,6 +38,8 @@ Reasons
 Recommendation
   Safe to install normally.
 
+Note: only lodash was analyzed — its transitive dependencies were not. Re-run with --deep, or use `targate install`, to vet the whole tree.
+
 
 Dry run — recommended command: pnpm add lodash@4.17.21
 ```
