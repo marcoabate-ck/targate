@@ -15,3 +15,8 @@ overrides:
   # out-of-range writes to caller-provided buffers in v3/v5/v6. Force a
   # patched line; dedups onto the 14.x already in the tree.
   uuid@<11.1.1: '>=11.1.1'
+  # fast-uri <3.1.4 (pulled transitively by ajv via docusaurus) does not
+  # treat a literal backslash as an authority delimiter, so host-based
+  # policy checks desync from Node's WHATWG URL parser (SSRF/allowlist
+  # bypass, GHSA). Force the patched 3.x line.
+  fast-uri@<3.1.4: '>=3.1.4'
