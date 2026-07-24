@@ -9,6 +9,7 @@ import {
   type CommandValues,
 } from "./command-registry.js";
 import { red } from "./report.js";
+import { TARGATE_VERSION } from "./version.js";
 
 function unknownCommandMessage(name: string): string {
   const suggestion = name === "instal" ? " Did you mean `targate install`?" : "";
@@ -22,6 +23,10 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
   }
   if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
     console.log(renderGlobalHelp());
+    return 0;
+  }
+  if (args.length === 1 && (args[0] === "--version" || args[0] === "-v")) {
+    console.log(TARGATE_VERSION);
     return 0;
   }
 
