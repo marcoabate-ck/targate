@@ -314,12 +314,12 @@ const commands: CommandDefinition[] = [
     examples: ["targate policy init", "targate policy init --preset ai-agent"],
     handler: async ({ values: v, positionals }) => {
       if (positionals.length !== 1 || positionals[0] !== "init") {
-        console.error(red("Usage: targate policy init [--format yaml|json|js|ts] [--preset <name>]"));
+        console.error(red("Usage: targate policy init [--format yaml|json] [--preset <name>]"));
         return 1;
       }
       const format = (stringValue(v, "format") ?? "yaml") as PolicyFormat;
-      if (!(["yaml", "json", "js", "ts"] as string[]).includes(format)) {
-        console.error(red(`Unknown policy format: ${format}. Valid options: yaml, json, js, ts`));
+      if (!(["yaml", "json"] as string[]).includes(format)) {
+        console.error(red(`Unknown policy format: ${format}. Valid options: yaml, json`));
         return 1;
       }
       const preset = stringValue(v, "preset") ?? "default";

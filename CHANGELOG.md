@@ -44,6 +44,17 @@ bumped by hand.
 - `graph`, `recommend`, and `monitor` are now labeled **experimental** (in help
   and the CLI reference) — outside the 1.0 stability guarantee.
 
+### Removed
+
+- **Executable repository config** (`targate.policy.{ts,js,mjs,cjs}` and
+  `.targate/approvals|denials.{ts,js,mjs,cjs}`) and the `jiti` runtime dependency.
+  Configuration is now **declarative only** (`.yaml`/`.yml`/`.json`, parsed never
+  executed), removing the only path by which a repository could run code through a
+  targate config file. The `TARGATE_ALLOW_EXEC_CONFIG` / `TARGATE_NO_EXEC_CONFIG` env
+  vars and the `definePolicy` / `defineApprovals` helpers are gone; `targate policy
+  init` supports `--format yaml|json`. A leftover legacy executable file is ignored
+  and flagged by `targate doctor` — convert it to YAML/JSON.
+
 ### Security
 
 - **Installer signature is mandatory and fail-closed.** `install.sh` now verifies

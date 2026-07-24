@@ -177,17 +177,19 @@ describe("individual checks", () => {
     expect(r.message).toContain("CI environment detected");
   });
 
-  it("reports executable config files without executing them", async () => {
-    await writeFile(path.join(dir, "targate.policy.js"), "throw new Error('must not run')\n");
-    const result = await check("exec-config").run(makeCtx());
-    expect(result.status).toBe("warn");
-    expect(result.message).toContain("ignored");
+  it("passes with declarative config and warns (never executes) on a legacy exec file", async () => {
+    // Clean project → declarative-only pass.
+    const clean = await check("exec-config").run(makeCtx());
+    expect(clean.status).toBe("pass");
+    expect(clean.message).toContain("declarative");
 
-    const optedIn = await check("exec-config").run(
-      makeCtx({ env: { ...process.env, TARGATE_ALLOW_EXEC_CONFIG: "1" } }),
-    );
-    expect(optedIn.status).toBe("warn");
-    expect(optedIn.message).toContain("will execute");
+    // A leftover executable config file is IGNORED (removed feature) and flagged
+    // so a stale source that no longer applies is visible.
+    await writeFile(path.join(dir, "targate.policy.js"), "throw new Error('must not run')\n");
+    const withLegacy = await check("exec-config").run(makeCtx());
+    expect(withLegacy.status).toBe("warn");
+    expect(withLegacy.message).toContain("no longer supported");
+    expect(withLegacy.message).toContain("targate.policy.js");
   });
 });
 

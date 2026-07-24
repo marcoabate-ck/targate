@@ -27,15 +27,14 @@ The recorded mode is **binding at install time**: a `no-scripts` approval makes 
 
 Either path above records the approval (name@version, mode, who, when) in `.targate/approvals.json`. **Commit the file**: the rest of the team — and CI — treat that exact version as already reviewed. A new version requires a new approval.
 
-Approvals can also be hand-curated declaratively in `.targate/approvals.{yaml,yml,json}`. Existing declarative files are **merged**, with the tool-managed `approvals.json` winning on conflicts (a fresh interactive approval must always take effect). Automatic recording only ever writes `approvals.json`; the other formats are read-only sources. Legacy typed/JavaScript sources are ignored by default and require the same explicit `TARGATE_ALLOW_EXEC_CONFIG=1` migration opt-in as policy files. For a trusted legacy typed file:
+Approvals can also be hand-curated declaratively in `.targate/approvals.{yaml,yml,json}`. Existing declarative files are **merged**, with the tool-managed `approvals.json` winning on conflicts (a fresh interactive approval must always take effect). Automatic recording only ever writes `approvals.json`; the other formats are read-only sources. Config is declarative only — executable `.ts`/`.js` sources are no longer supported (a leftover file is ignored and flagged by `targate doctor`). For a hand-curated file:
 
-```ts
-// .targate/approvals.ts
-import { defineApprovals } from "targate";
-
-export default defineApprovals({
-  "core-js@3.49.0": { mode: "no-scripts", approvedAt: "2026-07-07T00:00:00Z", approvedBy: "marco" },
-});
+```yaml
+# .targate/approvals.yaml
+"core-js@3.49.0":
+  mode: no-scripts
+  approvedAt: 2026-07-07T00:00:00Z
+  approvedBy: marco
 ```
 
 Every entry is validated at runtime: `mode` must be exactly `normal` or `no-scripts`, `approvedAt` must be a valid ISO timestamp, and `approvedBy`, when present, must be a string. Invalid records are ignored with a warning naming the file and key; an unknown mode never defaults to scripts-enabled approval.
@@ -57,7 +56,7 @@ Every successful real `targate add` / `targate install` records the SHA-512 dige
 
 ## Team policy — `targate.policy.*`
 
-`targate policy init [--format yaml|json|js|ts]` scaffolds the policy file (YAML by default). Declarative YAML/JSON loads by default; executable JS/TS is migration-only and opt-in. For the complete field-by-field schema, defaults, precedence, resource limits, and validation rules, see the [Policy reference](policy-reference.md); this section is the workflow-level summary.
+`targate policy init [--format yaml|json]` scaffolds the policy file (YAML by default). Configuration is declarative only — parsed, never executed. For the complete field-by-field schema, defaults, precedence, resource limits, and validation rules, see the [Policy reference](policy-reference.md); this section is the workflow-level summary.
 
 ```yaml
 # targate.policy.yaml

@@ -35,7 +35,7 @@ targate is a **decision aid**, not a malware sandbox or a proof of safety. It de
 ## Trust boundaries
 
 - **Untrusted, never executed:** package tarball contents and lifecycle scripts. They are checksum-verified, quarantined, and only ever read during analysis.
-- **Repo-controlled configuration is declarative by default:** `.yaml`/`.json` policy and approval files are parsed, never executed. Legacy `.ts`/`.js` sources are ignored unless a trusted operator explicitly sets `TARGATE_ALLOW_EXEC_CONFIG=1`, which also produces a warning.
+- **Repo-controlled configuration is declarative only:** `.yaml`/`.yml`/`.json` policy and approval files are parsed, never executed. Executable `.ts`/`.js`/`.mjs`/`.cjs` config (and the `jiti` runtime) was removed — a repository cannot run code through a targate config file. Any leftover legacy file is ignored (and flagged by `targate doctor`).
 - **Resource exhaustion is bounded, not classified as safe:** slow/oversized responses and pathological archives stop at configured limits and become visible `UNKNOWN` / approval-required results.
 - **The security floor is deterministic.** The rules engine and the hard-block clamp decide first; the AI is advisory and can only make a verdict stricter. See [Architecture](architecture.md#deterministic-vs-probabilistic) and [Decision policy](decisions.md).
 

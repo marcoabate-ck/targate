@@ -2,18 +2,18 @@
 
 The team policy is an optional file in your project root that is applied **on top of** every targate assessment. It is **escalation-only** — it can make a decision stricter, never more permissive — with a single, deliberate exception: `allowKnownPackages` can pre-clear a *soft* block. It can never override a **hard** block.
 
-Scaffold one with `targate policy init [--format yaml|json|js|ts]`. This page is the complete reference; for the workflow around it (approvals, pnpm builds) see [Team workflow](team-workflow.md).
+Scaffold one with `targate policy init [--format yaml|json]`. This page is the complete reference; for the workflow around it (approvals, pnpm builds) see [Team workflow](team-workflow.md).
 
 ## File location & formats
 
-The policy lives in the project root under the basename `targate.policy`. Declarative formats are the default. Executable formats participate in the lookup order only after explicit opt-in:
+The policy lives in the project root under the basename `targate.policy`. Configuration is **declarative only** — parsed, never executed. Lookup order (first existing file wins):
 
 ```text
-targate.policy.ts   →  .js  →  .mjs  →  .cjs  →  .yaml  →  .yml  →  .json
+targate.policy.yaml   →  .yml   →  .json
 ```
 
-- `.ts` / `.js` / `.mjs` / `.cjs` are ignored by default. In a trusted repository, migration-only support can be enabled with **`TARGATE_ALLOW_EXEC_CONFIG=1`**; targate emits a strong warning before executing them through [jiti](https://github.com/unjs/jiti). `TARGATE_NO_EXEC_CONFIG=1` remains a fail-safe override.
 - `.yaml` / `.yml` / `.json` are **parsed, never executed** — always safe.
+- Executable `.ts` / `.js` / `.mjs` / `.cjs` config (and the `jiti` runtime) was **removed**: a repository cannot run code through a config file. A leftover legacy file is ignored and flagged by `targate doctor` — convert it to YAML/JSON.
 - Every format goes through the same schema validation.
 
 ## Schema

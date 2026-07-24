@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { execConfigDisabled, isExecConfigFile, loadConfigFile } from "./config-loader.js";
+import { loadConfigFile } from "./config-loader.js";
 import type { ApprovalMode } from "./trust-decision.js";
 import { isApprovalApplicable } from "./trust-decision.js";
 import type { Decision, RiskAssessment, RiskLevel } from "./types.js";
@@ -28,10 +28,6 @@ export const APPROVALS_BASENAME = "approvals";
  * writes to — a fresh interactive approval must always take effect.
  */
 export const APPROVALS_FILENAMES = [
-  `${APPROVALS_BASENAME}.ts`,
-  `${APPROVALS_BASENAME}.js`,
-  `${APPROVALS_BASENAME}.mjs`,
-  `${APPROVALS_BASENAME}.cjs`,
   `${APPROVALS_BASENAME}.yaml`,
   `${APPROVALS_BASENAME}.yml`,
   `${APPROVALS_BASENAME}.json`,
@@ -142,23 +138,15 @@ function isApprovalsMap(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Load team approvals from .targate/approvals.{ts,js,mjs,cjs,yaml,yml,json}.
- * All existing files are merged: hand-curated ts/js/yaml sources first,
- * then the tool-managed approvals.json on top.
+ * Load team approvals from .targate/approvals.{yaml,yml,json}. All existing
+ * files are merged: hand-curated yaml/yml sources first, then the tool-managed
+ * approvals.json on top. Repository config is declarative only — never executed.
  */
 export async function loadApprovals(cwd: string = process.cwd()): Promise<ApprovalsMap> {
   const merged: ApprovalsMap = {};
-  const noExec = execConfigDisabled();
   for (const name of APPROVALS_FILENAMES) {
     const file = path.join(cwd, APPROVALS_DIR, name);
     if (!existsSync(file)) continue;
-    if (noExec && isExecConfigFile(file)) {
-      // Skipping only loses approvals (packages ask again) — the safe direction.
-      console.error(
-        `[targate] ignoring .targate/${name}: executable config is disabled by default; use YAML/JSON or set TARGATE_ALLOW_EXEC_CONFIG=1.`,
-      );
-      continue;
-    }
     try {
       const doc = await loadConfigFile(file);
       if (!isApprovalsMap(doc)) {
