@@ -17,6 +17,22 @@ describe("buildSandboxCommand", () => {
     // Regression (P1.1b): cap process count so a fork bomb can't exhaust host
     // PIDs before the memory limit bites.
     expect(cmd).toContain("--pids-limit=512");
+    // Hardening: the untrusted install runs non-root on a read-only rootfs,
+    // writing only to the two tmpfs work dirs.
+    const userIdx = cmd.indexOf("--user");
+    expect(userIdx).toBeGreaterThan(-1);
+    expect(cmd[userIdx + 1]).toBe("1000:1000");
+    expect(cmd).toContain("--read-only");
+    expect(cmd).toContain("/sandbox:exec,mode=1777");
+    expect(cmd).toContain("/tmp:exec,mode=1777");
+    expect(cmd).toContain("HOME=/sandbox");
+    // No host bind mount slips a writable host path in.
+    expect(dockerArgs).not.toContain("--mount");
+  });
+
+  it("rejects a spec that starts with '-' (npm would read it as a flag)", () => {
+    expect(() => buildSandboxCommand("-rf")).toThrow(/starts with/);
+    expect(() => buildSandboxCommand("--registry=http://evil")).toThrow(/starts with/);
   });
 
   // Regression (P1.1): the container must be named so runSandbox's timeout can
@@ -37,6 +53,11 @@ describe("buildSandboxCommand", () => {
     const cmd = buildSandboxCommand("left-pad@1.3.0");
     expect(cmd).toContain("--sysctl");
     expect(cmd).toContain("net.ipv4.ip_unprivileged_port_start=0");
+    // Non-root/read-only can't rewrite resolv.conf, so DNS is pointed at the
+    // in-container shim via docker --dns.
+    const dnsIdx = cmd.indexOf("--dns");
+    expect(dnsIdx).toBeGreaterThan(-1);
+    expect(cmd[dnsIdx + 1]).toBe("127.0.0.1");
     // The capture shim source is delivered as env data, not a heredoc.
     expect(cmd.some((a) => a.startsWith("TARGATE_CAPTURE_SRC="))).toBe(true);
     // Hardening is untouched — no capability is added.
@@ -51,6 +72,7 @@ describe("buildSandboxCommand", () => {
   it("omits capture wiring with --no-capture", () => {
     const cmd = buildSandboxCommand("x", { capture: false });
     expect(cmd).not.toContain("--sysctl");
+    expect(cmd).not.toContain("--dns");
     expect(cmd.some((a) => a.startsWith("TARGATE_CAPTURE_SRC="))).toBe(false);
     expect(cmd.at(-1)!).not.toContain("[targate-net]");
   });
@@ -59,6 +81,7 @@ describe("buildSandboxCommand", () => {
     const cmd = buildSandboxCommand("x", { network: "none" });
     expect(cmd).toContain("--network=none");
     expect(cmd).not.toContain("--sysctl");
+    expect(cmd).not.toContain("--dns");
     expect(cmd.some((a) => a.startsWith("TARGATE_CAPTURE_SRC="))).toBe(false);
   });
 

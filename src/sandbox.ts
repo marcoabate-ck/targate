@@ -121,9 +121,10 @@ export function buildContainerScript(capture: boolean): string {
       "unset TARGATE_CAPTURE_SRC",
       "node /tmp/targate-capture.mjs & CAPTURE_PID=$!",
       'i=0; while [ ! -f /tmp/targate-capture.ready ] && [ "$i" -lt 20 ]; do sleep 0.1; i=$((i+1)); done',
+      // DNS is pointed at the shim via docker --dns 127.0.0.1 (set on the
+      // container, since a non-root / read-only container cannot rewrite
+      // /etc/resolv.conf). Here we only route npm/HTTP(S) through the proxy.
       "if [ -f /tmp/targate-capture.ready ]; then",
-      "  cp /etc/resolv.conf /tmp/resolv.orig 2>/dev/null || true",
-      '  { echo "nameserver 127.0.0.1"; cat /tmp/resolv.orig 2>/dev/null; } > /etc/resolv.conf || echo "[targate-net] error resolv-conf-write"',
       "  export HTTP_PROXY=http://127.0.0.1:8888 HTTPS_PROXY=http://127.0.0.1:8888",
       "  export http_proxy=http://127.0.0.1:8888 https_proxy=http://127.0.0.1:8888",
       "  export npm_config_proxy=http://127.0.0.1:8888 npm_config_https_proxy=http://127.0.0.1:8888",
@@ -164,10 +165,12 @@ export function buildContainerScript(capture: boolean): string {
  * - disposable container (--rm), nothing mounted from the host;
  * - no host environment variables, SSH agent, npm/GitHub tokens (docker
  *   passes none of them unless explicitly asked to — and we don't);
- * - temporary container filesystem only, host project never exposed;
- * - CPU/memory caps, all capabilities dropped, no privilege escalation;
+ * - runs as a NON-ROOT user (uid 1000) on a READ-ONLY root filesystem; the
+ *   only writable space is two tmpfs work dirs (/sandbox, /tmp), so a hostile
+ *   script cannot persist into the image or write outside them;
+ * - CPU/memory/pid caps, all capabilities dropped, no privilege escalation;
  * - the package spec is passed as an env var, never interpolated into the
- *   shell script.
+ *   shell script, and is rejected if it starts with "-".
  *
  * NETWORK: by default the container uses docker's bridge network with FULL
  * egress — npm needs it to fetch packages, and so a malicious install script
@@ -176,6 +179,11 @@ export function buildContainerScript(capture: boolean): string {
  * network allowlist.
  */
 export function buildSandboxCommand(spec: string, opts: SandboxOptions = {}): string[] {
+  // A spec beginning with "-" would be read by npm inside the container as a
+  // flag, not a package. Reject it (mirrors installer.ts / install-plan.ts).
+  if (spec.startsWith("-")) {
+    throw new Error(`refusing a package spec that starts with "-": ${spec}`);
+  }
   const network = opts.network ?? "open";
   // Capture needs the network; it is meaningless (and its port-53 bind would
   // fail) under --network=none.
@@ -187,6 +195,24 @@ export function buildSandboxCommand(spec: string, opts: SandboxOptions = {}): st
     "--pull=missing",
     "--security-opt=no-new-privileges",
     "--cap-drop=ALL",
+    // Run the untrusted install as a NON-ROOT user on a READ-ONLY root
+    // filesystem: a hostile lifecycle script cannot escalate, persist into the
+    // image, or write anywhere outside the two tmpfs work dirs below. uid 1000
+    // is the image's own `node` user. Validated end-to-end (non-root +
+    // read-only + capture + a real install) before shipping.
+    "--user",
+    "1000:1000",
+    "--read-only",
+    "--tmpfs",
+    "/sandbox:exec,mode=1777",
+    "--tmpfs",
+    "/tmp:exec,mode=1777",
+    // HOME and the npm cache must live on a writable tmpfs (the rootfs is
+    // read-only and the default /root/.npm is not writable as a non-root user).
+    "--env",
+    "HOME=/sandbox",
+    "--env",
+    "npm_config_cache=/sandbox/.npm",
     "--memory=1g",
     "--cpus=1",
     // Cap process count so a fork bomb in a lifecycle script can't exhaust
@@ -200,6 +226,12 @@ export function buildSandboxCommand(spec: string, opts: SandboxOptions = {}): st
     // --cap-drop=ALL fully intact (a strictly better story than --cap-add).
     // The sysctl is namespaced, affecting only this container.
     ...(capture ? ["--sysctl", "net.ipv4.ip_unprivileged_port_start=0"] : []),
+    // As a non-root / read-only container the shell can't rewrite
+    // /etc/resolv.conf to point resolution at the in-container DNS shim, so
+    // direct docker's resolver at it here (docker writes resolv.conf at
+    // creation, before the rootfs is read-only). The shim on 127.0.0.1:53
+    // logs each query name and forwards it upstream.
+    ...(capture ? ["--dns", "127.0.0.1"] : []),
     ...(network === "none" ? ["--network=none"] : []),
     "--env",
     "npm_config_fund=false",
