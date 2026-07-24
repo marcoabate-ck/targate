@@ -1,9 +1,8 @@
 version: 2
-# Keep GitHub Actions current so third-party actions used by the release and CI
-# workflows (and their transitive references) stay patched. Grouped into one PR
-# per week to keep review load low. Pin actions to a SHA in the workflows for
-# stronger supply-chain guarantees; Dependabot will then bump the SHAs here.
 updates:
+  # GitHub Actions. All workflow `uses:` are pinned to a commit SHA (with the
+  # version in a trailing comment); Dependabot bumps the SHA + comment together.
+  # Grouped into one PR per week to keep review load low.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
@@ -13,3 +12,26 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: "ci"
+
+  # Root pnpm workspace (targate + the private tools/* packages share this
+  # lockfile). Keeps the tool's own runtime/dev dependencies patched.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  # The documentation site is a separate pnpm workspace with its own lockfile.
+  - package-ecosystem: npm
+    directory: "/website"
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
