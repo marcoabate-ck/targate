@@ -46,7 +46,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
-    "jiti": "^2.7.0",
     "openai": "^6.45.0",
     "tar": "^7.4.3",
     "yaml": "^2.9.0"

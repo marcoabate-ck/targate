@@ -1,7 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { execConfigDisabled, isExecConfigFile, loadConfigFile } from "./config-loader.js";
+import { loadConfigFile } from "./config-loader.js";
 import type { ApprovalContext } from "./approvals.js";
 import { APPROVALS_DIR, atomicWrite } from "./approvals.js";
 import { isValidIsoTimestamp } from "./persisted-validation.js";
@@ -25,10 +25,6 @@ export const DENIALS_BASENAME = "denials";
 
 /** Readable denial sources, merged in this order (later files win). Mirrors approvals. */
 export const DENIALS_FILENAMES = [
-  `${DENIALS_BASENAME}.ts`,
-  `${DENIALS_BASENAME}.js`,
-  `${DENIALS_BASENAME}.mjs`,
-  `${DENIALS_BASENAME}.cjs`,
   `${DENIALS_BASENAME}.yaml`,
   `${DENIALS_BASENAME}.yml`,
   `${DENIALS_BASENAME}.json`,
@@ -66,22 +62,14 @@ export function isDenialApplicable(denial: unknown): denial is DenialRecord {
 }
 
 /**
- * Load team denials from .targate/denials.{ts,js,mjs,cjs,yaml,yml,json}.
- * Hand-curated sources first, then the tool-managed denials.json on top.
+ * Load team denials from .targate/denials.{yaml,yml,json}. Hand-curated sources
+ * first, then the tool-managed denials.json on top. Declarative only — never executed.
  */
 export async function loadDenials(cwd: string = process.cwd()): Promise<DenialsMap> {
   const merged: DenialsMap = {};
-  const noExec = execConfigDisabled();
   for (const name of DENIALS_FILENAMES) {
     const file = path.join(cwd, APPROVALS_DIR, name);
     if (!existsSync(file)) continue;
-    if (noExec && isExecConfigFile(file)) {
-      // Skipping only loses denials (packages ask again) — the safe direction.
-      console.error(
-        `[targate] ignoring .targate/${name}: executable config is disabled by default; use YAML/JSON or set TARGATE_ALLOW_EXEC_CONFIG=1.`,
-      );
-      continue;
-    }
     try {
       const doc = await loadConfigFile(file);
       if (!isDenialsDoc(doc)) {

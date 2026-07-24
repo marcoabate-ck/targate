@@ -59,7 +59,7 @@ Decision: ALLOW   (risk: low, source: rules)
 - **[Getting started](./getting-started)** — install the CLI and gate your first package.
 - **[How it works](./how-it-works)** — the full analysis pipeline, step by step.
 - **[Scenarios](./scenarios)** — CI gating, private registries, monorepos, coding agents, sandboxing.
-- **[API reference](./api)** — the typed surface for `targate.policy.ts` and `.targate/approvals.ts`.
+- **[API reference](./api)** — the exported TypeScript types (config itself is declarative YAML/JSON).
 
 :::note What ships today vs. the vision
 targate is a dependency **intelligence and decision** layer. Pre-install security is the first application built on it, not the whole category. Everything in this guide is implemented and tested; directional roadmap items are called out as such.

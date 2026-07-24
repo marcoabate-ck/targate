@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { parse, stringify } from "yaml";
 import type { AiCachePolicy } from "./ai-cache.js";
-import { execConfigDisabled, isExecConfigFile, loadConfigFile } from "./config-loader.js";
+import { loadConfigFile } from "./config-loader.js";
 import { DEFAULT_REGISTRY } from "./npmrc.js";
 import type { ResourceLimits } from "./resource-limits.js";
 import { isHardBlock } from "./rules.js";
@@ -12,15 +12,21 @@ import { DECISION_SEVERITY, type CodeAuditScope, type RiskAssessment, type Signa
 
 export const POLICY_BASENAME = "targate.policy";
 
-/** Supported policy formats, in lookup order (first existing file wins). */
+/** Supported policy formats, in lookup order (first existing file wins).
+ *  Declarative only — repository config is parsed, never executed. */
 export const POLICY_FILENAMES = [
+  `${POLICY_BASENAME}.yaml`,
+  `${POLICY_BASENAME}.yml`,
+  `${POLICY_BASENAME}.json`,
+] as const;
+
+/** Legacy executable policy formats, no longer loaded (kept for a migration
+ *  hint in `targate doctor`). */
+export const LEGACY_EXEC_POLICY_FILENAMES = [
   `${POLICY_BASENAME}.ts`,
   `${POLICY_BASENAME}.js`,
   `${POLICY_BASENAME}.mjs`,
   `${POLICY_BASENAME}.cjs`,
-  `${POLICY_BASENAME}.yaml`,
-  `${POLICY_BASENAME}.yml`,
-  `${POLICY_BASENAME}.json`,
 ] as const;
 
 /**
@@ -300,21 +306,11 @@ export function parsePolicy(source: string): PolicyFile {
   return validatePolicyObject(doc);
 }
 
-/** First targate.policy.* file found in the project root, or null. */
+/** First declarative targate.policy.* file found in the project root, or null. */
 export function findPolicyFile(cwd: string = process.cwd()): string | null {
-  const noExec = execConfigDisabled();
   for (const name of POLICY_FILENAMES) {
     const file = path.join(cwd, name);
-    if (!existsSync(file)) continue;
-    if (noExec && isExecConfigFile(file)) {
-      // stderr, so --json stdout stays clean; the skip must be visible because
-      // it can remove strictness the repo's policy would otherwise add.
-      console.error(
-        `[targate] ignoring ${name}: executable config is disabled by default. Use YAML/JSON or set TARGATE_ALLOW_EXEC_CONFIG=1.`,
-      );
-      continue;
-    }
-    return file;
+    if (existsSync(file)) return file;
   }
   return null;
 }
@@ -339,8 +335,7 @@ export async function policyFileDigest(file: string): Promise<string | undefined
 
 /**
  * Load the team policy from the project root; null when absent. Supported
- * formats, first match wins: .ts, .js, .mjs, .cjs (default export), .yaml,
- * .yml, .json.
+ * formats, first match wins: .yaml, .yml, .json (declarative, never executed).
  */
 export async function loadPolicy(cwd: string = process.cwd()): Promise<LoadedPolicy | null> {
   const file = findPolicyFile(cwd);
@@ -580,7 +575,7 @@ export const POLICY_PRESETS: Record<string, PolicyPresetDefinition> = {
   },
 };
 
-export type PolicyFormat = "yaml" | "json" | "js" | "ts";
+export type PolicyFormat = "yaml" | "json";
 
 function policyComment(preset: string): string[] {
   return [
@@ -593,25 +588,15 @@ function policyComment(preset: string): string[] {
   ];
 }
 
-// JSON -> JS object literal: unquote keys for the js/ts templates
-function objectLiteral(policy: PolicyFile): string {
-  return JSON.stringify(policy, null, 2).replace(/"([a-zA-Z][\w]*)":/g, "$1:");
-}
-
 function policyTemplate(format: PolicyFormat, preset: string): string {
-  const comment = policyComment(preset);
-  const hash = comment.map((l) => `# ${l}`).join("\n");
-  const slash = comment.map((l) => `// ${l}`).join("\n");
   const policy = POLICY_PRESETS[preset].policy;
   switch (format) {
-    case "yaml":
+    case "yaml": {
+      const hash = policyComment(preset).map((l) => `# ${l}`).join("\n");
       return `${hash}\n${stringify(policy)}`;
+    }
     case "json":
       return JSON.stringify(policy, null, 2) + "\n";
-    case "js":
-      return `${slash}\n/** @type {import("targate").PolicyFile} */\nexport default ${objectLiteral(policy)};\n`;
-    case "ts":
-      return `${slash}\nimport type { PolicyFile } from "targate";\n\nconst policy: PolicyFile = ${objectLiteral(policy)};\n\nexport default policy;\n`;
   }
 }
 

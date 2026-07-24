@@ -25,7 +25,7 @@ An **approval** is a human vouching that a specific package **version** is trust
 }
 ```
 
-Approvals are **read** from `.targate/approvals.{ts,js,mjs,cjs,yaml,yml,json}` (merged in that order — hand-curated sources first, the tool-managed `.json` last). Executable `.ts`/`.js` config is **disabled by default**; enable it only for migrations with `TARGATE_ALLOW_EXEC_CONFIG=1`. Approvals are **written** only to `.targate/approvals.json`, and — critically — **never created in CI**. In CI they are only read from the committed file.
+Approvals are **read** from `.targate/approvals.{yaml,yml,json}` (merged in that order — hand-curated sources first, the tool-managed `.json` last). Config is **declarative only** — parsed, never executed. Approvals are **written** only to `.targate/approvals.json`, and — critically — **never created in CI**. In CI they are only read from the committed file.
 
 An approval can never clear a **hard block**: mutated bytes and known-malicious records stay blocked regardless.
 
@@ -47,19 +47,14 @@ targate policy init                    # default preset
 targate policy init --preset ai-agent  # stricter preset for agent-driven installs
 ```
 
-Policy is typed — author it in TypeScript for full inference:
+Policy is declarative (`.yaml`/`.yml`/`.json`) — parsed, never executed:
 
-```ts
-// targate.policy.ts
-import { definePolicy } from "targate";
-
-export default definePolicy({
-  dependencyPolicy: {
-    minPackageAgeDays: 7,           // reject brand-new publishes
-  },
-  allowKnownPackages: ["react", "react-native"],
-  requireSignedApprovals: true,     // enforce signatures in CI
-});
+```yaml
+# targate.policy.yaml
+dependencyPolicy:
+  minPackageAgeDays: 7 # reject brand-new publishes
+  allowKnownPackages: [react, react-native]
+  requireSignedApprovals: true # enforce signatures in CI
 ```
 
 Key properties of the policy engine:

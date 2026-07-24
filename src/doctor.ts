@@ -6,7 +6,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { isCiEnvironment } from "./approvals.js";
-import { execConfigDisabled } from "./config-loader.js";
 import { detectPackageManager } from "./installer.js";
 import { loadPolicy, PolicyError } from "./policy.js";
 import { compareSemver } from "./semver.js";
@@ -363,23 +362,23 @@ export const DOCTOR_CHECKS: DoctorCheck[] = [
   },
   {
     id: "exec-config",
-    label: "Executable config",
+    label: "Config format",
     async run(ctx) {
-      const candidates = [
+      // Executable config was removed — repository config is declarative only.
+      // Flag any leftover legacy .ts/.js/.mjs/.cjs files: they are now IGNORED,
+      // so a stale policy/approvals source silently stops applying.
+      const legacy = [
         "targate.policy.ts", "targate.policy.js", "targate.policy.mjs", "targate.policy.cjs",
         path.join(".targate", "approvals.ts"), path.join(".targate", "approvals.js"),
         path.join(".targate", "approvals.mjs"), path.join(".targate", "approvals.cjs"),
       ].filter((name) => existsSync(path.join(ctx.cwd, name)));
-      const enabled = !execConfigDisabled(ctx.env);
-      if (candidates.length > 0) {
+      if (legacy.length > 0) {
         return {
           status: "warn",
-          message: `${candidates.join(", ")} ${enabled ? "will execute because TARGATE_ALLOW_EXEC_CONFIG=1" : "ignored (declarative config is the default)"}`,
+          message: `${legacy.join(", ")} — executable config is no longer supported and is IGNORED; convert to .yaml/.yml/.json`,
         };
       }
-      return enabled
-        ? { status: "warn", message: "TARGATE_ALLOW_EXEC_CONFIG=1 — repository config code may execute" }
-        : { status: "pass", message: "declarative YAML/JSON only (executable config disabled by default)" };
+      return { status: "pass", message: "declarative YAML/JSON config only (never executed)" };
     },
   },
   {
