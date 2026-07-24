@@ -38,7 +38,9 @@ Preview a package without installing anything with `--dry-run`, or record a comm
 
 ## Install
 
-`targate` ships four ways — all install the same CLI. The `brew`, install-script, and direct-download methods go live with the first tagged release.
+`targate` ships four ways — all install the same CLI.
+
+> **Note:** only the **npm** method works today. `brew`, `winget`, the install script, and the direct binary downloads go live with the **first tagged release** — until then their commands below are shown for reference and will 404.
 
 **npm** — every platform, needs Node ≥ 22.13:
 
@@ -136,7 +138,7 @@ Exit codes: `0` ok · `1` error · `2` blocked (or suspicious sandbox / failed C
 - **Deterministic security floor.** The rules engine decides first; the AI can only make a verdict *stricter*. A jailbroken or prompt-injected model cannot turn `allow_with_warnings`, `require_approval`, or `block` into a weaker result. See [docs/decisions.md](docs/decisions.md).
 - **Hard vs soft blocks.** Artifact-identity mismatches, known-malicious records, and remote-code-execution blocks can never be overridden; heuristic ("soft") blocks can be deliberately cleared by a committed approval or allow-list entry.
 - **Auditable, verifiable trust.** Every approval records its circumstances (who, when, verdict, tool version, AI model, policy hash) — `targate history` shows it; `targate approve --sign` adds an SSH signature that `requireSignedApprovals` enforces in CI, so a hand-edited approvals file cannot green a poisoned dependency.
-- **Nothing untrusted executes during analysis.** Tarballs are SHA-512 identified and checked against every available registry, lockfile, public-mirror, and historical digest before being read in a resource-bounded quarantine — lifecycle scripts never run. A compromised npm mirror that rewrites tarball and metadata is hard-blocked by the independent public comparison. Repository `.ts`/`.js` config is disabled by default; migration-only execution requires `TARGATE_ALLOW_EXEC_CONFIG=1` and emits a warning. See [docs/security.md](docs/security.md).
+- **Nothing untrusted executes during analysis.** Tarballs are SHA-512 identified and checked against every available registry, lockfile, public-mirror, and historical digest before being read in a resource-bounded quarantine — lifecycle scripts never run. A compromised npm mirror that rewrites tarball and metadata is hard-blocked by the independent public comparison **when a public mirror is configured** (`registries[].mirrorOf` or a global `.npmrc` override) **and reachable**; against the default `registry.npmjs.org`, or when the public comparison is unavailable, the divergence is surfaced for review (`require_approval` / `allow_with_warnings`) rather than hard-blocked. Repository `.ts`/`.js` config is disabled by default; migration-only execution requires `TARGATE_ALLOW_EXEC_CONFIG=1` and emits a warning. See [docs/security.md](docs/security.md).
 - **Bounded inputs fail visibly.** Network bodies, tarballs, extracted trees, individual files, and scan time have configurable limits. A timeout or exceeded limit is reported as `UNKNOWN` and deterministically requires approval; it is never presented as clean.
 - **Local-AI capable — your code never leaves your machine.** targate does reach the network for package metadata, tarballs and vulnerability data, but the AI reasoning can run entirely on a local model; with no AI provider configured it runs on the deterministic rules engine alone and sends nothing to any model. See [AI providers](docs/ai-providers.md).
 - **Fail-closed option.** `--fail-on-osv-error` escalates when the malicious-package lookup can't complete, so a package is never silently trusted while the strongest check was skipped.
@@ -215,13 +217,18 @@ Or link the built binary for local use: `pnpm link --global` → `targate add <p
 
 The project deliberately uses no external linter or formatter: type safety is enforced by `tsc` in `strict` mode and formatting by the zero-dependency `format:check`, so no toolchain dependency bypasses the targate gate.
 
+## Contributing & security
+
+- Contributions are welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, gates, and expectations, and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community standards.
+- Found a security issue? **Do not open a public issue.** Follow the private disclosure process in [SECURITY.md](SECURITY.md).
+
 ## Stability & compatibility
 
 `targate` follows [Semantic Versioning](https://semver.org/). From **1.0.0** on,
 the following are the stable surface — a breaking change to any of them ships
 only in a new **major** version, with an entry in [CHANGELOG.md](CHANGELOG.md):
 
-- **CLI** — command names, their flags, and exit codes. In particular `0` = allowed / clean, `1` = usage or operational error, `2` = blocked or an unresolved approval. New commands and new (additive) flags are minor releases.
+- **CLI** — command names, their flags, and exit codes. In particular `0` = allowed / clean, `1` = usage or operational error, `2` = blocked (and, for `ci` and `install`, an unresolved approval). Note the `2`-on-unresolved-approval contract applies to the non-interactive `ci`/`install` paths; interactive `targate add` returns `0` when a `require_approval` package is skipped or declined. New commands and new (additive) flags are minor releases. The stable command set is `add`, `approve`, `install`, `ci`, `audit`, `doctor`, `explain`, `diff`, `history`, `policy`, `agents`, and `cache`; `graph`, `recommend`, and `monitor` ship as **experimental** and may change flags or output in a minor release.
 - **`--json` output** — the machine-readable schema, carried explicitly as `schemaVersion` (currently `1`). Within a major, changes are **additive only** (consumers must ignore unknown keys); any removal, rename, or type change bumps `schemaVersion` and the major.
 - **Committed config formats** — `.targate/approvals.json`, `.targate/denials.json`, and the `targate.policy.*` schema (including the `dependencyPolicy`, `aiCache`, `registries`, and `resourceLimits` fields). Existing keys keep their meaning within a major; unknown keys are ignored with a warning.
 

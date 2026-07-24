@@ -48,6 +48,9 @@ export interface CommandDefinition {
   examples: string[];
   jsonCommand?: JsonCommand;
   handler: CommandHandler;
+  /** Outside the 1.0 stability guarantee — flags/output may change in a minor
+   *  release. Surfaced in help; not part of the committed stable command set. */
+  experimental?: boolean;
 }
 
 const option = (
@@ -385,6 +388,7 @@ const commands: CommandDefinition[] = [
     name: "monitor",
     usage: "targate monitor",
     summary: "Re-check trusted packages and report increased risk.",
+    experimental: true,
     options: [O.packageManager, O.json, O.all, O.noUpdate, O.concurrency, ...ANALYSIS_OPTIONS],
     examples: ["targate monitor", "targate monitor --all --no-update"],
     jsonCommand: "monitor",
@@ -409,6 +413,7 @@ const commands: CommandDefinition[] = [
     name: "graph",
     usage: "targate graph [<package>[@version]]",
     summary: "Render a dependency risk graph or explain why a package is present.",
+    experimental: true,
     options: [O.format, O.output, O.only, O.why, O.open, O.json, O.packageManager, O.noReputation, O.failOnOsvError, O.concurrency],
     examples: ["targate graph", "targate graph --only high-risk,scripts", "targate graph --why minimist"],
     jsonCommand: "graph",
@@ -436,6 +441,7 @@ const commands: CommandDefinition[] = [
     name: "recommend",
     usage: 'targate recommend "<need>"',
     summary: "Recommend analyzed packages for a need, safest first.",
+    experimental: true,
     options: [O.limit, O.json, ...ANALYSIS_OPTIONS],
     examples: ['targate recommend "date formatting"', 'targate recommend "immutable state" --limit 8 --json'],
     jsonCommand: "recommend",
@@ -577,7 +583,8 @@ function optionLabel(definition: OptionDefinition): string {
 
 export function renderGlobalHelp(): string {
   const commandLines = COMMAND_DEFINITIONS.map(
-    (command) => `  ${command.usage.padEnd(47)} ${command.summary}`,
+    (command) =>
+      `  ${command.usage.padEnd(47)} ${command.summary}${command.experimental ? " [experimental]" : ""}`,
   ).join("\n");
   const uniqueOptions = new Map<string, OptionDefinition>();
   for (const command of COMMAND_DEFINITIONS) {
@@ -594,7 +601,10 @@ export function renderCommandHelp(command: CommandDefinition): string {
     .map((definition) => `  ${optionLabel(definition).padEnd(28)} ${definition.summary}`)
     .join("\n");
   const examples = command.examples.map((example) => `  ${example}`).join("\n");
-  return `${command.summary}\n\nUsage:\n  ${command.usage}\n\nOptions:\n${options}\n\nExamples:\n${examples}`;
+  const experimentalNote = command.experimental
+    ? "\n\n[experimental] Outside the 1.0 stability guarantee — flags and output may change in a minor release."
+    : "";
+  return `${command.summary}${experimentalNote}\n\nUsage:\n  ${command.usage}\n\nOptions:\n${options}\n\nExamples:\n${examples}`;
 }
 
 export function renderReadmeCommandTable(): string {

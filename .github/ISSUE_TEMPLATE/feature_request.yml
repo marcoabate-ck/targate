@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest a capability or improvement for targate
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to do that targate does not support today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should targate do? A command, flag, policy field, or behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other tools or workarounds you have tried.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I've read the roadmap in docs/whats-next.md and this is not already planned/shipped.
+        - label: This stays within targate's scope (a pre-install dependency decision layer), not a general scanner.
