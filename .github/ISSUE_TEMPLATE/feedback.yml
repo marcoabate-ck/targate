@@ -1,0 +1,72 @@
+name: Pre-release feedback
+description: Share your experience trying targate (collaborators / early testers)
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying targate before release. This is for **experience feedback**,
+        not bugs or security issues. File a bug with the Bug report template; report a
+        vulnerability privately per
+        [our security policy](https://github.com/marcoabate-ck/targate/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-tried
+    attributes:
+      label: What did you try?
+      description: The commands / packages you ran (e.g. `targate add <pkg>`, `install`, `diff`, a real project).
+      placeholder: "targate add react-native-reanimated --dry-run; then targate install on our app"
+    validations:
+      required: true
+  - type: textarea
+    id: worked-well
+    attributes:
+      label: What worked well?
+      description: What felt clear, fast, or useful.
+  - type: textarea
+    id: friction
+    attributes:
+      label: Friction / confusion (DX)
+      description: Anything slow, unclear, or surprising — install/build/link, flags, help text, output layout.
+  - type: textarea
+    id: verdict-clarity
+    attributes:
+      label: Were the verdicts clear?
+      description: Did ALLOW / REQUIRE APPROVAL / BLOCK and the reasons make sense? Did you trust them?
+  - type: textarea
+    id: false-results
+    attributes:
+      label: False positive / false negative?
+      description: A package flagged that you believe is fine, or passed that you believe is risky. Give the package@version, the verdict you got, and what you expected.
+      placeholder: "some-pkg@1.2.3 — got REQUIRE APPROVAL for a plain postinstall that only compiles native bindings; expected ALLOW WITH WARNINGS"
+  - type: dropdown
+    id: provider
+    attributes:
+      label: AI provider used
+      options:
+        - none (deterministic rules only)
+        - Anthropic
+        - DeepSeek
+        - OpenAI
+        - Ollama (local)
+        - other
+    validations:
+      required: true
+  - type: dropdown
+    id: would-use
+    attributes:
+      label: Would you use it on a real project?
+      options:
+        - "Yes, as-is"
+        - "Yes, with changes"
+        - "Not yet"
+        - "No"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: "OS + version, Node version, package manager, branch/commit tested."
+      placeholder: "macOS 15.5, Node 22.13, pnpm 11, develop @ <sha>"
+    validations:
+      required: true

@@ -24,6 +24,43 @@ pnpm build
 pnpm dev add <pkg> --dry-run   # run from source (tsx)
 ```
 
+## Try it as a collaborator (pre-release feedback)
+
+targate is not published yet. To try it as a real CLI and send feedback, build
+and link it from a clone:
+
+```bash
+git clone https://github.com/marcoabate-ck/targate.git
+cd targate
+git checkout develop          # or the branch under test
+pnpm install
+pnpm build
+pnpm link --global            # exposes `targate` on your PATH
+targate --help
+```
+
+Exercise it against a throwaway project (nothing installs without confirmation):
+
+```bash
+mkdir /tmp/targate-trial && cd /tmp/targate-trial && npm init -y
+targate add lodash --dry-run                # ALLOW (deterministic)
+targate add react-native-mmkv --dry-run     # REQUIRE APPROVAL (native surface)
+targate add flatmap-stream --dry-run        # BLOCK (known-malicious OSV record)
+```
+
+Notes:
+
+- **Without an AI key** targate runs on the deterministic rules engine. To exercise
+  the AI reasoning, export a provider key (`ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`,
+  `OPENAI_API_KEY`, or point at a local Ollama). Use your **own** key.
+- The `brew` / `npm i -g targate` / install-script methods do **not** work yet (no
+  published release) — only this build-and-link flow.
+- Unlink when done: `pnpm uninstall --global targate`.
+
+Please send feedback via a **Feedback** issue (the template prompts for DX, verdict
+clarity, and any false positive/negative). Security problems go through
+[SECURITY.md](SECURITY.md), never a public issue.
+
 ## The gate — run these before you push
 
 Every one of these runs in CI on Node 22 and 24 across Linux and Windows. Run them
