@@ -45,6 +45,12 @@ jobs:
       - run: pnpm format:check
       - run: pnpm docs:check
       - run: pnpm test
+      # Coverage gate on the highest-risk security primitives (SSRF/redirect
+      # handling, signature verification). Run once — the metric is
+      # platform-independent, so one leg is enough and avoids Windows path drift.
+      - name: Coverage gate (security-critical files)
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: pnpm test:coverage
       - run: pnpm pack:check
 
   # Prove that the project's own dependency tree passes the gate it ships, and

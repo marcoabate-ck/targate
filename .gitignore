@@ -1,5 +1,6 @@
 node_modules/
 dist/
+coverage/
 
 .env*
 
@@ -15,3 +16,6 @@ dist/
 
 # Standalone release binaries (built by scripts/build-binaries.sh).
 dist-bin/
+
+# Minisign release private key (public key minisign.pub IS committed).
+/minisign.key

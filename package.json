@@ -37,6 +37,7 @@
     "pack:check": "node --import tsx scripts/check-pack.ts",
     "audit": "pnpm audit --prod --audit-level high",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "local-agents": "node --import tsx tools/local-agents/src/cli.ts",
@@ -52,6 +53,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
+    "@vitest/coverage-v8": "4.1.10",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
