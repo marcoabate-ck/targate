@@ -228,9 +228,9 @@ Usage:
   targate policy init                             Scaffold a declarative team policy from a preset.
   targate doctor                                  Diagnose the local security and provider environment.
   targate diff <pkg>@<v1> [<pkg>[@<v2>]]          Compare package versions and rate the upgrade risk.
-  targate monitor                                 Re-check trusted packages and report increased risk.
-  targate graph [<package>[@version]]             Render a dependency risk graph or explain why a package is present.
-  targate recommend "<need>"                      Recommend analyzed packages for a need, safest first.
+  targate monitor                                 Re-check trusted packages and report increased risk. [experimental]
+  targate graph [<package>[@version]]             Render a dependency risk graph or explain why a package is present. [experimental]
+  targate recommend "<need>"                      Recommend analyzed packages for a need, safest first. [experimental]
   targate history [<package>[@version]]           Show recorded trust decisions and optionally verify signatures.
   targate explain <package>[@version] | --last    Explain a fresh or previously recorded decision without installing.
   targate cache <info|clear>                      Inspect or clear the AI assessment cache.
@@ -284,6 +284,8 @@ Run \`targate <command> --help\` for command-specific options and examples."
 
 exports[`declarative command registry > keeps global and per-command help under snapshots > graph help 1`] = `
 "Render a dependency risk graph or explain why a package is present.
+
+[experimental] Outside the 1.0 stability guarantee — flags and output may change in a minor release.
 
 Usage:
   targate graph [<package>[@version]]
@@ -359,6 +361,8 @@ Examples:
 exports[`declarative command registry > keeps global and per-command help under snapshots > monitor help 1`] = `
 "Re-check trusted packages and report increased risk.
 
+[experimental] Outside the 1.0 stability guarantee — flags and output may change in a minor release.
+
 Usage:
   targate monitor
 
@@ -401,6 +405,8 @@ Examples:
 
 exports[`declarative command registry > keeps global and per-command help under snapshots > recommend help 1`] = `
 "Recommend analyzed packages for a need, safest first.
+
+[experimental] Outside the 1.0 stability guarantee — flags and output may change in a minor release.
 
 Usage:
   targate recommend "<need>"

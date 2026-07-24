@@ -1,0 +1,64 @@
+name: Bug report
+description: Report incorrect behavior in targate (NOT a security vulnerability)
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not use this form for security vulnerabilities** —
+        follow [our security policy](https://github.com/marcoabate-ck/targate/blob/main/SECURITY.md)
+        for private disclosure instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did targate do, and what did you expect instead?
+      placeholder: "`targate add <pkg>` returned ALLOW but I expected REQUIRE APPROVAL because…"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The exact command(s) and any relevant config. Prefer a public package.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: targate version
+      description: "Output of `targate --version` or the commit SHA."
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How is it installed?
+      options:
+        - npm (global)
+        - npx
+        - standalone binary
+        - from source (pnpm dev)
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: "OS + version, Node version, package manager + version."
+      placeholder: "macOS 15.5, Node 22.13, pnpm 11"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output / logs
+      description: Relevant terminal output. Add `--json` output if you have it.
+      render: text
