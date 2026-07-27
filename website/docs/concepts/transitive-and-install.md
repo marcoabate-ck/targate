@@ -14,6 +14,10 @@ description: Gating a single package's tree with --deep, and vetting the whole l
 targate add esbuild --yes --deep
 ```
 
+:::tip Strongly recommended before a real install
+A shallow `ALLOW` only vouches for the package you named, and a malicious dependency usually hides deeper in the tree — so run `--deep` (or `targate install`) before adding a dependency to a real project or in CI. It is **opt-in, not default**, because a deep run resolves and analyzes the entire transitive tree (more registry/tarball/OSV traffic and, with an AI provider, more model calls). Keeping it opt-in leaves the quick per-package check fast and cheap; the response cache amortizes repeat runs, and a shallow `ALLOW` reminds you the tree wasn't analyzed.
+:::
+
 Every transitive dependency runs through the **same** signal pipeline (quarantine, scripts, contents, OSV, reputation). A package whose analysis fails or can't complete is reported as `require_approval` — **unknown is never treated as clean**. A clean tree never softens the root package's own verdict; the worst decision across the tree drives the outcome. Use `--concurrency <n>` to tune parallelism and `--no-ai-batch` to disable AI batching.
 
 ## `targate install`: gate the whole lockfile
