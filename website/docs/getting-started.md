@@ -91,12 +91,22 @@ See **[Approvals & policy](./concepts/approvals-and-policy)** for how approvals 
 
 ## Gate the whole tree
 
-`add` gates one package. To vet **every** dependency in your lockfile and then gate a full install:
+`add` gates one package by default — but a malicious dependency usually hides **deeper** in the tree. **Strongly recommended before pulling a dependency into a real project or CI:** add `--deep` so the same analysis runs over every transitive dependency:
+
+```bash
+targate add <package> --deep   # gate the package AND its whole transitive tree
+```
+
+To vet **every** dependency already in your lockfile and then gate a full install:
 
 ```bash
 targate install --dry-run     # review the whole tree, install nothing
 targate install               # gate, then install
 ```
+
+:::tip Why isn't `--deep` the default?
+A deep run resolves and analyzes the entire transitive tree — more registry/tarball/OSV traffic and, with an AI provider, more model calls. Keeping it opt-in lets the quick "is this package OK?" check stay fast and cheap; the [response cache](./concepts/transitive-and-install) amortizes the cost on repeat runs, and a shallow `ALLOW` reminds you the tree wasn't analyzed.
+:::
 
 See **[Transitive analysis & install](./concepts/transitive-and-install)**.
 

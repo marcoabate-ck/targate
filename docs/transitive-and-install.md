@@ -8,6 +8,19 @@
 targate add glob --deep --dry-run
 ```
 
+> **Strongly recommended before you actually install.** A shallow `ALLOW` only vouches
+> for the package you named — and a malicious dependency almost always hides **deeper**
+> in the tree, not in the name you typed. Run `targate add <pkg> --deep` (or
+> `targate install` for the whole project) before adding a dependency to a real project
+> or in CI.
+>
+> **Why it isn't the default:** a deep run resolves and analyzes the *entire* transitive
+> tree — more registry/tarball/OSV traffic and, with an AI provider configured, more
+> model calls — so the common quick "is this package OK?" check stays fast and cheap by
+> default. The cost is amortized by the [response cache](ai-cache.md) on repeated and
+> shared dependencies, and bounded with `--concurrency`. A shallow run also prints a
+> reminder that the transitive tree was not analyzed.
+
 By default targate analyzes only the package you named. With `--deep` it asks the project's actual package manager (npm, pnpm, or Yarn) to produce a staged manifest and lockfile with lifecycle scripts disabled. It analyzes **every unique `name@version` from that exact lockfile**, including the lockfile's tarball URL/integrity where the format exposes them, applies the reviewed files only after the gate passes, and installs in frozen/immutable mode. Both the lockfile and canonical artifact-list fingerprints must match the reviewed plan, so installation cannot silently resolve a different version or tarball identity.
 
 The final decision is the **strictest verdict across the whole tree**: a blocked transitive dependency blocks the install exactly like a blocked root; a `require_approval` anywhere in the tree escalates the run. Flagged packages are listed in the reasons (`--json` includes the full per-package results under `deep`).

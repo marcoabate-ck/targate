@@ -36,6 +36,8 @@ Decision: ALLOW   (risk: low, source: rules)
 
 Preview a package without installing anything with `--dry-run`, or record a committable approval without installing via `targate approve <package>`. A full positive-and-negative walkthrough — including a package that gets **blocked** — is in [docs/examples/full-review.md](docs/examples/full-review.md).
 
+> **Tip — vet the whole tree.** By default `targate add <pkg>` analyzes only the package you named; a malicious dependency usually hides deeper in the tree. **Strongly recommended:** add `--deep` (or use `targate install`) before pulling a dependency into a real project or in CI — it runs the same analysis over every transitive dependency. It is opt-in rather than default because a deep run resolves and analyzes the entire tree (more network/AI cost); the quick per-package check stays fast by default. See [transitive dependencies & full-tree install](docs/transitive-and-install.md).
+
 ## Install
 
 `targate` ships four ways — all install the same CLI.
