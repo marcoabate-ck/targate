@@ -182,13 +182,28 @@ describe("applyPolicy", () => {
     expect(result.reasons.at(-1)).toContain("[policy]");
   });
 
-  it("escalates lifecycle scripts when configured", () => {
+  it("escalates install-time lifecycle scripts when configured", () => {
     const result = applyPolicy(
       makeAssessment(),
-      makeSignals({ hasLifecycleScripts: true }),
+      makeSignals({
+        hasLifecycleScripts: true,
+        lifecycleScripts: { postinstall: "node x.js" },
+      }),
       policy({ requireApprovalForLifecycleScripts: true }),
     );
     expect(result.decision).toBe("require_approval");
+  });
+
+  it("does NOT escalate a pack-time-only hook (never runs on a registry install)", () => {
+    const result = applyPolicy(
+      makeAssessment(),
+      makeSignals({
+        hasLifecycleScripts: true,
+        lifecycleScripts: { prepack: "node build.js" },
+      }),
+      policy({ requireApprovalForLifecycleScripts: true }),
+    );
+    expect(result.decision).toBe("allow");
   });
 
   it("blocks young packages when blockRecentlyPublishedPackages is set", () => {

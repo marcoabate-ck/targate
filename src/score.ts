@@ -1,3 +1,4 @@
+import { isInstallTimeScript } from "./analyze/scripts.js";
 import { isHardBlock } from "./rules.js";
 import type { Signals } from "./types.js";
 
@@ -92,12 +93,30 @@ export function computeSecurityScore(signals: Signals): SecurityScore {
   }
 
   // 2. Install behavior — 20
+  //
+  // Only hooks that run on a REGISTRY install (preinstall/install/postinstall)
+  // are install risk. prepare/prepack/postpack run at pack/publish (or git)
+  // time and never execute on a consumer installing the published tarball, so
+  // their presence — and any suspicious construct inside them — is recorded as
+  // context but does not lower the install-behavior score. This mirrors the
+  // verdict engine (rules.ts), where pack-time hooks are ALLOW-WITH-WARNINGS,
+  // not require_approval; the number must not contradict the verdict.
   const install = new Category("install_behavior", "Install behavior");
-  if (signals.hasLifecycleScripts) {
-    install.deduct(8, `lifecycle scripts: ${Object.keys(signals.lifecycleScripts).join(", ")}`);
+  const scriptNames = Object.keys(signals.lifecycleScripts);
+  const installTimeHooks = scriptNames.filter(isInstallTimeScript);
+  const packTimeHooks = scriptNames.filter((n) => !isInstallTimeScript(n));
+  if (installTimeHooks.length > 0) {
+    install.deduct(8, `install-time lifecycle scripts: ${installTimeHooks.join(", ")}`);
+  }
+  if (packTimeHooks.length > 0) {
+    install.deduct(
+      0,
+      `pack/publish-time scripts (not run on a registry install): ${packTimeHooks.join(", ")}`,
+    );
   }
   for (const finding of signals.scriptCommandFindings) {
-    install.deduct(4, finding);
+    const isPackTime = packTimeHooks.some((h) => finding.startsWith(`${h} script `));
+    install.deduct(isPackTime ? 0 : 4, finding);
   }
 
   // 3. Package contents — 15

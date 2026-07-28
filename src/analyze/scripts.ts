@@ -39,6 +39,15 @@ export function isInstallTimeScript(name: string): boolean {
   return (INSTALL_TIME_SCRIPT_NAMES as readonly string[]).includes(name);
 }
 
+/** True if any detected hook runs on a registry install (as opposed to only
+ *  at pack/publish time). This — not "has any lifecycle script" — is what
+ *  constitutes install-time risk. */
+export function hasInstallTimeLifecycleScript(
+  lifecycleScripts: Record<string, string>,
+): boolean {
+  return Object.keys(lifecycleScripts).some(isInstallTimeScript);
+}
+
 const SUSPICIOUS_COMMAND_PATTERNS: Array<[RegExp, string]> = [
   [/curl|wget/i, "downloads content from the network"],
   // A shell invoked as a command token — bare `sh`, `| sh`, `sh -c`, `bash`,

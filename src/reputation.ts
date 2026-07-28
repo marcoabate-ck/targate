@@ -86,7 +86,10 @@ export async function fetchReputation(
   return { downloads, repo };
 }
 
-async function fetchDownloads(name: string, limits?: ResourceLimits): Promise<DownloadsSignal> {
+async function fetchDownloads(
+  name: string,
+  limits?: ResourceLimits,
+): Promise<DownloadsSignal> {
   let memo = downloadsMemo.get(name);
   if (!memo) {
     memo = fetchDownloadsUncached(name, limits);
@@ -95,7 +98,10 @@ async function fetchDownloads(name: string, limits?: ResourceLimits): Promise<Do
   return memo;
 }
 
-async function fetchDownloadsUncached(name: string, limits?: ResourceLimits): Promise<DownloadsSignal> {
+async function fetchDownloadsUncached(
+  name: string,
+  limits?: ResourceLimits,
+): Promise<DownloadsSignal> {
   try {
     const budget = networkBudget(limits);
     const res = await fetchWithTimeout(
@@ -149,7 +155,9 @@ export function classifyDownloadTrend(
 }
 
 /** github.com URLs in their common npm forms -> {owner, repo}; null otherwise. */
-export function parseGitHubRepo(url: string): { owner: string; repo: string } | null {
+export function parseGitHubRepo(
+  url: string,
+): { owner: string; repo: string } | null {
   const cleaned = url
     .trim()
     .replace(/^git\+/, "")
@@ -160,11 +168,16 @@ export function parseGitHubRepo(url: string): { owner: string; repo: string } | 
   if (short) return { owner: short[1], repo: short[2] };
 
   // ssh: git@github.com:owner/repo  |  ssh://git@github.com/owner/repo
-  const ssh = /^(?:ssh:\/\/)?git@github\.com[:/]([^/]+)\/([^/#]+)/.exec(cleaned);
+  const ssh = /^(?:ssh:\/\/)?git@github\.com[:/]([^/]+)\/([^/#]+)/.exec(
+    cleaned,
+  );
   if (ssh) return { owner: ssh[1], repo: ssh[2] };
 
   // http(s) / git protocol
-  const web = /^(?:https?|git):\/\/(?:www\.)?github\.com\/([^/]+)\/([^/#?]+)/.exec(cleaned);
+  const web =
+    /^(?:https?|git):\/\/(?:www\.)?github\.com\/([^/]+)\/([^/#?]+)/.exec(
+      cleaned,
+    );
   if (web) return { owner: web[1], repo: web[2] };
 
   return null;
@@ -182,7 +195,12 @@ async function fetchRepoStatus(
   const key = `${parsed.owner}/${parsed.repo}`.toLowerCase();
   let memo = repoMemo.get(key);
   if (!memo) {
-    memo = fetchRepoStatusUncached(parsed.owner, parsed.repo, githubToken, limits);
+    memo = fetchRepoStatusUncached(
+      parsed.owner,
+      parsed.repo,
+      githubToken,
+      limits,
+    );
     repoMemo.set(key, memo);
   }
   return memo;
@@ -198,15 +216,19 @@ async function fetchRepoStatusUncached(
   const token = githubToken ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
   try {
     const budget = networkBudget(limits);
-    const res = await fetchWithTimeout(`${GITHUB_API}/${owner}/${repo}`, {
-      headers: {
-        accept: "application/vnd.github+json",
-        "x-github-api-version": "2022-11-28",
-        // GitHub rejects requests without a user agent.
-        "user-agent": "targate",
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
+    const res = await fetchWithTimeout(
+      `${GITHUB_API}/${owner}/${repo}`,
+      {
+        headers: {
+          accept: "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28",
+          // GitHub rejects requests without a user agent.
+          "user-agent": "targate",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
       },
-    }, { ...budget, timeoutMs: limits?.networkTimeoutMs ?? LOOKUP_TIMEOUT_MS });
+      { ...budget, timeoutMs: limits?.networkTimeoutMs ?? LOOKUP_TIMEOUT_MS },
+    );
     if (res.status === 404) return { status: "not-found" };
     if (
       (res.status === 403 || res.status === 429) &&
@@ -217,7 +239,9 @@ async function fetchRepoStatusUncached(
     }
     if (!res.ok) return { status: "unavailable" };
     const body = await readResponseJson<{ archived?: boolean }>(
-      res, budget.maxResponseBytes, "GitHub repository response",
+      res,
+      budget.maxResponseBytes,
+      "GitHub repository response",
     );
     return { status: "ok", archived: Boolean(body.archived) };
   } catch {
@@ -239,6 +263,12 @@ export function deriveReputation(
     ? Math.floor((now - new Date(metadata.publishDate).getTime()) / 86_400_000)
     : undefined;
 
+  const latestVersionAgeDays = reg.latestVersionPublishDate
+    ? Math.floor(
+        (now - new Date(reg.latestVersionPublishDate).getTime()) / 86_400_000,
+      )
+    : undefined;
+
   const releaseAfterInactivityDays =
     metadata.publishDate && reg.previousVersionPublishDate
       ? Math.floor(
@@ -254,10 +284,13 @@ export function deriveReputation(
     releaseAfterInactivityDays >= RELEASE_GAP_ANOMALY_DAYS &&
     versionAgeDays <= RELEASE_GAP_FRESH_DAYS;
 
-  const { repositoryMismatch, repositoryMismatchDetail } = detectRepositoryMismatch(metadata);
+  const { repositoryMismatch, repositoryMismatchDetail } =
+    detectRepositoryMismatch(metadata);
 
   return {
     versionAgeDays,
+    latestVersion: reg.latestVersion,
+    latestVersionAgeDays,
     releaseAfterInactivityDays,
     releaseGapAnomaly,
     maintainerCount: metadata.maintainers.length,
@@ -283,7 +316,11 @@ function detectMaintainerChange(
   // No previous release, or the packument strips per-version maintainer data
   // (old packages, some mirrors): the history is NOT derivable. null is
   // rendered as unknown — never as "no change".
-  if (!reg.previousVersion || !reg.versionMaintainers || !reg.previousVersionMaintainers) {
+  if (
+    !reg.previousVersion ||
+    !reg.versionMaintainers ||
+    !reg.previousVersionMaintainers
+  ) {
     return null;
   }
   const previous = new Set(reg.previousVersionMaintainers);
@@ -302,7 +339,10 @@ function detectMaintainerChange(
       added.length > 0 ? `added: ${added.join(", ")}` : null,
       removed.length > 0 ? `removed: ${removed.join(", ")}` : null,
     ].filter(Boolean);
-    return { changed: true, detail: `since ${reg.previousVersion} — ${parts.join("; ")}` };
+    return {
+      changed: true,
+      detail: `since ${reg.previousVersion} — ${parts.join("; ")}`,
+    };
   }
   return { changed: false };
 }
@@ -345,7 +385,9 @@ function normalizeRepoUrl(url: string): string | null {
     .replace(/\/+$/, "");
   const gh = parseGitHubRepo(cleaned);
   if (gh) return `github.com/${gh.owner}/${gh.repo}`;
-  const web = /^(?:https?|git|ssh):\/\/(?:[^@/]+@)?([^/:]+)[/:](.+)$/.exec(cleaned);
+  const web = /^(?:https?|git|ssh):\/\/(?:[^@/]+@)?([^/:]+)[/:](.+)$/.exec(
+    cleaned,
+  );
   if (web) return `${web[1]}/${web[2]}`;
   const scp = /^[^@/]+@([^:/]+):(.+)$/.exec(cleaned); // git@host:owner/repo
   if (scp) return `${scp[1]}/${scp[2]}`;

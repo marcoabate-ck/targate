@@ -23,13 +23,28 @@ function classifyLifecycleHooks(signals: Signals): {
   return { installTime, packTime };
 }
 
+/** Command findings that belong to a hook npm runs on a REGISTRY install.
+ *  Findings are formatted `<hook> script <description>: <cmd>`, so match on
+ *  the hook-name prefix. Pack/publish-time hooks (prepare/prepack/postpack)
+ *  never run when installing a published tarball, so their constructs are not
+ *  install-time risk — they surface as warnings, never as a block. */
+function installTimeCommandFindings(signals: Signals): string[] {
+  const installTimeNames = Object.keys(signals.lifecycleScripts).filter(
+    isInstallTimeScript,
+  );
+  return signals.scriptCommandFindings.filter((f) =>
+    installTimeNames.some((n) => f.startsWith(`${n} script `)),
+  );
+}
+
 /**
  * A lifecycle command that fetches from the network and pipes into a shell /
  * inline interpreter (curl … | bash, wget … | sh, node -e) — the canonical
- * remote-payload install attack.
+ * remote-payload install attack. Only install-time hooks count: a pack/publish
+ * hook doing the same never executes on a registry install.
  */
 function fetchesAndExecutes(signals: Signals): boolean {
-  const cmd = signals.scriptCommandFindings.join(" ");
+  const cmd = installTimeCommandFindings(signals).join(" ");
   return (
     /downloads content from the network/.test(cmd) &&
     /(invokes a shell|runs inline node code|uses eval)/.test(cmd)
@@ -122,7 +137,7 @@ export function evaluateRules(signals: Signals): RiskAssessment {
   }
   if (scriptFetchesAndExecutes) {
     reasons.push(
-      `Lifecycle command downloads and executes remote code: ${signals.scriptCommandFindings.join("; ")}`,
+      `Lifecycle command downloads and executes remote code: ${installTimeCommandFindings(signals).join("; ")}`,
     );
   }
   if (signals.repositoryMissing && signals.recentPublish && hasInstallTimeScripts) {

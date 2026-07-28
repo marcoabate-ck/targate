@@ -6,7 +6,7 @@ What targate is designed to catch, and — just as importantly — what it does 
 
 targate sits at the **install decision point** — the moment a package would otherwise fetch, extract, and run lifecycle scripts on your machine. It targets supply-chain risk introduced *at or before* that moment:
 
-- **Malicious lifecycle scripts** — `preinstall`/`install`/`postinstall`/`prepare`/`prepack`/`postpack` hooks. The command strings and the files they reference are read (never executed); fetch-and-execute patterns (`curl … | bash`, `wget … | sh`, `node -e`) are a **hard block**.
+- **Malicious lifecycle scripts** — the command strings and the files they reference are read (never executed). Severity follows *when the hook runs*: only **install-time** hooks (`preinstall`/`install`/`postinstall`) execute when a consumer installs the published registry tarball, so a fetch-and-execute pattern (`curl … | bash`, `wget … | sh`, `node -e`) in one of those is a **hard block**. **Pack/publish-time** hooks (`prepare`/`prepack`/`postpack`) run at publish (or on a git/local install), never on a registry install, so their presence and constructs surface as a **warning**, not a block, and do not lower the install-behavior score.
 - **Suspicious install-time behavior** — install-time code that reads `process.env` **and** makes network calls, spawns child processes, or is minified/obfuscated.
 - **Known-malicious packages** — OSV/OpenSSF `MAL-*` and GHSA-malware records (a hard block).
 - **Compromised npm mirrors** — the private tarball is checked against its private metadata and the independently fetched public `name@version` checksum; divergence is a hard block, including on first contact.

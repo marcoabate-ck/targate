@@ -7,6 +7,7 @@ import type { AiCachePolicy } from "./ai-cache.js";
 import { loadConfigFile } from "./config-loader.js";
 import { DEFAULT_REGISTRY } from "./npmrc.js";
 import type { ResourceLimits } from "./resource-limits.js";
+import { hasInstallTimeLifecycleScript } from "./analyze/scripts.js";
 import { isHardBlock } from "./rules.js";
 import {
   DECISION_SEVERITY,
@@ -516,11 +517,14 @@ export function applyPolicy(
     );
   }
 
-  if (p.requireApprovalForLifecycleScripts && signals.hasLifecycleScripts) {
+  if (
+    p.requireApprovalForLifecycleScripts &&
+    hasInstallTimeLifecycleScript(signals.lifecycleScripts)
+  ) {
     result = escalate(
       result,
       "require_approval",
-      "Team policy requires approval for lifecycle scripts.",
+      "Team policy requires approval for install-time lifecycle scripts.",
     );
   }
 
