@@ -70,12 +70,12 @@ curl -fsSL https://raw.githubusercontent.com/marcoabate-ck/targate/main/install.
 
 **Direct download** — grab a standalone binary from the [latest release](https://github.com/marcoabate-ck/targate/releases/latest) and verify it against the release `SHA256SUMS`:
 
-| Platform | Asset |
-|----------|-------|
-| macOS arm64 | `targate-darwin-arm64` |
-| macOS x64 | `targate-darwin-x64` |
-| Linux arm64 | `targate-linux-arm64` |
-| Linux x64 | `targate-linux-x64` |
+| Platform    | Asset                     |
+| ----------- | ------------------------- |
+| macOS arm64 | `targate-darwin-arm64`    |
+| macOS x64   | `targate-darwin-x64`      |
+| Linux arm64 | `targate-linux-arm64`     |
+| Linux x64   | `targate-linux-x64`       |
 | Windows x64 | `targate-windows-x64.exe` |
 
 ```bash
@@ -137,7 +137,7 @@ Exit codes: `0` ok · `1` error · `2` blocked (or suspicious sandbox / failed C
 
 ## Key guarantees
 
-- **Deterministic security floor.** The rules engine decides first; the AI can only make a verdict *stricter*. A jailbroken or prompt-injected model cannot turn `allow_with_warnings`, `require_approval`, or `block` into a weaker result. See [docs/decisions.md](docs/decisions.md).
+- **Deterministic security floor.** The rules engine decides first; the AI can only make a verdict _stricter_. A jailbroken or prompt-injected model cannot turn `allow_with_warnings`, `require_approval`, or `block` into a weaker result. See [docs/decisions.md](docs/decisions.md).
 - **Hard vs soft blocks.** Artifact-identity mismatches, known-malicious records, and remote-code-execution blocks can never be overridden; heuristic ("soft") blocks can be deliberately cleared by a committed approval or allow-list entry.
 - **Auditable, verifiable trust.** Every approval records its circumstances (who, when, verdict, tool version, AI model, policy hash) — `targate history` shows it; `targate approve --sign` adds an SSH signature that `requireSignedApprovals` enforces in CI, so a hand-edited approvals file cannot green a poisoned dependency.
 - **Nothing untrusted executes during analysis.** Tarballs are SHA-512 identified and checked against every available registry, lockfile, public-mirror, and historical digest before being read in a resource-bounded quarantine — lifecycle scripts never run. A compromised npm mirror that rewrites tarball and metadata is hard-blocked by the independent public comparison **when a public mirror is configured** (`registries[].mirrorOf` or a global `.npmrc` override) **and reachable**; against the default `registry.npmjs.org`, or when the public comparison is unavailable, the divergence is surfaced for review (`require_approval` / `allow_with_warnings`) rather than hard-blocked. Repository configuration is **declarative only** (`.yaml`/`.yml`/`.json`) — it is parsed, never executed, so a hostile repo cannot run code through a config file. See [docs/security.md](docs/security.md).
@@ -163,34 +163,34 @@ targate is a dependency **intelligence and decision** layer. Pre-install securit
 - Grounded dependency recommendations and safer-alternative discovery.
 - Deeper trust history across an organization.
 
-The distinction that matters: today targate *inspects and decides*; the vision is that it also *recommends with intent*. An unchecked roadmap item is a plan, not a promise.
+The distinction that matters: today targate _inspects and decides_; the vision is that it also _recommends with intent_. An unchecked roadmap item is a plan, not a promise.
 
 ## Documentation
 
 Full specifications live in [`docs/`](docs/README.md):
 
-| Topic | Page |
-|---|---|
-| Why gate dependencies | [why.md](docs/why.md) |
-| Full end-to-end example (allow + block) | [examples/full-review.md](docs/examples/full-review.md) |
-| Architecture · deterministic vs AI | [architecture.md](docs/architecture.md) |
-| The analysis pipeline | [how-it-works.md](docs/how-it-works.md) |
-| Every command, flag, exit code | [cli-reference.md](docs/cli-reference.md) |
-| Decision policy · hard vs soft blocks | [decisions.md](docs/decisions.md) |
-| Policy reference (full schema) | [policy-reference.md](docs/policy-reference.md) |
-| AI providers · reasoning support | [ai-providers.md](docs/ai-providers.md) |
-| AI response cache | [ai-cache.md](docs/ai-cache.md) |
-| `--deep` & `targate install` | [transitive-and-install.md](docs/transitive-and-install.md) |
-| Approvals · pnpm builds · team policy | [team-workflow.md](docs/team-workflow.md) |
-| Private registries · `.npmrc` · internal scopes | [private-registries.md](docs/private-registries.md) |
-| Dependency risk graph · workspaces · CI artifacts | [dependency-graph.md](docs/dependency-graph.md) |
-| React Native hardening | [react-native.md](docs/react-native.md) |
-| Sandboxed trial install | [sandbox.md](docs/sandbox.md) |
-| CI integration | [ci.md](docs/ci.md) |
-| AI coding agents | [agents.md](docs/agents.md) |
-| Threat model (what it catches / can't) | [threat-model.md](docs/threat-model.md) |
-| Security model, scope & limitations | [security.md](docs/security.md) |
-| Roadmap · what's next | [whats-next.md](docs/whats-next.md) |
+| Topic                                             | Page                                                        |
+| ------------------------------------------------- | ----------------------------------------------------------- |
+| Why gate dependencies                             | [why.md](docs/why.md)                                       |
+| Full end-to-end example (allow + block)           | [examples/full-review.md](docs/examples/full-review.md)     |
+| Architecture · deterministic vs AI                | [architecture.md](docs/architecture.md)                     |
+| The analysis pipeline                             | [how-it-works.md](docs/how-it-works.md)                     |
+| Every command, flag, exit code                    | [cli-reference.md](docs/cli-reference.md)                   |
+| Decision policy · hard vs soft blocks             | [decisions.md](docs/decisions.md)                           |
+| Policy reference (full schema)                    | [policy-reference.md](docs/policy-reference.md)             |
+| AI providers · reasoning support                  | [ai-providers.md](docs/ai-providers.md)                     |
+| AI response cache                                 | [ai-cache.md](docs/ai-cache.md)                             |
+| `--deep` & `targate install`                      | [transitive-and-install.md](docs/transitive-and-install.md) |
+| Approvals · pnpm builds · team policy             | [team-workflow.md](docs/team-workflow.md)                   |
+| Private registries · `.npmrc` · internal scopes   | [private-registries.md](docs/private-registries.md)         |
+| Dependency risk graph · workspaces · CI artifacts | [dependency-graph.md](docs/dependency-graph.md)             |
+| React Native hardening                            | [react-native.md](docs/react-native.md)                     |
+| Sandboxed trial install                           | [sandbox.md](docs/sandbox.md)                               |
+| CI integration                                    | [ci.md](docs/ci.md)                                         |
+| AI coding agents                                  | [agents.md](docs/agents.md)                                 |
+| Threat model (what it catches / can't)            | [threat-model.md](docs/threat-model.md)                     |
+| Security model, scope & limitations               | [security.md](docs/security.md)                             |
+| Roadmap · what's next                             | [whats-next.md](docs/whats-next.md)                         |
 
 ## Development
 
@@ -207,7 +207,7 @@ pnpm audit           # runtime dependency advisory audit (--prod, high and above
 pnpm benchmark       # repeatable cold/warm 10–1000 package performance targets
 ```
 
-Or link the built binary for local use: `pnpm link --global` → `targate add <package>`.
+Or use the built CLI locally: run it in place with `node dist/cli.js add <package>`, or register it as `targate` on your PATH — `pnpm setup` once (creates pnpm's global bin dir), then `pnpm add -g .` from the repo root (pnpm ≥ 11; on pnpm ≤ 10 use `pnpm link --global`, which pnpm 11 removed).
 
 ### Continuous integration
 
