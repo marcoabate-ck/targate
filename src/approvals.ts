@@ -6,7 +6,10 @@ import { loadConfigFile } from "./config-loader.js";
 import type { ApprovalMode } from "./trust-decision.js";
 import { isApprovalApplicable } from "./trust-decision.js";
 import type { Decision, RiskAssessment, RiskLevel } from "./types.js";
-import type { BehaviorFingerprint } from "./fingerprint.js";
+import {
+  compareFingerprints,
+  type BehaviorFingerprint,
+} from "./fingerprint.js";
 import { TARGATE_VERSION } from "./version.js";
 
 /**
@@ -196,6 +199,69 @@ export function getApproval(
 ) {
   const approval = approvals[`${name}@${version}`];
   return isApprovalApplicable(approval, version) ? approval : null;
+}
+
+export interface ResolvedApproval {
+  record: ApprovalRecord;
+  via: "exact" | "fingerprint";
+  /** The version whose approval was reused (only when via === "fingerprint"). */
+  matchedVersion?: string;
+}
+
+/**
+ * Resolve the effective approval for a candidate version.
+ *
+ * Prefers an EXACT version-specific approval (today's strict rule). Only when
+ * none exists AND `allowFingerprintReuse` is on does it fall back to a prior
+ * approval of a DIFFERENT version of the same package whose recorded
+ * `behaviorFingerprint` MATCHES the candidate's — i.e. the human already vouched
+ * for this exact behavior and the bump did not change it (see the trust-friction
+ * design, "approve the behavior, not the version").
+ *
+ * SAFETY: this only picks WHICH approval record applies. It never clears a hard
+ * block — the returned record is fed to the same resolvePackageTrust/clamp path,
+ * which keeps the deterministic floor authoritative. A fingerprint reuse requires
+ * `compareFingerprints(...).matches` (no install-script change, no dangerous-
+ * capability escalation, no provenance downgrade, complete on both sides — fail
+ * closed), and a legacy approval without a fingerprint can never be matched.
+ */
+export function resolveApproval(
+  approvals: ApprovalsMap,
+  name: string,
+  version: string,
+  candidateFingerprint: BehaviorFingerprint | undefined,
+  opts: { allowFingerprintReuse?: boolean } = {},
+): ResolvedApproval | null {
+  const exact = getApproval(approvals, name, version);
+  if (exact) return { record: exact, via: "exact" };
+  if (!opts.allowFingerprintReuse || !candidateFingerprint) return null;
+
+  const prefix = `${name}@`;
+  let best: { record: ApprovalRecord; matchedVersion: string } | null = null;
+  for (const [key, record] of Object.entries(approvals)) {
+    if (!key.startsWith(prefix)) continue;
+    const matchedVersion = key.slice(prefix.length);
+    if (matchedVersion === version) continue; // the exact case (already handled)
+    if (!isApprovalApplicable(record)) continue;
+    const priorFingerprint = record.behaviorFingerprint;
+    if (!priorFingerprint) continue; // legacy approval — nothing to compare
+    if (!compareFingerprints(priorFingerprint, candidateFingerprint).matches)
+      continue;
+    // Prefer the strictest mode among matches (no-scripts beats normal).
+    if (
+      !best ||
+      (record.mode === "no-scripts" && best.record.mode === "normal")
+    ) {
+      best = { record, matchedVersion };
+    }
+  }
+  return best
+    ? {
+        record: best.record,
+        via: "fingerprint",
+        matchedVersion: best.matchedVersion,
+      }
+    : null;
 }
 
 export interface RecordApprovalExtras {

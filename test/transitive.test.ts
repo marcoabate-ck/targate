@@ -70,10 +70,15 @@ describe("analyzeTransitiveDeps", () => {
 
   it("runs the injected pipeline on every package and keeps input order", async () => {
     const analyze = vi.fn(
-      async (name: string, version: string | undefined): Promise<PackageAnalysis> => ({
+      async (
+        name: string,
+        version: string | undefined,
+      ): Promise<PackageAnalysis> => ({
         metadata: {} as PackageAnalysis["metadata"],
         signals: makeSignals({ package: name, version }),
-        assessment: assessment({ decision: name === "b" ? "require_approval" : "allow" }),
+        assessment: assessment({
+          decision: name === "b" ? "require_approval" : "allow",
+        }),
       }),
     );
 
@@ -87,6 +92,37 @@ describe("analyzeTransitiveDeps", () => {
     expect(analyze).toHaveBeenCalledTimes(3);
     expect(results.map((r) => r.name)).toEqual(["a", "b", "c"]);
     expect(results[1].assessment.decision).toBe("require_approval");
+  });
+
+  it("carries each package's behavior fingerprint onto the result", async () => {
+    const analyze = vi.fn(
+      async (
+        name: string,
+        version: string | undefined,
+      ): Promise<PackageAnalysis> => ({
+        metadata: {} as PackageAnalysis["metadata"],
+        signals: makeSignals({ package: name, version }),
+        assessment: assessment(),
+        fingerprint: {
+          schemaVersion: 1,
+          installScripts: [],
+          dangerousCapabilities: name === "b" ? ["network"] : [],
+          lowRiskCapabilities: [],
+          provenanceState: "none",
+          complete: true,
+        },
+      }),
+    );
+
+    const results = await analyzeTransitiveDeps(packages, {
+      assess: { useAi: false },
+      analyze,
+      osvBatch: async () => new Map(),
+    });
+
+    expect(results[0].fingerprint?.dangerousCapabilities).toEqual([]);
+    expect(results[1].fingerprint?.dangerousCapabilities).toEqual(["network"]);
+    expect(results[2].fingerprint?.schemaVersion).toBe(1);
   });
 
   it("maps an analysis failure to require_approval — unknown is not clean", async () => {
@@ -135,13 +171,18 @@ describe("analyzeTransitiveDeps — batched AI path", () => {
   // A provider that batches; each package resolves to a verdict we dictate.
   function fakeProvider(verdicts: Record<string, RiskAssessment["decision"]>) {
     const assess = vi.fn(async (): Promise<RiskAssessment> => assessment());
-    const assessBatch = vi.fn(async (signalsList: ReturnType<typeof makeSignals>[]) =>
-      signalsList.map((s) => ({
-        package: `${s.package}@${s.version}`,
-        assessment: assessment({ decision: verdicts[s.package] ?? "allow" }),
-      })),
+    const assessBatch = vi.fn(
+      async (signalsList: ReturnType<typeof makeSignals>[]) =>
+        signalsList.map((s) => ({
+          package: `${s.package}@${s.version}`,
+          assessment: assessment({ decision: verdicts[s.package] ?? "allow" }),
+        })),
     );
-    return { provider: { name: "fake", model: "m", assess, assessBatch }, assess, assessBatch };
+    return {
+      provider: { name: "fake", model: "m", assess, assessBatch },
+      assess,
+      assessBatch,
+    };
   }
 
   function batchOpts(fake: ReturnType<typeof fakeProvider>, extra = {}) {
@@ -160,7 +201,10 @@ describe("analyzeTransitiveDeps — batched AI path", () => {
 
   it("assesses the whole tree in ONE batch and keeps input order", async () => {
     const fake = fakeProvider({ b: "require_approval" });
-    const results = await analyzeTransitiveDeps(packages, batchOpts(fake) as never);
+    const results = await analyzeTransitiveDeps(
+      packages,
+      batchOpts(fake) as never,
+    );
 
     expect(fake.assessBatch).toHaveBeenCalledTimes(1); // 3 packages, batchSize 8 -> 1 call
     expect(fake.assess).not.toHaveBeenCalled();
@@ -214,7 +258,9 @@ describe("analyzeTransitiveDeps — batched AI path", () => {
       ...batchOpts(fake),
       // Return one FEWER assessment than requested → alignment can't hold.
       assessMany: async (_p: unknown, list: ReturnType<typeof makeSignals>[]) =>
-        list.slice(0, list.length - 1).map(() => assessment({ decision: "allow" })),
+        list
+          .slice(0, list.length - 1)
+          .map(() => assessment({ decision: "allow" })),
     } as never);
 
     expect(results).toHaveLength(3);
@@ -226,11 +272,13 @@ describe("analyzeTransitiveDeps — batched AI path", () => {
 
   it("--no-ai-batch never calls assessBatch (isolated per-package path)", async () => {
     const fake = fakeProvider({});
-    const analyze = vi.fn(async (name: string, version: string | undefined) => ({
-      metadata: {} as PackageAnalysis["metadata"],
-      signals: makeSignals({ package: name, version }),
-      assessment: assessment(),
-    }));
+    const analyze = vi.fn(
+      async (name: string, version: string | undefined) => ({
+        metadata: {} as PackageAnalysis["metadata"],
+        signals: makeSignals({ package: name, version }),
+        assessment: assessment(),
+      }),
+    );
     await analyzeTransitiveDeps(packages, {
       assess: { useAi: true },
       osvBatch: async () => new Map(),
@@ -246,9 +294,14 @@ describe("analyzeTransitiveDeps — batched AI path", () => {
 
 describe("aggregateWithTransitive", () => {
   it("keeps the root verdict and notes a fully clean tree", () => {
-    const out = aggregateWithTransitive(assessment(), [result("a", "allow"), result("b", "allow")]);
+    const out = aggregateWithTransitive(assessment(), [
+      result("a", "allow"),
+      result("b", "allow"),
+    ]);
     expect(out.decision).toBe("allow");
-    expect(out.reasons.join(" ")).toContain("all 2 transitive dependencies analyzed");
+    expect(out.reasons.join(" ")).toContain(
+      "all 2 transitive dependencies analyzed",
+    );
   });
 
   it("a blocked transitive dependency blocks the whole install", () => {
@@ -262,7 +315,9 @@ describe("aggregateWithTransitive", () => {
   });
 
   it("a require_approval child escalates an allow root", () => {
-    const out = aggregateWithTransitive(assessment(), [result("needs-review", "require_approval")]);
+    const out = aggregateWithTransitive(assessment(), [
+      result("needs-review", "require_approval"),
+    ]);
     expect(out.decision).toBe("require_approval");
   });
 
@@ -279,8 +334,12 @@ describe("aggregateWithTransitive", () => {
       result(`pkg-${String(i).padStart(2, "0")}`, "require_approval"),
     );
     const out = aggregateWithTransitive(assessment(), flagged);
-    const deepReasons = out.reasons.filter((r) => r.includes(": require_approval"));
+    const deepReasons = out.reasons.filter((r) =>
+      r.includes(": require_approval"),
+    );
     expect(deepReasons).toHaveLength(10);
-    expect(out.reasons.join(" ")).toContain("and 3 more flagged transitive dependencies");
+    expect(out.reasons.join(" ")).toContain(
+      "and 3 more flagged transitive dependencies",
+    );
   });
 });

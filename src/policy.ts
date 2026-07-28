@@ -8,7 +8,12 @@ import { loadConfigFile } from "./config-loader.js";
 import { DEFAULT_REGISTRY } from "./npmrc.js";
 import type { ResourceLimits } from "./resource-limits.js";
 import { isHardBlock } from "./rules.js";
-import { DECISION_SEVERITY, type CodeAuditScope, type RiskAssessment, type Signals } from "./types.js";
+import {
+  DECISION_SEVERITY,
+  type CodeAuditScope,
+  type RiskAssessment,
+  type Signals,
+} from "./types.js";
 
 export const POLICY_BASENAME = "targate.policy";
 
@@ -43,7 +48,8 @@ export function allowListMatch(
   for (const entry of entries) {
     const at = entry.lastIndexOf("@");
     if (at > 0) {
-      if (entry.slice(0, at) === name && entry.slice(at + 1) === version) return true;
+      if (entry.slice(0, at) === name && entry.slice(at + 1) === version)
+        return true;
     } else if (entry === name) {
       return true;
     }
@@ -75,6 +81,15 @@ export interface DependencyPolicy {
   requireSignedApprovals?: boolean;
   /** Fail closed when an npm mirror cannot be compared with its upstream registry. */
   requirePublicMirrorVerification?: boolean;
+  /**
+   * Reuse a prior approval of a DIFFERENT version of the same package when the
+   * new version's behavior fingerprint matches the approved one (see the
+   * trust-friction design). Off by default — with it off, approvals stay strictly
+   * version-exact. A match can only clear a soft verdict; a hard block, an
+   * install-script change, a dangerous-capability escalation, a provenance
+   * downgrade, or an incomplete fingerprint all still re-prompt.
+   */
+  trustBehaviorFingerprint?: boolean;
   /**
    * npm scopes (e.g. "@acme") whose packages are internal: external lookups
    * that would leak the package NAME to third parties (OSV, npm downloads,
@@ -113,6 +128,7 @@ const BOOLEAN_KEYS = [
   "blockMissingRepositoryForRuntimeDeps",
   "requireSignedApprovals",
   "requirePublicMirrorVerification",
+  "trustBehaviorFingerprint",
 ] as const;
 
 export class PolicyError extends Error {
@@ -123,9 +139,14 @@ export class PolicyError extends Error {
 }
 
 /** Validate an already-parsed policy document (any source format). */
-export function validatePolicyObject(doc: unknown, sourceName = POLICY_BASENAME): PolicyFile {
+export function validatePolicyObject(
+  doc: unknown,
+  sourceName = POLICY_BASENAME,
+): PolicyFile {
   if (typeof doc !== "object" || doc === null || !("dependencyPolicy" in doc)) {
-    throw new PolicyError(`${sourceName} must contain (or export) a "dependencyPolicy" key`);
+    throw new PolicyError(
+      `${sourceName} must contain (or export) a "dependencyPolicy" key`,
+    );
   }
   const raw = (doc as { dependencyPolicy: unknown }).dependencyPolicy;
   if (typeof raw !== "object" || raw === null) {
@@ -141,20 +162,27 @@ export function validatePolicyObject(doc: unknown, sourceName = POLICY_BASENAME)
   if ("minPackageAgeDays" in policy) {
     const v = policy.minPackageAgeDays;
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
-      throw new PolicyError(`"dependencyPolicy.minPackageAgeDays" must be a non-negative number`);
+      throw new PolicyError(
+        `"dependencyPolicy.minPackageAgeDays" must be a non-negative number`,
+      );
     }
   }
   for (const listKey of ["allowKnownPackages", "blockPackages"] as const) {
     if (listKey in policy) {
       const v = policy[listKey];
       if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) {
-        throw new PolicyError(`"dependencyPolicy.${listKey}" must be a list of package names`);
+        throw new PolicyError(
+          `"dependencyPolicy.${listKey}" must be a list of package names`,
+        );
       }
     }
   }
   if ("internalScopes" in policy) {
     const v = policy.internalScopes;
-    if (!Array.isArray(v) || v.some((x) => typeof x !== "string" || !x.startsWith("@"))) {
+    if (
+      !Array.isArray(v) ||
+      v.some((x) => typeof x !== "string" || !x.startsWith("@"))
+    ) {
       throw new PolicyError(
         `"dependencyPolicy.internalScopes" must be a list of npm scopes starting with "@" (e.g. "@acme")`,
       );
@@ -188,7 +216,8 @@ export function resolveCodeAuditScope(
   flagOn: boolean,
   policyScope: CodeAuditScope | undefined,
 ): CodeAuditScope {
-  if (flagOn) return policyScope && policyScope !== "off" ? policyScope : "flagged";
+  if (flagOn)
+    return policyScope && policyScope !== "off" ? policyScope : "flagged";
   return policyScope ?? "off";
 }
 
@@ -219,19 +248,29 @@ function validateResourceLimits(doc: object): ResourceLimits | undefined {
   for (const key of RESOURCE_LIMIT_KEYS) {
     if (key in limits) {
       const value = limits[key];
-      if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
-        throw new PolicyError(`"resourceLimits.${key}" must be a positive integer`);
+      if (
+        typeof value !== "number" ||
+        !Number.isSafeInteger(value) ||
+        value <= 0
+      ) {
+        throw new PolicyError(
+          `"resourceLimits.${key}" must be a positive integer`,
+        );
       }
     }
   }
   return limits as ResourceLimits;
 }
 
-function validateRegistries(doc: object): Record<string, RegistryPolicy> | undefined {
+function validateRegistries(
+  doc: object,
+): Record<string, RegistryPolicy> | undefined {
   if (!("registries" in doc)) return undefined;
   const raw = (doc as { registries: unknown }).registries;
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    throw new PolicyError(`"registries" must be a mapping from registry URL to configuration`);
+    throw new PolicyError(
+      `"registries" must be a mapping from registry URL to configuration`,
+    );
   }
   const result: Record<string, RegistryPolicy> = {};
   for (const [registryUrl, value] of Object.entries(raw)) {
@@ -244,9 +283,13 @@ function validateRegistries(doc: object): Record<string, RegistryPolicy> | undef
       if (typeof mirrorOf !== "string") throw new Error();
       new URL(mirrorOf);
     } catch {
-      throw new PolicyError(`"registries.${registryUrl}.mirrorOf" must be an absolute URL`);
+      throw new PolicyError(
+        `"registries.${registryUrl}.mirrorOf" must be an absolute URL`,
+      );
     }
-    result[registryUrl.replace(/\/+$/, "")] = { mirrorOf: mirrorOf.replace(/\/+$/, "") };
+    result[registryUrl.replace(/\/+$/, "")] = {
+      mirrorOf: mirrorOf.replace(/\/+$/, ""),
+    };
   }
   return result;
 }
@@ -287,7 +330,9 @@ function validateAiCache(doc: object): AiCachePolicy | undefined {
   if ("exclude" in cache) {
     const v = cache.exclude;
     if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) {
-      throw new PolicyError(`"aiCache.exclude" must be a list of package names`);
+      throw new PolicyError(
+        `"aiCache.exclude" must be a list of package names`,
+      );
     }
   }
   return cache as AiCachePolicy;
@@ -325,9 +370,13 @@ export interface LoadedPolicy {
  * sha256 (hex) of the policy file bytes — pins WHICH policy an approval was
  * made under in the trust history. Best-effort: undefined when unreadable.
  */
-export async function policyFileDigest(file: string): Promise<string | undefined> {
+export async function policyFileDigest(
+  file: string,
+): Promise<string | undefined> {
   try {
-    return createHash("sha256").update(await readFile(file)).digest("hex");
+    return createHash("sha256")
+      .update(await readFile(file))
+      .digest("hex");
   } catch {
     return undefined;
   }
@@ -337,7 +386,9 @@ export async function policyFileDigest(file: string): Promise<string | undefined
  * Load the team policy from the project root; null when absent. Supported
  * formats, first match wins: .yaml, .yml, .json (declarative, never executed).
  */
-export async function loadPolicy(cwd: string = process.cwd()): Promise<LoadedPolicy | null> {
+export async function loadPolicy(
+  cwd: string = process.cwd(),
+): Promise<LoadedPolicy | null> {
   const file = findPolicyFile(cwd);
   if (!file) return null;
   let doc: unknown;
@@ -359,12 +410,20 @@ function escalate(
 ): RiskAssessment {
   if (DECISION_SEVERITY[assessment.decision] >= DECISION_SEVERITY[to]) {
     // Already at least as strict — just record the policy rule that fired.
-    return { ...assessment, reasons: [...assessment.reasons, `[policy] ${reason}`] };
+    return {
+      ...assessment,
+      reasons: [...assessment.reasons, `[policy] ${reason}`],
+    };
   }
   return {
     ...assessment,
     decision: to,
-    risk: to === "block" ? "high" : assessment.risk === "low" ? "medium" : assessment.risk,
+    risk:
+      to === "block"
+        ? "high"
+        : assessment.risk === "low"
+          ? "medium"
+          : assessment.risk,
     reasons: [...assessment.reasons, `[policy] ${reason}`],
   };
 }
@@ -393,7 +452,11 @@ export function applyPolicy(
   if (signals.knownMalicious) return result; // hard block already enforced upstream
 
   if (p.blockPackages?.includes(signals.package)) {
-    return escalate(result, "block", `"${signals.package}" is on the team block list.`);
+    return escalate(
+      result,
+      "block",
+      `"${signals.package}" is on the team block list.`,
+    );
   }
 
   // An allow-list entry vouches for a known package; it cannot manufacture
@@ -434,7 +497,9 @@ export function applyPolicy(
   ) {
     const minAge = p.minPackageAgeDays ?? 7;
     if (signals.ageInDays < minAge) {
-      const to = p.blockRecentlyPublishedPackages ? "block" : "require_approval";
+      const to = p.blockRecentlyPublishedPackages
+        ? "block"
+        : "require_approval";
       result = escalate(
         result,
         to,
@@ -444,7 +509,11 @@ export function applyPolicy(
   }
 
   if (p.requireApprovalForNativeCode && signals.hasNativeCode) {
-    result = escalate(result, "require_approval", "Team policy requires approval for native code.");
+    result = escalate(
+      result,
+      "require_approval",
+      "Team policy requires approval for native code.",
+    );
   }
 
   if (p.requireApprovalForLifecycleScripts && signals.hasLifecycleScripts) {
@@ -467,7 +536,11 @@ export function applyPolicy(
   }
 
   if (p.blockMissingRepositoryForRuntimeDeps && signals.repositoryMissing) {
-    result = escalate(result, "block", "Team policy blocks packages without repository metadata.");
+    result = escalate(
+      result,
+      "block",
+      "Team policy blocks packages without repository metadata.",
+    );
   }
 
   return result;
@@ -592,7 +665,9 @@ function policyTemplate(format: PolicyFormat, preset: string): string {
   const policy = POLICY_PRESETS[preset].policy;
   switch (format) {
     case "yaml": {
-      const hash = policyComment(preset).map((l) => `# ${l}`).join("\n");
+      const hash = policyComment(preset)
+        .map((l) => `# ${l}`)
+        .join("\n");
       return `${hash}\n${stringify(policy)}`;
     }
     case "json":

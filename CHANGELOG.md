@@ -31,6 +31,15 @@ bumped by hand.
   runs; wired into CI and `prepublishOnly`.
 - **`targate --version` / `-v`** — prints the installed version (the standalone
   binaries embed it at build time).
+- **Behavior fingerprint + opt-in reuse** — every analysis now records a behavior
+  fingerprint (install-script command + referenced-file hashes, tiered capability
+  set, provenance state) on the approval and in `--json`. With the opt-in policy
+  `dependencyPolicy.trustBehaviorFingerprint`, a routine version bump of an
+  already-approved package whose behavior is unchanged is auto-cleared instead of
+  re-prompting. It only ever clears a **soft** verdict: an install-script change,
+  a new dangerous capability, a provenance downgrade, an incomplete analysis, or
+  any hard block all still re-prompt. Off by default (approvals stay
+  version-exact).
 
 ### Changed
 
@@ -52,7 +61,7 @@ bumped by hand.
   executed), removing the only path by which a repository could run code through a
   targate config file. The `TARGATE_ALLOW_EXEC_CONFIG` / `TARGATE_NO_EXEC_CONFIG` env
   vars and the `definePolicy` / `defineApprovals` helpers are gone; `targate policy
-  init` supports `--format yaml|json`. A leftover legacy executable file is ignored
+init` supports `--format yaml|json`. A leftover legacy executable file is ignored
   and flagged by `targate doctor` — convert it to YAML/JSON.
 
 ### Security
