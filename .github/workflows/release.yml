@@ -167,7 +167,10 @@ jobs:
   homebrew:
     name: update homebrew tap
     needs: [version, build]
-    if: startsWith(github.ref, 'refs/tags/')
+    # OFF during the pre-1.0 npm soft-launch. The job is kept intact — re-enable
+    # trivially by setting the repo variable: `gh variable set PUBLISH_BREW_WINGET
+    # --body true` (no code change). Also requires the HOMEBREW_TAP_APP_* secrets.
+    if: ${{ vars.PUBLISH_BREW_WINGET == 'true' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
       - id: guard
@@ -214,7 +217,9 @@ jobs:
   winget:
     name: publish to winget
     needs: [version, github-release]
-    if: startsWith(github.ref, 'refs/tags/')
+    # OFF during the pre-1.0 npm soft-launch (see the homebrew job). Re-enable with
+    # `gh variable set PUBLISH_BREW_WINGET --body true`. Also requires WINGET_TOKEN.
+    if: ${{ vars.PUBLISH_BREW_WINGET == 'true' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
       - id: guard
