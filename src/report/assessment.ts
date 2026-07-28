@@ -22,6 +22,8 @@ export function decisionColor(decision: Decision): (text: string) => string {
 const check = (flag: boolean, good: string, bad: string) =>
   flag ? yellow(`⚠ ${bad}`) : dim(`✓ ${good}`);
 
+const daysAgo = (n: number): string => `${n} day${n === 1 ? "" : "s"} ago`;
+
 export function renderReport(
   metadata: PackageMetadata,
   signals: Signals,
@@ -31,6 +33,11 @@ export function renderReport(
 ): string {
   const lines: string[] = [];
   const paint = decisionColor(assessment.decision);
+  // "published" is the ANALYZED VERSION's age (versionAgeDays). metadata.ageInDays
+  // is the PACKAGE's first-publish age (time.created) — a different thing — used
+  // only as a legacy fallback when a persisted run lacks the per-version value.
+  const publishedAgeDays = signals.reputation.versionAgeDays ?? metadata.ageInDays;
+  const analyzedIsLatest = signals.reputation.latestVersion === metadata.version;
   lines.push("");
   lines.push(
     bold(
@@ -43,16 +50,16 @@ export function renderReport(
     dim(
       [
         metadata.license ? `license: ${clean(metadata.license)}` : null,
-        metadata.ageInDays !== undefined
-          ? `published: ${metadata.ageInDays} days ago`
+        publishedAgeDays !== undefined
+          ? `published: ${daysAgo(publishedAgeDays)}${analyzedIsLatest ? " (latest)" : ""}`
           : null,
         // "last updated" = the package's latest release, shown when the analyzed
         // version is NOT the latest, so a stale pick vs an actively-maintained
         // package is visible. Informational; never drives the verdict.
         signals.reputation.latestVersionAgeDays !== undefined &&
         signals.reputation.latestVersion &&
-        signals.reputation.latestVersion !== metadata.version
-          ? `last updated: ${signals.reputation.latestVersionAgeDays} days ago (latest ${clean(signals.reputation.latestVersion)})`
+        !analyzedIsLatest
+          ? `last updated: ${daysAgo(signals.reputation.latestVersionAgeDays)} (latest ${clean(signals.reputation.latestVersion)})`
           : null,
         `deps: ${metadata.dependencyCount}`,
         metadata.repositoryUrl

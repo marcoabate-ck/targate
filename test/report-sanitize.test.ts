@@ -133,12 +133,15 @@ describe("renderReport last-updated line", () => {
     expect(out).toMatch(/last updated: 42 days ago \(latest 4\.17\.21\)/);
   });
 
-  it("omits it when the analyzed version IS the latest (no redundant line)", () => {
+  it("marks the published line '(latest)' and omits the separate line when analyzed IS the latest", () => {
     const metadata = makeMetadata({ name: "lodash", version: "4.17.21" });
     const signals = makeSignals({ package: "lodash" });
+    signals.reputation.versionAgeDays = 178; // "published" is the version's age
     signals.reputation.latestVersion = "4.17.21";
-    signals.reputation.latestVersionAgeDays = 42;
-    expect(renderReport(metadata, signals, assess)).not.toMatch(/last updated/);
+    signals.reputation.latestVersionAgeDays = 178;
+    const out = renderReport(metadata, signals, assess);
+    expect(out).toMatch(/published: 178 days ago \(latest\)/);
+    expect(out).not.toMatch(/last updated/);
   });
 
   it("omits it when no latest-release data is available", () => {
