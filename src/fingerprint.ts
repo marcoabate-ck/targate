@@ -9,7 +9,7 @@ import {
 
 /**
  * Behavior fingerprint — the load-bearing primitive behind "approve the
- * behavior, not the version" (see docs/design/trust-friction.md §5). It records
+ * behavior, not the version" (trust-friction design proposal, §5). It records
  * exactly what an attacker must change to execute code, so that a version bump
  * whose fingerprint is unchanged can be auto-passed while a bump that changes
  * behavior re-prompts.

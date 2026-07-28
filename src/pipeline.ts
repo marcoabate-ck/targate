@@ -109,7 +109,7 @@ export interface PackageAnalysis {
   score: SecurityScore;
   /** Present when the AI source-code audit ran for this package. */
   sourceAudit?: SourceAuditResult;
-  /** Behavior fingerprint of the analyzed bytes (docs/design/trust-friction.md).
+  /** Behavior fingerprint of the analyzed bytes (trust-friction design proposal).
    *  Recorded/surfaced only — consulted by no decision yet. */
   fingerprint?: BehaviorFingerprint;
 }

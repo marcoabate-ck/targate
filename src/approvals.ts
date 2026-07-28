@@ -96,7 +96,7 @@ export interface ApprovalRecord {
   context?: ApprovalContext;
   /** Cryptographic signature over the entry (see targate approve --sign). */
   signature?: ApprovalSignature;
-  /** Behavior fingerprint of the approved bytes (docs/design/trust-friction.md).
+  /** Behavior fingerprint of the approved bytes (trust-friction design proposal).
    *  Recorded for future "approve the behavior, not the version" comparison — no
    *  decision consults it yet. When the entry is signed, it is part of the signed
    *  payload. */
