@@ -35,7 +35,15 @@ cd targate
 git checkout develop          # or the branch under test
 pnpm install
 pnpm build
-pnpm link --global            # exposes `targate` on your PATH
+node dist/cli.js --help       # run it in place — no global setup needed
+```
+
+To type `targate` directly instead of `node dist/cli.js`, register its bin on your PATH:
+
+```bash
+pnpm setup           # one-time: creates pnpm's global bin dir on PATH (restart your shell afterwards)
+pnpm add -g .        # pnpm ≥ 11, from the repo root — registers the built `targate` bin globally
+# pnpm ≤ 10:  pnpm link --global   (removed in pnpm 11 — use `pnpm add -g .` instead)
 targate --help
 ```
 
@@ -96,7 +104,7 @@ Notes:
   prove the bad input is rejected, not just that the happy path works. The clamp
   (`clampDecision`) must never be downgradable by AI output; add a test if you touch it.
 - Tests must be deterministic and offline. Network is mocked (`vi.stubGlobal("fetch",
-  …)` or the registry fixtures) — do not hit the real npm registry or OSV in a test.
+…)` or the registry fixtures) — do not hit the real npm registry or OSV in a test.
 
 ## Commit and PR conventions
 

@@ -1,0 +1,12 @@
+# Code owners — every path is owned by the maintainer, so every pull request
+# automatically requests their review. Combined with a branch-protection rule
+# that requires review from Code Owners, no contribution reaches `main` without
+# an explicit maintainer approval. See CONTRIBUTING.md.
+* @marcoabate-ck
+
+# High-sensitivity paths called out explicitly (still the same owner) so the
+# intent is obvious in review and survives any future multi-owner split:
+/.github/workflows/  @marcoabate-ck
+/install.sh          @marcoabate-ck
+/minisign.pub        @marcoabate-ck
+/scripts/            @marcoabate-ck
