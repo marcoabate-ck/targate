@@ -50,6 +50,16 @@ bumped by hand.
 
 ### Changed
 
+- **Lifecycle-script severity now follows when the hook runs.** Only install-time
+  hooks (`preinstall`/`install`/`postinstall`) execute when a consumer installs
+  the published registry tarball. Pack/publish-time hooks (`prepare`/`prepack`/
+  `postpack`) run at publish or on a git/local install, never on a registry
+  install — so a fetch-and-execute construct (`curl … | bash`) in a pack-time
+  hook is no longer a hard block, `requireApprovalForLifecycleScripts` no longer
+  escalates a pack-time-only package, and the Security Score's install-behavior
+  category no longer deducts for pack-time hooks or their command findings. The
+  verdict engine already treated pack-time hooks as ALLOW-WITH-WARNINGS; the
+  hard-block predicate, the policy toggle, and the score now agree with it.
 - **`published:` in the report now shows the analyzed version's publish age**,
   not the package's first-ever release date (`time.created`). Previously every
   version of a package rendered the same package-age figure, which read as the
