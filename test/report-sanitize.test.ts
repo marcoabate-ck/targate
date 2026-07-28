@@ -31,7 +31,9 @@ describe("clean (terminal sanitizer)", () => {
   });
 
   it("passes ordinary text through unchanged", () => {
-    expect(clean("lodash 4.17.21 — utilities")).toBe("lodash 4.17.21 — utilities");
+    expect(clean("lodash 4.17.21 — utilities")).toBe(
+      "lodash 4.17.21 — utilities",
+    );
   });
 });
 
@@ -50,12 +52,18 @@ describe("renderReport does not let hostile metadata forge output", () => {
       recommendedAction: "do not install",
       source: "rules",
     };
-    const out = renderReport(metadata, makeSignals({ package: "evil" }), assessment);
+    const out = renderReport(
+      metadata,
+      makeSignals({ package: "evil" }),
+      assessment,
+    );
     // No raw ESC and no bare CR injected by the description survive.
     expect(out).not.toContain(ESC + "[32m");
     expect(out).not.toContain("\r");
     // The forged text never becomes its own standalone line.
-    expect(out.split("\n").some((l) => l.trim() === "✓ TOTALLY SAFE (forged)")).toBe(false);
+    expect(
+      out.split("\n").some((l) => l.trim() === "✓ TOTALLY SAFE (forged)"),
+    ).toBe(false);
   });
 });
 
@@ -63,7 +71,8 @@ describe("renderReport does not let hostile metadata forge output", () => {
 // safe" — surface that only the named package was analyzed. A --deep run vets
 // the tree, so the note is suppressed; non-allow verdicts don't get it either.
 describe("renderReport transitive-coverage caveat", () => {
-  const NOTE = /only lodash was analyzed — its transitive dependencies were not/;
+  const NOTE =
+    /only lodash was analyzed — its transitive dependencies were not/;
   const metadata = makeMetadata({ name: "lodash", version: "4.17.21" });
   const signals = makeSignals({ package: "lodash" });
   const assess = (decision: RiskAssessment["decision"]): RiskAssessment => ({
@@ -76,19 +85,65 @@ describe("renderReport transitive-coverage caveat", () => {
   });
 
   it("shows the note on a shallow ALLOW", () => {
-    expect(renderReport(metadata, signals, assess("allow"), undefined)).toMatch(NOTE);
+    expect(renderReport(metadata, signals, assess("allow"), undefined)).toMatch(
+      NOTE,
+    );
   });
 
   it("shows the note on a shallow ALLOW WITH WARNINGS", () => {
-    expect(renderReport(metadata, signals, assess("allow_with_warnings"), undefined)).toMatch(NOTE);
+    expect(
+      renderReport(metadata, signals, assess("allow_with_warnings"), undefined),
+    ).toMatch(NOTE);
   });
 
   it("suppresses the note under --deep", () => {
-    expect(renderReport(metadata, signals, assess("allow"), undefined, { deep: true })).not.toMatch(NOTE);
+    expect(
+      renderReport(metadata, signals, assess("allow"), undefined, {
+        deep: true,
+      }),
+    ).not.toMatch(NOTE);
   });
 
   it("does not show it on non-allow verdicts", () => {
-    expect(renderReport(metadata, signals, assess("require_approval"), undefined)).not.toMatch(NOTE);
-    expect(renderReport(metadata, signals, assess("block"), undefined)).not.toMatch(NOTE);
+    expect(
+      renderReport(metadata, signals, assess("require_approval"), undefined),
+    ).not.toMatch(NOTE);
+    expect(
+      renderReport(metadata, signals, assess("block"), undefined),
+    ).not.toMatch(NOTE);
+  });
+});
+
+describe("renderReport last-updated line", () => {
+  const assess: RiskAssessment = {
+    risk: "low",
+    decision: "allow",
+    summary: "s",
+    reasons: ["r"],
+    recommendedAction: "a",
+    source: "rules",
+  };
+
+  it("shows 'last updated' when the analyzed version is not the latest", () => {
+    const metadata = makeMetadata({ name: "lodash", version: "4.17.10" });
+    const signals = makeSignals({ package: "lodash" });
+    signals.reputation.latestVersion = "4.17.21";
+    signals.reputation.latestVersionAgeDays = 42;
+    const out = renderReport(metadata, signals, assess);
+    expect(out).toMatch(/last updated: 42 days ago \(latest 4\.17\.21\)/);
+  });
+
+  it("omits it when the analyzed version IS the latest (no redundant line)", () => {
+    const metadata = makeMetadata({ name: "lodash", version: "4.17.21" });
+    const signals = makeSignals({ package: "lodash" });
+    signals.reputation.latestVersion = "4.17.21";
+    signals.reputation.latestVersionAgeDays = 42;
+    expect(renderReport(metadata, signals, assess)).not.toMatch(/last updated/);
+  });
+
+  it("omits it when no latest-release data is available", () => {
+    const metadata = makeMetadata({ name: "lodash", version: "4.17.10" });
+    const signals = makeSignals({ package: "lodash" }); // no latestVersion set
+    expect(renderReport(metadata, signals, assess)).not.toMatch(/last updated/);
   });
 });

@@ -3,10 +3,7 @@ import type { MaintainerIntel } from "./maintainer-intel.js";
 export type RiskLevel = "low" | "medium" | "high";
 
 export type Decision =
-  | "allow"
-  | "allow_with_warnings"
-  | "require_approval"
-  | "block";
+  "allow" | "allow_with_warnings" | "require_approval" | "block";
 
 /**
  * Severity rank of each decision. The single source of truth for "which
@@ -117,6 +114,11 @@ export interface MaintainerChangeSignal {
 export interface ReputationSignals {
   /** Days since THIS version was published (package age is Signals.ageInDays). */
   versionAgeDays?: number;
+  /** dist-tags.latest version at analysis time (may differ from the analyzed one). */
+  latestVersion?: string;
+  /** Days since the package's latest release (dist-tags.latest) was published —
+   *  maintenance recency. Informational; does not drive the verdict. */
+  latestVersionAgeDays?: number;
   /** Days between this version's publish and the previous version's. */
   releaseAfterInactivityDays?: number;
   /** True when the release gap is ≥365 days AND this version is ≤30 days old —

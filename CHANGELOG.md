@@ -41,6 +41,13 @@ bumped by hand.
   any hard block all still re-prompt. Off by default (approvals stay
   version-exact).
 
+- **"last updated" in the report header.** Alongside `published: N days ago` (the
+  analyzed version's age), the report now shows `last updated: N days ago (latest
+  <version>)` when the analyzed version is not the latest release — surfacing
+  whether a package is actively maintained vs stale. Informational only (it does
+  not drive the verdict); also exposed as `signals.reputation.latestVersion` /
+  `latestVersionAgeDays` in `--json`.
+
 ### Changed
 
 - **React Native compatibility notes no longer fire on non-RN native packages.**
