@@ -267,7 +267,19 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
-      - name: Publish to npm (with provenance)
-        run: npm publish --provenance --access public
+      # Provenance (OIDC + Sigstore) can only be issued for a PUBLIC source repo;
+      # npm rejects `--provenance` while the repo is private. During the private
+      # soft-launch we publish WITHOUT it; the moment the repo is made public the
+      # flag re-activates automatically — nothing else to change here.
+      - name: Publish to npm (provenance auto-enabled once the repo is public)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          REPO_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [ "$REPO_PRIVATE" = "false" ]; then
+            echo "Public repo — publishing with provenance."
+            npm publish --provenance --access public
+          else
+            echo "::notice::Repository is private — publishing WITHOUT provenance (it requires a public repo). Provenance activates automatically once the repo is public."
+            npm publish --access public
+          fi
