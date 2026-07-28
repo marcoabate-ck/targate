@@ -1,8 +1,6 @@
 import type { AssessOptions } from "../ai.js";
 import { recordArtifactObservations } from "../artifact-ledger.js";
-import {
-  isCiEnvironment,
-} from "../approvals.js";
+import { isCiEnvironment } from "../approvals.js";
 import { loadDenials } from "../denials.js";
 import { recordTriageDecisions } from "../approval-orchestration.js";
 import { resolveCodeAuditScope } from "../policy.js";
@@ -62,7 +60,8 @@ const ICON: Record<string, string> = {
 function paintResult(r: InstallVetResult): (s: string) => string {
   if (r.assessment.decision === "block") return red;
   if (r.assessment.decision === "allow") return dim;
-  if (r.assessment.decision === "require_approval" && !r.approved) return yellow;
+  if (r.assessment.decision === "require_approval" && !r.approved)
+    return yellow;
   return yellow;
 }
 
@@ -126,26 +125,40 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
       onProgress: (phase, done, total) => progress.update(phase, done, total),
       onResult: (r, i, total) => {
         if (r.assessment.decision === "allow") return; // keep the log to what matters
-        progress.log(paintResult(r)(`  ${ICON[r.assessment.decision] ?? "?"} [${i + 1}/${total}] ${r.name}@${r.version} → ${r.assessment.decision}${r.approved ? " [approved]" : ""}`));
+        progress.log(
+          paintResult(r)(
+            `  ${ICON[r.assessment.decision] ?? "?"} [${i + 1}/${total}] ${r.name}@${r.version} → ${r.assessment.decision}${r.approved ? " [approved]" : ""}`,
+          ),
+        );
       },
     });
   } catch (err) {
     progress.done();
-    console.error(red(`\ntargate install: ${err instanceof Error ? err.message : String(err)}`));
+    console.error(
+      red(
+        `\ntargate install: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
     return 1;
   }
   progress.done(
     opts.json
       ? undefined
-      : dim(`  ✓ ${report.total} packages reviewed in ${Math.round((Date.now() - started) / 1000)}s`),
+      : dim(
+          `  ✓ ${report.total} packages reviewed in ${Math.round((Date.now() - started) / 1000)}s`,
+        ),
   );
 
-  const flagged = report.results.filter((r) => r.assessment.decision !== "allow");
-  const unresolved = report.results.filter((r) =>
-    r.unresolved ??
-    (r.hardBlock === true ||
-      ((r.assessment.decision === "block" || r.assessment.decision === "require_approval") &&
-        !r.approved)),
+  const flagged = report.results.filter(
+    (r) => r.assessment.decision !== "allow",
+  );
+  const unresolved = report.results.filter(
+    (r) =>
+      r.unresolved ??
+      (r.hardBlock === true ||
+        ((r.assessment.decision === "block" ||
+          r.assessment.decision === "require_approval") &&
+          !r.approved)),
   );
 
   if (!opts.json) {
@@ -158,10 +171,13 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
     );
     for (const r of unresolved.slice(0, 25)) {
       note(
-        paintResult(r)(`  ${ICON[r.assessment.decision]} ${r.name}@${r.version} — ${r.assessment.reasons[0] ?? r.assessment.summary}`),
+        paintResult(r)(
+          `  ${ICON[r.assessment.decision]} ${r.name}@${r.version} — ${r.assessment.reasons[0] ?? r.assessment.summary}`,
+        ),
       );
     }
-    if (unresolved.length > 25) note(dim(`  … and ${unresolved.length - 25} more`));
+    if (unresolved.length > 25)
+      note(dim(`  … and ${unresolved.length - 25} more`));
     note("");
   }
 
@@ -215,13 +231,17 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
           version: pickable[index].version,
           assessment: pickable[index].assessment,
           scripts,
+          fingerprint: pickable[index].fingerprint,
         }));
         const denyTargets = result.deny.map((index) => ({
           name: pickable[index].name,
           version: pickable[index].version,
           assessment: pickable[index].assessment,
         }));
-        await recordTriageDecisions(approveTargets, denyTargets, { policy, packageManager: pm });
+        await recordTriageDecisions(approveTargets, denyTargets, {
+          policy,
+          packageManager: pm,
+        });
         if (approveTargets.length > 0) {
           note(
             green(
@@ -236,13 +256,21 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
             ),
           );
         }
-        const approvedKeys = new Set(approveTargets.map((t) => `${t.name}@${t.version}`));
-        remaining = unresolved.filter((r) => !approvedKeys.has(`${r.name}@${r.version}`));
+        const approvedKeys = new Set(
+          approveTargets.map((t) => `${t.name}@${t.version}`),
+        );
+        remaining = unresolved.filter(
+          (r) => !approvedKeys.has(`${r.name}@${r.version}`),
+        );
       }
     }
 
     if (remaining.length > 0) {
-      if (opts.json) printJson("install", { ...report, install: { status: "blocked" as const } });
+      if (opts.json)
+        printJson("install", {
+          ...report,
+          install: { status: "blocked" as const },
+        });
       note(
         red(
           bold(
@@ -250,10 +278,16 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
           ),
         ),
       );
-      note(dim("Approve individual packages with `targate approve <pkg>@<version>` (records a committable approval), or add them to the team allow list."));
+      note(
+        dim(
+          "Approve individual packages with `targate approve <pkg>@<version>` (records a committable approval), or add them to the team allow list.",
+        ),
+      );
       return 2;
     }
-    note(green("\nAll flagged packages approved — continuing with the install."));
+    note(
+      green("\nAll flagged packages approved — continuing with the install."),
+    );
   }
 
   const treeDeniesScripts = report.results.some(
@@ -272,15 +306,26 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
         install: { status: "skipped" as const, command },
       });
     }
-    note(green(bold("\nTree looks clean.")) + dim(`  recommended command: ${command.join(" ")}`));
+    note(
+      green(bold("\nTree looks clean.")) +
+        dim(`  recommended command: ${command.join(" ")}`),
+    );
     return 0;
   }
 
   const proceed =
     opts.assumeYes ||
-    (!opts.json && await confirm(`\nTree passed review. Run the install (${command.join(" ")})?`, true));
+    (!opts.json &&
+      (await confirm(
+        `\nTree passed review. Run the install (${command.join(" ")})?`,
+        true,
+      )));
   if (!proceed) {
-    if (opts.json) printJson("install", { ...report, install: { status: "skipped" as const } });
+    if (opts.json)
+      printJson("install", {
+        ...report,
+        install: { status: "skipped" as const },
+      });
     note(dim("\nNothing installed."));
     return 0;
   }
@@ -288,7 +333,9 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
   try {
     if (plan.source === "resolved") await applyInstallPlan(plan);
     if (!(await verifyInstallPlan(plan))) {
-      throw new Error("Lockfile changed after review; generate a new install plan.");
+      throw new Error(
+        "Lockfile changed after review; generate a new install plan.",
+      );
     }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
@@ -319,7 +366,8 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
     return 1;
   }
   if (!(await verifyInstallPlan(plan))) {
-    const reason = "Installed lockfile does not match the reviewed plan; review is required again.";
+    const reason =
+      "Installed lockfile does not match the reviewed plan; review is required again.";
     if (opts.json) {
       printJson("install", {
         ...report,
@@ -334,7 +382,13 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
     await recordArtifactObservations(
       report.results.flatMap((result) =>
         result.artifact
-          ? [{ name: result.name, version: result.version, artifact: result.artifact }]
+          ? [
+              {
+                name: result.name,
+                version: result.version,
+                artifact: result.artifact,
+              },
+            ]
           : [],
       ),
       process.cwd(),
@@ -358,14 +412,18 @@ export async function installCommand(opts: InstallOptions): Promise<number> {
       ...report,
       install: {
         status: "installed" as const,
-        mode: ignoreScripts ? "no-scripts" as const : "normal" as const,
+        mode: ignoreScripts ? ("no-scripts" as const) : ("normal" as const),
         command,
       },
       artifactLedger,
     });
   }
   if (artifactLedger.status === "failed") {
-    note(yellow(`Artifact identity could not be recorded: ${artifactLedger.reason}`));
+    note(
+      yellow(
+        `Artifact identity could not be recorded: ${artifactLedger.reason}`,
+      ),
+    );
   } else {
     note(dim("Artifact identities recorded in .targate/artifacts.json."));
   }

@@ -1,4 +1,8 @@
-import { assessManyWithCache, resolveBatchProvider, type AssessOptions } from "./ai.js";
+import {
+  assessManyWithCache,
+  resolveBatchProvider,
+  type AssessOptions,
+} from "./ai.js";
 import { DEFAULT_CONCURRENCY, mapLimit } from "./concurrency.js";
 import { extractLockfileEntries } from "./lockfile.js";
 import { isInternalScope } from "./npmrc.js";
@@ -12,8 +16,13 @@ import {
   type PendingAudit,
 } from "./pipeline.js";
 import type { AiProvider } from "./providers/types.js";
+import type { BehaviorFingerprint } from "./fingerprint.js";
 import { isHardBlock } from "./rules.js";
-import { DECISION_SEVERITY, type RiskAssessment, type Signals } from "./types.js";
+import {
+  DECISION_SEVERITY,
+  type RiskAssessment,
+  type Signals,
+} from "./types.js";
 import type { ApprovalMode, ScriptPolicy } from "./trust-decision.js";
 import { detectPackageManager } from "./installer.js";
 import { resolveInstallPlan, type InstallPlan } from "./install-plan.js";
@@ -55,7 +64,10 @@ export function parseResolvedTree(
     if (name === rootName && version === rootVersion) continue; // root is analyzed separately
     packages.push({ name, version });
   }
-  return packages.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
+  return packages.sort(
+    (a, b) =>
+      a.name.localeCompare(b.name) || a.version.localeCompare(b.version),
+  );
 }
 
 /**
@@ -69,7 +81,9 @@ export async function resolveTransitiveTree(
   packageManager = detectPackageManager(),
   cwd: string = process.cwd(),
 ): Promise<TreePackage[]> {
-  return (await resolveTransitiveInstallPlan(name, version, packageManager, cwd)).packages;
+  return (
+    await resolveTransitiveInstallPlan(name, version, packageManager, cwd)
+  ).packages;
 }
 
 /** Resolve and retain the exact staged lockfile that add --deep will install. */
@@ -105,6 +119,9 @@ export interface TransitiveResult {
   approvalMode?: ApprovalMode;
   scriptPolicy?: ScriptPolicy;
   artifact?: Signals["artifact"];
+  /** Behavior fingerprint of the analyzed bytes (recorded on approval — no
+   *  decision consults it yet). */
+  fingerprint?: BehaviorFingerprint;
   error?: string;
 }
 
@@ -118,7 +135,11 @@ export interface AnalyzeTransitiveOptions extends AnalyzePackageOptions {
    * "assess" (AI); the per-package path reports "analyze". Drives the
    * spinner/ETA line in the CLI.
    */
-  onProgress?: (phase: "scan" | "assess" | "analyze", done: number, total: number) => void;
+  onProgress?: (
+    phase: "scan" | "assess" | "analyze",
+    done: number,
+    total: number,
+  ) => void;
   /** Injection point for tests — the per-package pipeline (non-batch path). */
   analyze?: typeof analyzePackage;
   /** Injection points for tests of the batched path. */
@@ -165,7 +186,9 @@ export async function analyzeTransitiveDeps(
   // Internal-scope packages are excluded from the batch — their names must not
   // be sent to OSV; the pipeline marks them skipped.
   const internalScopes = opts.policy?.policy.dependencyPolicy.internalScopes;
-  const queryable = packages.filter((p) => !isInternalScope(p.name, internalScopes));
+  const queryable = packages.filter(
+    (p) => !isInternalScope(p.name, internalScopes),
+  );
   let osvMap = new Map<string, OsvResult>();
   try {
     osvMap = opts.osvBatch
@@ -208,9 +231,13 @@ export async function analyzeTransitiveDeps(
         assessment: analysis.assessment,
         hardBlock: isHardBlock(analysis.signals),
         artifact: analysis.signals.artifact,
+        fingerprint: analysis.fingerprint,
       };
     } catch (err) {
-      result = errorResult(pkg, err instanceof Error ? err.message : String(err));
+      result = errorResult(
+        pkg,
+        err instanceof Error ? err.message : String(err),
+      );
     }
     // Report the package's REAL position (mapLimit's index), not a
     // completion-order counter — workers finish out of order.
@@ -237,30 +264,48 @@ async function analyzeTreeBatched(
 
   // Phase A — signals for every package (the network I/O), concurrently.
   type Built =
-    | { pkg: TreePackage; signals: Signals; audit?: PendingAudit; ok: true }
+    | {
+        pkg: TreePackage;
+        signals: Signals;
+        audit?: PendingAudit;
+        fingerprint?: BehaviorFingerprint;
+        ok: true;
+      }
     | { pkg: TreePackage; error: string; ok: false };
   let scanned = 0;
-  const built = await mapLimit(packages, concurrency, async (pkg): Promise<Built> => {
-    let result: Built;
-    try {
-      const { signals, audit } = await buildSignals(pkg.name, pkg.version, {
-        failOnOsvError: opts.failOnOsvError,
-        osv: osvFor(pkg),
-        noReputation: opts.noReputation,
-        policy: opts.policy,
-        lockedArtifact: pkg,
-        lockfileTrusted: opts.lockfileTrusted,
-        cwd: opts.cwd ?? opts.assess.cwd,
-        codeAudit: opts.codeAudit,
-        isDirect: pkg.isDirect,
-      });
-      result = { pkg, signals, audit, ok: true };
-    } catch (err) {
-      result = { pkg, error: err instanceof Error ? err.message : String(err), ok: false };
-    }
-    opts.onProgress?.("scan", ++scanned, packages.length);
-    return result;
-  });
+  const built = await mapLimit(
+    packages,
+    concurrency,
+    async (pkg): Promise<Built> => {
+      let result: Built;
+      try {
+        const { signals, audit, fingerprint } = await buildSignals(
+          pkg.name,
+          pkg.version,
+          {
+            failOnOsvError: opts.failOnOsvError,
+            osv: osvFor(pkg),
+            noReputation: opts.noReputation,
+            policy: opts.policy,
+            lockedArtifact: pkg,
+            lockfileTrusted: opts.lockfileTrusted,
+            cwd: opts.cwd ?? opts.assess.cwd,
+            codeAudit: opts.codeAudit,
+            isDirect: pkg.isDirect,
+          },
+        );
+        result = { pkg, signals, audit, fingerprint, ok: true };
+      } catch (err) {
+        result = {
+          pkg,
+          error: err instanceof Error ? err.message : String(err),
+          ok: false,
+        };
+      }
+      opts.onProgress?.("scan", ++scanned, packages.length);
+      return result;
+    },
+  );
 
   // Phase B — batched AI assessment over the successfully-built packages.
   const okItems = built.filter((b): b is Extract<Built, { ok: true }> => b.ok);
@@ -309,9 +354,13 @@ async function analyzeTreeBatched(
           assessment,
           hardBlock: isHardBlock(b.signals),
           artifact: b.signals.artifact,
+          fingerprint: b.fingerprint,
         });
       } catch (err) {
-        finalByKey.set(key, errorResult(b.pkg, err instanceof Error ? err.message : String(err)));
+        finalByKey.set(
+          key,
+          errorResult(b.pkg, err instanceof Error ? err.message : String(err)),
+        );
       }
     }),
   );
@@ -342,7 +391,9 @@ export function aggregateWithTransitive(
   const flagged = results
     .filter((r) => r.assessment.decision !== "allow")
     .sort(
-      (a, b) => DECISION_SEVERITY[b.assessment.decision] - DECISION_SEVERITY[a.assessment.decision],
+      (a, b) =>
+        DECISION_SEVERITY[b.assessment.decision] -
+        DECISION_SEVERITY[a.assessment.decision],
     );
 
   if (flagged.length === 0) {
@@ -360,10 +411,12 @@ export function aggregateWithTransitive(
 
   const reasons = [
     ...root.reasons,
-    ...flagged.slice(0, MAX_LISTED_FINDINGS).map(
-      (r) =>
-        `[deep] ${r.name}@${r.version}: ${r.assessment.decision} — ${r.assessment.reasons[0] ?? r.assessment.summary}`,
-    ),
+    ...flagged
+      .slice(0, MAX_LISTED_FINDINGS)
+      .map(
+        (r) =>
+          `[deep] ${r.name}@${r.version}: ${r.assessment.decision} — ${r.assessment.reasons[0] ?? r.assessment.summary}`,
+      ),
   ];
   if (flagged.length > MAX_LISTED_FINDINGS) {
     // Never truncate silently — say exactly how much is not shown.
@@ -376,7 +429,8 @@ export function aggregateWithTransitive(
   return {
     ...root,
     decision: worst,
-    risk: worst === "block" ? "high" : root.risk === "low" ? "medium" : root.risk,
+    risk:
+      worst === "block" ? "high" : root.risk === "low" ? "medium" : root.risk,
     reasons: [
       `Escalated by --deep: transitive dependency tree contains a ${worst} verdict.`,
       ...reasons,
