@@ -9,12 +9,12 @@ description: Install the targate CLI and gate your first package.
 ## Requirements
 
 - A package manager: npm, pnpm, or yarn. targate detects which one your project uses from its lockfile, and calls it (plus `git`) at runtime — keep both installed.
-- **Node.js ≥ 22.13** for the npm install method. The standalone binaries (Homebrew, install script, direct download) bundle their own runtime and do **not** require Node.
+- **Node.js ≥ 22.13** for the npm install method. The standalone binaries (install script, direct download) bundle their own runtime and do **not** require Node.
 - Optional: an AI provider (hosted or local). Without one, targate runs on its deterministic rules engine.
 
 ## Install
 
-targate ships four ways — all give you the same `targate` CLI. The `brew`, install-script, and direct-download methods go live with the first tagged release.
+targate ships three ways — all give you the same `targate` CLI. The install-script and direct-download methods go live with the first tagged release.
 
 ### npm — every platform (needs Node ≥ 22.13)
 
@@ -22,20 +22,6 @@ targate ships four ways — all give you the same `targate` CLI. The `brew`, ins
 npm install -g targate
 # or run ad-hoc, no global install:
 npx targate add <package>
-```
-
-### Homebrew — macOS & Linux
-
-Standalone binary, no Node required:
-
-```bash
-brew install marcoabate-ck/targate/targate
-```
-
-### winget — Windows
-
-```powershell
-winget install MarcoAbate.targate
 ```
 
 ### Install script — macOS & Linux

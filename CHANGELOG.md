@@ -90,6 +90,11 @@ init` supports `--format yaml|json`. A leftover legacy executable file is ignore
 
 - `files: ["dist"]`, npm metadata (`repository` / `homepage` / `bugs`), and a
   `prepublishOnly` chain (typecheck → test → build → pack:check).
+- Homebrew and winget publishing are **off for the pre-1.0 npm soft-launch**
+  (the release jobs are gated behind the `PUBLISH_BREW_WINGET` repo variable and
+  the docs no longer list those methods). npm, the install script, and direct
+  binary downloads remain. Re-enable later with
+  `gh variable set PUBLISH_BREW_WINGET --body true`.
 
 ## [0.1.0]
 

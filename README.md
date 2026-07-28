@@ -40,26 +40,14 @@ Preview a package without installing anything with `--dry-run`, or record a comm
 
 ## Install
 
-`targate` ships four ways — all install the same CLI.
+`targate` ships three ways — all install the same CLI.
 
-> **Note:** only the **npm** method works today. `brew`, `winget`, the install script, and the direct binary downloads go live with the **first tagged release** — until then their commands below are shown for reference and will 404.
+> **Note:** only the **npm** method works today. The install script and the direct binary downloads go live with the **first tagged release** — until then their commands below are shown for reference and will 404.
 
 **npm** — every platform, needs Node ≥ 22.13:
 
 ```bash
 npm install -g targate      # or ad-hoc: npx targate add <package>
-```
-
-**Homebrew** — macOS & Linux, standalone binary (no Node required):
-
-```bash
-brew install marcoabate-ck/targate/targate
-```
-
-**winget** — Windows:
-
-```powershell
-winget install MarcoAbate.targate
 ```
 
 **Install script** — macOS & Linux; detects your OS/arch, downloads the binary, and **verifies a minisign signature over the checksums and then the SHA-256** before installing. It fails closed: no `minisign`, a missing signature, or a bad signature aborts the install (needs [`minisign`](https://jedisct1.github.io/minisign/) on `PATH`):
