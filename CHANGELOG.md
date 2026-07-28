@@ -54,7 +54,9 @@ bumped by hand.
   not the package's first-ever release date (`time.created`). Previously every
   version of a package rendered the same package-age figure, which read as the
   version's publish date but was not. When the analyzed version is the latest, the
-  line is marked `(latest)`. Day counts are also pluralized (`1 day ago`).
+  line is marked `(latest)`. The package's maturity is preserved as a distinct
+  `first release: N days ago` field (shown when it differs from this version's age),
+  so the age signal isn't lost. Day counts are also pluralized (`1 day ago`).
 - **React Native compatibility notes no longer fire on non-RN native packages.**
   The New-Architecture (`codegenConfig`) and Expo (config-plugin / bare-workflow)
   notes are now gated on real React Native signals — a `react-native` dependency,

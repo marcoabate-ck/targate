@@ -36,8 +36,10 @@ export function renderReport(
   // "published" is the ANALYZED VERSION's age (versionAgeDays). metadata.ageInDays
   // is the PACKAGE's first-publish age (time.created) — a different thing — used
   // only as a legacy fallback when a persisted run lacks the per-version value.
-  const publishedAgeDays = signals.reputation.versionAgeDays ?? metadata.ageInDays;
-  const analyzedIsLatest = signals.reputation.latestVersion === metadata.version;
+  const publishedAgeDays =
+    signals.reputation.versionAgeDays ?? metadata.ageInDays;
+  const analyzedIsLatest =
+    signals.reputation.latestVersion === metadata.version;
   lines.push("");
   lines.push(
     bold(
@@ -60,6 +62,13 @@ export function renderReport(
         signals.reputation.latestVersion &&
         !analyzedIsLatest
           ? `last updated: ${daysAgo(signals.reputation.latestVersionAgeDays)} (latest ${clean(signals.reputation.latestVersion)})`
+          : null,
+        // Package maturity: how long the package has existed (time.created).
+        // Shown only when it differs from this version's publish age, so the
+        // very first release doesn't render a redundant duplicate line.
+        metadata.ageInDays !== undefined &&
+        metadata.ageInDays !== publishedAgeDays
+          ? `first release: ${daysAgo(metadata.ageInDays)}`
           : null,
         `deps: ${metadata.dependencyCount}`,
         metadata.repositoryUrl

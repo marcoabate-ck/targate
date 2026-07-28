@@ -149,4 +149,30 @@ describe("renderReport last-updated line", () => {
     const signals = makeSignals({ package: "lodash" }); // no latestVersion set
     expect(renderReport(metadata, signals, assess)).not.toMatch(/last updated/);
   });
+
+  it("shows 'first release' (package age) when it differs from this version's age", () => {
+    const metadata = makeMetadata({
+      name: "x",
+      version: "2.0.0",
+      ageInDays: 178,
+    });
+    const signals = makeSignals({ package: "x" });
+    signals.reputation.versionAgeDays = 1; // this version is 1 day old
+    const out = renderReport(metadata, signals, assess);
+    expect(out).toMatch(/published: 1 day ago/);
+    expect(out).toMatch(/first release: 178 days ago/);
+  });
+
+  it("omits 'first release' on a package's first version (no redundant line)", () => {
+    const metadata = makeMetadata({
+      name: "x",
+      version: "1.0.0",
+      ageInDays: 5,
+    });
+    const signals = makeSignals({ package: "x" });
+    signals.reputation.versionAgeDays = 5; // first version == package created
+    expect(renderReport(metadata, signals, assess)).not.toMatch(
+      /first release/,
+    );
+  });
 });
