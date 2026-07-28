@@ -5,7 +5,12 @@ import { INSTALL_TIME_SCRIPT_NAMES } from "./analyze/scripts.js";
 import { buildPackageFileIndex } from "./analyze/file-index.js";
 import { selectAuditFiles } from "./analyze/source-select.js";
 import { historicalArtifactDigest } from "./artifact-ledger.js";
-import { assessRisk, auditSourceWithCache, resolveBatchProvider, type AssessOptions } from "./ai.js";
+import {
+  assessRisk,
+  auditSourceWithCache,
+  resolveBatchProvider,
+  type AssessOptions,
+} from "./ai.js";
 import { isInternalScope } from "./npmrc.js";
 import { osvSkipped, osvUnavailable, queryOsv, type OsvResult } from "./osv.js";
 import { applyPolicy, type LoadedPolicy } from "./policy.js";
@@ -14,9 +19,18 @@ import type { AiProvider, SourceAuditInput } from "./providers/types.js";
 import { quarantineTarball } from "./quarantine.js";
 import { fetchArtifactEvidence, fetchPackageMetadata } from "./registry.js";
 import { fetchMaintainerIntel } from "./maintainer-intel.js";
-import { fetchReputation, reputationSkipped, type ReputationLookup } from "./reputation.js";
+import {
+  fetchReputation,
+  reputationSkipped,
+  type ReputationLookup,
+} from "./reputation.js";
 import { computeSecurityScore, type SecurityScore } from "./score.js";
-import { applyOsvFailurePolicy, evaluateRules, foldSourceAudit } from "./rules.js";
+import { computeFingerprint, type BehaviorFingerprint } from "./fingerprint.js";
+import {
+  applyOsvFailurePolicy,
+  evaluateRules,
+  foldSourceAudit,
+} from "./rules.js";
 import { isChecksumVerified } from "./types.js";
 import type {
   CodeAuditScope,
@@ -26,7 +40,11 @@ import type {
   SourceAuditResult,
 } from "./types.js";
 import type { LockedPackageArtifact } from "./lockfile.js";
-import { ResourceLimitError, resolveResourceLimits, withScanBudget } from "./resource-limits.js";
+import {
+  ResourceLimitError,
+  resolveResourceLimits,
+  withScanBudget,
+} from "./resource-limits.js";
 
 /**
  * The single per-package analysis pipeline, shared by `targate add`, `targate ci`
@@ -91,6 +109,9 @@ export interface PackageAnalysis {
   score: SecurityScore;
   /** Present when the AI source-code audit ran for this package. */
   sourceAudit?: SourceAuditResult;
+  /** Behavior fingerprint of the analyzed bytes (docs/design/trust-friction.md).
+   *  Recorded/surfaced only — consulted by no decision yet. */
+  fingerprint?: BehaviorFingerprint;
 }
 
 /**
@@ -110,6 +131,8 @@ export interface PackageSignals {
   signals: Signals;
   /** Present when this package was selected for the AI source-code audit. */
   audit?: PendingAudit;
+  /** Behavior fingerprint, computed while the tarball was still extracted. */
+  fingerprint?: BehaviorFingerprint;
 }
 
 /** True when the deterministic pass gives targate a reason to look harder. */
@@ -122,13 +145,13 @@ function isPackageFlagged(signals: Signals): boolean {
   const c = signals.content;
   return Boolean(
     c &&
-      (c.hasProcessEnvAccess ||
-        c.hasChildProcessUsage ||
-        c.hasNetworkCalls ||
-        c.hasEvalUsage ||
-        c.hasMinifiedCode ||
-        c.suspiciousFiles.length > 0 ||
-        c.installTimeFindings.length > 0),
+    (c.hasProcessEnvAccess ||
+      c.hasChildProcessUsage ||
+      c.hasNetworkCalls ||
+      c.hasEvalUsage ||
+      c.hasMinifiedCode ||
+      c.suspiciousFiles.length > 0 ||
+      c.installTimeFindings.length > 0),
   );
 }
 
@@ -142,7 +165,9 @@ async function auditEntryPoints(packageDir: string): Promise<string[]> {
   const clean = (p: unknown): string | null =>
     typeof p === "string" && p.length > 0 ? p.replace(/^\.\//, "") : null;
   try {
-    const manifest = JSON.parse(await readFile(path.join(packageDir, "package.json"), "utf8")) as {
+    const manifest = JSON.parse(
+      await readFile(path.join(packageDir, "package.json"), "utf8"),
+    ) as {
       main?: unknown;
       bin?: unknown;
     };
@@ -183,15 +208,25 @@ function shouldAuditPackage(
 }
 
 function stringMap(value: unknown): Record<string, string> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return {};
   return Object.fromEntries(
-    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
   );
 }
 
-function sameMap(a: Record<string, string>, b: Record<string, string>): boolean {
+function sameMap(
+  a: Record<string, string>,
+  b: Record<string, string>,
+): boolean {
   const normalize = (value: Record<string, string>) =>
-    JSON.stringify(Object.fromEntries(Object.entries(value).sort(([x], [y]) => x.localeCompare(y))));
+    JSON.stringify(
+      Object.fromEntries(
+        Object.entries(value).sort(([x], [y]) => x.localeCompare(y)),
+      ),
+    );
   return normalize(a) === normalize(b);
 }
 
@@ -211,7 +246,9 @@ async function bindMetadataToTarball(
 ): Promise<PackageMetadata> {
   let raw: unknown;
   try {
-    raw = JSON.parse(await readFile(path.join(packageDir, "package.json"), "utf8"));
+    raw = JSON.parse(
+      await readFile(path.join(packageDir, "package.json"), "utf8"),
+    );
   } catch (err) {
     artifact.trust = "mutated";
     artifact.reasons.push(
@@ -230,7 +267,10 @@ async function bindMetadataToTarball(
   const optionalDependencies = stringMap(manifest.optionalDependencies);
   const peerDependencies = stringMap(manifest.peerDependencies);
 
-  if (manifest.name !== metadata.name || manifest.version !== metadata.version) {
+  if (
+    manifest.name !== metadata.name ||
+    manifest.version !== metadata.version
+  ) {
     artifact.trust = "mutated";
     artifact.reasons.push(
       `tarball manifest identity ${String(manifest.name)}@${String(manifest.version)} does not match registry identity ${metadata.name}@${metadata.version}`,
@@ -243,10 +283,12 @@ async function bindMetadataToTarball(
   // packages (dayjs, retry, utils-merge…) whose tarball declares dev scripts
   // the registry packument omits.
   const tarballHidesInstallHook = INSTALL_TIME_SCRIPT_NAMES.some(
-    (name) => scripts[name] !== undefined && scripts[name] !== metadata.scripts[name],
+    (name) =>
+      scripts[name] !== undefined && scripts[name] !== metadata.scripts[name],
   );
   const packumentOverDeclaresInstallHook = INSTALL_TIME_SCRIPT_NAMES.some(
-    (name) => scripts[name] === undefined && metadata.scripts[name] !== undefined,
+    (name) =>
+      scripts[name] === undefined && metadata.scripts[name] !== undefined,
   );
   if (tarballHidesInstallHook) {
     // The tarball runs (or alters) an install-time script the registry metadata
@@ -281,7 +323,10 @@ async function bindMetadataToTarball(
   // UNVERIFIED bytes the same divergence stays a mutated hard block: without a
   // checksum we cannot tell authentic drift from a substituted artifact.
   const verifiedBytes = isChecksumVerified(artifact.trust);
-  const noteDependencyDivergence = (verifiedReason: string, mutatedReason: string): void => {
+  const noteDependencyDivergence = (
+    verifiedReason: string,
+    mutatedReason: string,
+  ): void => {
     if (verifiedBytes) {
       (artifact.metadataDrift ??= []).push(verifiedReason);
     } else {
@@ -295,13 +340,23 @@ async function bindMetadataToTarball(
       "registry dependencies differ from the unverified tarball package.json",
     );
   }
-  if (!sameNames(Object.keys(optionalDependencies), metadata.optionalDependencyNames ?? [])) {
+  if (
+    !sameNames(
+      Object.keys(optionalDependencies),
+      metadata.optionalDependencyNames ?? [],
+    )
+  ) {
     noteDependencyDivergence(
       "registry optionalDependencies differ from the checksum-verified tarball package.json (the authentic tarball is authoritative)",
       "registry optionalDependencies differ from the unverified tarball package.json",
     );
   }
-  if (!sameNames(Object.keys(peerDependencies), metadata.peerDependencyNames ?? [])) {
+  if (
+    !sameNames(
+      Object.keys(peerDependencies),
+      metadata.peerDependencyNames ?? [],
+    )
+  ) {
     noteDependencyDivergence(
       "registry peerDependencies differ from the checksum-verified tarball package.json (the authentic tarball is authoritative)",
       "registry peerDependencies differ from the unverified tarball package.json",
@@ -326,12 +381,25 @@ export async function buildPackageSignals(
   version: string | undefined,
   opts: Pick<
     AnalyzePackageOptions,
-    "failOnOsvError" | "osv" | "noReputation" | "maintainerIntel" | "onStage" | "policy" | "lockedArtifact" | "lockfileTrusted" | "metadata" | "cwd" | "codeAudit" | "isDirect"
+    | "failOnOsvError"
+    | "osv"
+    | "noReputation"
+    | "maintainerIntel"
+    | "onStage"
+    | "policy"
+    | "lockedArtifact"
+    | "lockfileTrusted"
+    | "metadata"
+    | "cwd"
+    | "codeAudit"
+    | "isDirect"
   >,
 ): Promise<PackageSignals> {
   const resourcePolicy = opts.policy?.policy.resourceLimits;
   const limits = resolveResourceLimits(resourcePolicy);
-  const metadata = opts.metadata ?? await fetchPackageMetadata(name, version, resourcePolicy);
+  const metadata =
+    opts.metadata ??
+    (await fetchPackageMetadata(name, version, resourcePolicy));
   opts.onStage?.("metadata", `${metadata.name}@${metadata.version}`);
 
   // Policy internalScopes: this package's NAME is private. Every lookup that
@@ -358,9 +426,18 @@ export async function buildPackageSignals(
   // what they mirror. internalScopes always win to preserve name privacy.
   const mirror = internal
     ? undefined
-    : artifactMirrorFor(metadata.registryUrl ?? "", metadata.registrySource, opts.policy?.policy);
+    : artifactMirrorFor(
+        metadata.registryUrl ?? "",
+        metadata.registrySource,
+        opts.policy?.policy,
+      );
   const publicArtifactPromise = mirror
-    ? fetchArtifactEvidence(metadata.name, metadata.version, mirror, resourcePolicy)
+    ? fetchArtifactEvidence(
+        metadata.name,
+        metadata.version,
+        mirror,
+        resourcePolicy,
+      )
     : Promise.resolve({ status: "skipped" as const });
   const historicalIntegrityPromise = historicalArtifactDigest(
     metadata.registryUrl ?? "unknown",
@@ -396,7 +473,11 @@ export async function buildPackageSignals(
       return opts.osv;
     }
     try {
-      const result = await queryOsv(metadata.name, metadata.version, resourcePolicy);
+      const result = await queryOsv(
+        metadata.name,
+        metadata.version,
+        resourcePolicy,
+      );
       opts.onStage?.("osv");
       return result;
     } catch {
@@ -430,7 +511,12 @@ export async function buildPackageSignals(
       // Rethrowing abandons the in-flight evidence promises; swallow their
       // eventual settlement so a later rejection can't surface as an
       // unhandledRejection after this function has already thrown.
-      for (const p of [osvPromise, reputationPromise, publicArtifactPromise, historicalIntegrityPromise]) {
+      for (const p of [
+        osvPromise,
+        reputationPromise,
+        publicArtifactPromise,
+        historicalIntegrityPromise,
+      ]) {
         void Promise.resolve(p).catch(() => {});
       }
       throw err;
@@ -443,10 +529,15 @@ export async function buildPackageSignals(
     for (const p of [publicArtifactPromise, historicalIntegrityPromise]) {
       void Promise.resolve(p).catch(() => {});
     }
-    const [osv, reputation] = await Promise.all([osvPromise, reputationPromise]);
+    const [osv, reputation] = await Promise.all([
+      osvPromise,
+      reputationPromise,
+    ]);
     return {
       metadata,
-      signals: buildDegradedSignals(metadata, osv, reason, reputation, { internalScope: internal }),
+      signals: buildDegradedSignals(metadata, osv, reason, reputation, {
+        internalScope: internal,
+      }),
     };
   }
   opts.onStage?.("quarantine");
@@ -457,10 +548,15 @@ export async function buildPackageSignals(
       quarantine.packageDir,
       quarantine.artifact,
     );
-    const [osv, reputation] = await Promise.all([osvPromise, reputationPromise]);
+    const [osv, reputation] = await Promise.all([
+      osvPromise,
+      reputationPromise,
+    ]);
     if (!opts.noReputation && !internal) {
       const degraded = [
-        reputation.downloads.status === "unavailable" ? "download stats unavailable" : null,
+        reputation.downloads.status === "unavailable"
+          ? "download stats unavailable"
+          : null,
         reputation.repo.status === "rate-limited"
           ? "GitHub rate-limited (set GITHUB_TOKEN to raise the limit)"
           : reputation.repo.status === "unavailable"
@@ -494,15 +590,43 @@ export async function buildPackageSignals(
     }
     opts.onStage?.("signals");
 
+    // Behavior fingerprint — computed WHILE the tarball is still extracted (the
+    // finally below deletes it). Instrumentation only: recorded/surfaced, never
+    // consulted by a verdict. A failure here must never fail analysis.
+    let fingerprint: BehaviorFingerprint | undefined;
+    try {
+      fingerprint = await computeFingerprint({
+        integrity: boundMetadata.integrity,
+        scripts: boundMetadata.scripts,
+        content: signals.content,
+        hasProvenance: signals.reputation.hasProvenance,
+        packageDir: quarantine.packageDir,
+        complete: (signals.analysisDegraded?.length ?? 0) === 0,
+      });
+    } catch {
+      /* fingerprint is instrumentation — a failure must not fail analysis */
+    }
+
     // Capture the risky source subset for the AI audit WHILE the tarball is
     // still extracted (cleanup below deletes it). This is only selection +
     // bounded reads — the model call happens later, with a provider + cache.
     let audit: PendingAudit | undefined;
-    if (!internal && shouldAuditPackage(opts.codeAudit, signals, opts.isDirect)) {
+    if (
+      !internal &&
+      shouldAuditPackage(opts.codeAudit, signals, opts.isDirect)
+    ) {
       try {
-        const index = await buildPackageFileIndex(quarantine.packageDir, limits);
+        const index = await buildPackageFileIndex(
+          quarantine.packageDir,
+          limits,
+        );
         const entryPoints = await auditEntryPoints(quarantine.packageDir);
-        const selection = await selectAuditFiles(index, signals.lifecycleScripts, entryPoints, limits);
+        const selection = await selectAuditFiles(
+          index,
+          signals.lifecycleScripts,
+          entryPoints,
+          limits,
+        );
         if (selection.files.length > 0) {
           audit = {
             input: {
@@ -522,7 +646,7 @@ export async function buildPackageSignals(
         /* audit is advisory — a selection failure must never fail analysis */
       }
     }
-    return { metadata: boundMetadata, signals, audit };
+    return { metadata: boundMetadata, signals, audit, fingerprint };
   } finally {
     await quarantine.cleanup();
   }
@@ -544,17 +668,30 @@ export async function applySourceAudit(
   if (!audit || !provider?.analyzeSource) return { assessment };
   const filesAnalyzed = audit.input.files.map((f) => f.relPath);
   try {
-    const findings = await auditSourceWithCache(provider, audit.input, audit.digest, {
-      cache: assess.cache,
-      cwd: assess.cwd,
-    });
+    const findings = await auditSourceWithCache(
+      provider,
+      audit.input,
+      audit.digest,
+      {
+        cache: assess.cache,
+        cwd: assess.cwd,
+      },
+    );
     return {
       assessment: foldSourceAudit(assessment, findings, signals),
       result: { findings, filesAnalyzed, dropped: audit.dropped, source: "ai" },
     };
   } catch {
     // Model/transport failure: never worsen or break the verdict on it.
-    return { assessment, result: { findings: [], filesAnalyzed, dropped: audit.dropped, source: "skipped" } };
+    return {
+      assessment,
+      result: {
+        findings: [],
+        filesAnalyzed,
+        dropped: audit.dropped,
+        source: "skipped",
+      },
+    };
   }
 }
 
@@ -569,7 +706,11 @@ export async function finalizeAssessment(
   assessment: RiskAssessment,
   opts: Pick<AnalyzePackageOptions, "failOnOsvError" | "policy" | "onStage">,
 ): Promise<RiskAssessment> {
-  let result = applyOsvFailurePolicy(assessment, signals, opts.failOnOsvError ?? false);
+  let result = applyOsvFailurePolicy(
+    assessment,
+    signals,
+    opts.failOnOsvError ?? false,
+  );
   opts.onStage?.("assessment", result.source);
   if (opts.policy) {
     result = applyPolicy(result, signals, opts.policy.policy);
@@ -583,14 +724,22 @@ export async function analyzePackage(
   version: string | undefined,
   opts: AnalyzePackageOptions,
 ): Promise<PackageAnalysis> {
-  const { metadata, signals, audit } = await buildPackageSignals(name, version, {
-    ...opts,
-    cwd: opts.cwd ?? opts.assess.cwd,
-  });
+  const { metadata, signals, audit, fingerprint } = await buildPackageSignals(
+    name,
+    version,
+    {
+      ...opts,
+      cwd: opts.cwd ?? opts.assess.cwd,
+    },
+  );
   // Computed BEFORE the assessment on purpose: the score is a pure function of
   // the signals and stays independent of the AI/rules verdict.
   const score = computeSecurityScore(signals);
-  const assessment = await finalizeAssessment(signals, await assessRisk(signals, opts.assess), opts);
+  const assessment = await finalizeAssessment(
+    signals,
+    await assessRisk(signals, opts.assess),
+    opts,
+  );
   // Optional AI source-code audit — folded escalation-only over the verdict.
   const audited = await applySourceAudit(
     resolveBatchProvider(opts.assess),
@@ -599,5 +748,12 @@ export async function analyzePackage(
     signals,
     opts.assess,
   );
-  return { metadata, signals, assessment: audited.assessment, score, sourceAudit: audited.result };
+  return {
+    metadata,
+    signals,
+    assessment: audited.assessment,
+    score,
+    sourceAudit: audited.result,
+    fingerprint,
+  };
 }
