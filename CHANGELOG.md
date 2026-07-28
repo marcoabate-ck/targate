@@ -43,6 +43,14 @@ bumped by hand.
 
 ### Changed
 
+- **React Native compatibility notes no longer fire on non-RN native packages.**
+  The New-Architecture (`codegenConfig`) and Expo (config-plugin / bare-workflow)
+  notes are now gated on real React Native signals — a `react-native` dependency,
+  `codegenConfig`, RN/Expo config files, a React-dependent podspec, or RN
+  bridge/JSI symbols in native source — never on marketing `keywords`. A plain
+  native package (e.g. a CLI shipping iOS/Android helper files) still gets the
+  framework-agnostic "native code detected" signal but not React-Native-framework
+  guidance that does not apply to it.
 - Dependency-metadata drift (`dependencies` / `optionalDependencies` /
   `peerDependencies`) on **checksum-verified** bytes is now approvable
   `require_approval` drift instead of a `mutated` hard block; real identity /

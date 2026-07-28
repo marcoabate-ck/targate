@@ -158,6 +158,16 @@ interface CompatInputs {
   hasAppPlugin: boolean;
   usesJsi: boolean;
   hasNativeCode: boolean;
+  /**
+   * True only when the package is actually a React Native module (real RN
+   * signals — a `react-native` dependency, codegenConfig, RN/Expo config files,
+   * a React-dependent podspec, or RN bridge/JSI symbols in native source), NOT
+   * merely because it ships iOS/Android files. Gates the RN/Expo-specific
+   * "interop" notes so a plain native package (e.g. a CLI with helper native
+   * files) does not get React-Native-framework guidance that does not apply to
+   * it. Marketing `keywords` are deliberately NOT a signal.
+   */
+  isReactNative: boolean;
 }
 
 export function buildCompatNotes(inputs: CompatInputs): string[] {
@@ -170,7 +180,7 @@ export function buildCompatNotes(inputs: CompatInputs): string[] {
     notes.push(
       "Uses JSI directly without codegenConfig — verify New Architecture compatibility with the maintainer.",
     );
-  } else if (inputs.hasNativeCode) {
+  } else if (inputs.hasNativeCode && inputs.isReactNative) {
     notes.push(
       "Native module without codegenConfig — likely an old-architecture bridge module; check New Architecture interop.",
     );
@@ -180,13 +190,41 @@ export function buildCompatNotes(inputs: CompatInputs): string[] {
     notes.push("Ships an expo-module.config.json — installable as an Expo module.");
   } else if (inputs.hasNativeCode && inputs.hasAppPlugin) {
     notes.push("Native code with an Expo config plugin (app.plugin.js) — works in Expo prebuild.");
-  } else if (inputs.hasNativeCode) {
+  } else if (inputs.hasNativeCode && inputs.isReactNative) {
     notes.push(
       "Native code without an Expo config plugin — requires a bare workflow or a custom dev client in Expo projects.",
     );
   }
 
   return notes;
+}
+
+/** Native-source symbols that mean "this is a React Native bridge/native module"
+ *  (iOS ObjC/Swift, Android Java/Kotlin, or C++ TurboModule/JSI). */
+const RN_BRIDGE_PATTERN =
+  /RCTBridgeModule|RCTEventEmitter|RCTViewManager|#import\s*<React\/|com\.facebook\.react|ReactContextBaseJavaModule|\bReactPackage\b|\bTurboModule\b|facebook::react/;
+
+/** A podspec that declares a dependency on a React Native pod. */
+const PODSPEC_REACT_DEP =
+  /\bdependency\b[^\n#]*['"](?:React|React-Core|ReactCommon|React-jsi|hermes-engine)\b/;
+
+/** Native source extensions scanned for RN bridge / JSI symbols. */
+const NATIVE_SOURCE_RE = /\.(h|hpp|cpp|mm|m|swift|java|kt)$/;
+
+/** Whether `react-native` is declared in any dependency field of a manifest. */
+function dependsOnReactNative(manifest: Record<string, unknown>): boolean {
+  for (const field of [
+    "dependencies",
+    "peerDependencies",
+    "devDependencies",
+    "optionalDependencies",
+  ]) {
+    const deps = manifest[field];
+    if (deps && typeof deps === "object" && !Array.isArray(deps) && "react-native" in deps) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -210,13 +248,17 @@ export async function analyzeRnHardening(
   };
 
   let usesJsi = false;
+  let rnBridge = false;
+  let podspecUsesReact = false;
 
   for (const file of index.files) {
     const rel = file.relPath;
     const basename = file.basename;
 
     if (basename.endsWith(".podspec")) {
-      result.podspecFindings.push(...reviewPodspec(rel, await readIndexedFile(file)));
+      const content = await readIndexedFile(file);
+      result.podspecFindings.push(...reviewPodspec(rel, content));
+      if (PODSPEC_REACT_DEP.test(content)) podspecUsesReact = true;
     }
     if (basename === "build.gradle" || basename === "build.gradle.kts" || basename === "settings.gradle") {
       result.gradleFindings.push(...reviewGradle(rel, await readIndexedFile(file)));
@@ -232,28 +274,47 @@ export async function analyzeRnHardening(
         result.iosFrameworkFindings.push(root);
       }
     }
-    if (/\.(h|hpp|cpp|mm)$/.test(basename) && !usesJsi) {
+    if (NATIVE_SOURCE_RE.test(basename) && (!usesJsi || !rnBridge)) {
       const content = await readIndexedFile(file);
-      if (/jsi\/jsi\.h|facebook::jsi/.test(content)) usesJsi = true;
+      if (!usesJsi && /jsi\/jsi\.h|facebook::jsi/.test(content)) usesJsi = true;
+      if (!rnBridge && RN_BRIDGE_PATTERN.test(content)) rnBridge = true;
     }
   }
 
-  let packageJson: CompatInputs["packageJson"] = {};
+  let manifest: Record<string, unknown> = {};
   try {
-    const manifest = index.byBasename.get("package.json")?.find(
+    const manifestFile = index.byBasename.get("package.json")?.find(
       (file) => path.posix.dirname(file.relPath) === ".",
     );
-    if (manifest) packageJson = JSON.parse(await readIndexedFile(manifest));
+    if (manifestFile) manifest = JSON.parse(await readIndexedFile(manifestFile));
   } catch {
     /* tolerate broken package.json — other analyzers already flag it */
   }
+  const packageJson = manifest as CompatInputs["packageJson"];
+
+  const hasExpoModuleConfig = index.byBasename.has("expo-module.config.json");
+  const hasAppPlugin = index.byBasename.has("app.plugin.js");
+  const hasRnConfigFile =
+    index.byBasename.has("react-native.config.js") || hasExpoModuleConfig || hasAppPlugin;
+
+  // A package is treated as React Native ONLY on real RN signals — never on
+  // marketing `keywords`. A plain native package (iOS/Android files but no RN
+  // relationship) gets no RN/Expo-framework guidance.
+  const isReactNative =
+    dependsOnReactNative(manifest) ||
+    Boolean(packageJson.codegenConfig) ||
+    hasRnConfigFile ||
+    usesJsi ||
+    podspecUsesReact ||
+    rnBridge;
 
   result.compatNotes = buildCompatNotes({
     packageJson,
-    hasExpoModuleConfig: index.byBasename.has("expo-module.config.json"),
-    hasAppPlugin: index.byBasename.has("app.plugin.js"),
+    hasExpoModuleConfig,
+    hasAppPlugin,
     usesJsi,
     hasNativeCode,
+    isReactNative,
   });
 
   return result;

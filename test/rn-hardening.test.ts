@@ -148,6 +148,7 @@ describe("buildCompatNotes", () => {
       hasAppPlugin: false,
       usesJsi: false,
       hasNativeCode: true,
+      isReactNative: true,
     });
     expect(notes.join(" ")).toContain("New Architecture");
   });
@@ -159,19 +160,36 @@ describe("buildCompatNotes", () => {
       hasAppPlugin: false,
       usesJsi: true,
       hasNativeCode: true,
+      isReactNative: true,
     });
     expect(notes.join(" ")).toContain("JSI");
   });
 
-  it("notes Expo bare-workflow requirement for plain native modules", () => {
+  it("notes RN interop for a native package that IS React Native", () => {
     const notes = buildCompatNotes({
       packageJson: {},
       hasExpoModuleConfig: false,
       hasAppPlugin: false,
       usesJsi: false,
       hasNativeCode: true,
+      isReactNative: true,
     });
     expect(notes.join(" ")).toContain("bare workflow");
+    expect(notes.join(" ")).toContain("old-architecture bridge module");
+  });
+
+  it("says nothing RN-specific for a native package that is NOT React Native", () => {
+    // agent-device case: iOS/Android files but no RN relationship — the RN /
+    // Expo framework notes must NOT fire.
+    const notes = buildCompatNotes({
+      packageJson: {},
+      hasExpoModuleConfig: false,
+      hasAppPlugin: false,
+      usesJsi: false,
+      hasNativeCode: true,
+      isReactNative: false,
+    });
+    expect(notes).toEqual([]);
   });
 
   it("says nothing for pure JS packages", () => {
@@ -182,6 +200,7 @@ describe("buildCompatNotes", () => {
         hasAppPlugin: false,
         usesJsi: false,
         hasNativeCode: false,
+        isReactNative: false,
       }),
     ).toEqual([]);
   });
@@ -204,5 +223,44 @@ describe("analyzeRnHardening (end to end on fixture)", () => {
     // Framework findings use POSIX-separated relPaths, host-independent.
     expect(rn.iosFrameworkFindings).toEqual(["ios/Closed.xcframework"]);
     expect(rn.compatNotes.length).toBeGreaterThan(0);
+  });
+
+  it("emits NO RN/Expo notes for native code that is not React Native (agent-device case)", async () => {
+    // iOS/Android files present, but no RN relationship. `react-native`/`expo`
+    // in keywords is marketing, not a signal — must be ignored.
+    const pkg = await fixture({
+      "package.json": JSON.stringify({
+        name: "agent-device",
+        version: "0.20.1",
+        dependencies: { yaml: "^2.9.0" },
+        keywords: ["react-native", "expo", "ios", "android"],
+      }),
+      "ios/DeviceHelper.m": "@implementation DeviceHelper\n@end",
+      "android/src/Helper.kt": "class Helper {}",
+    });
+    const rn = await analyzeRnHardening(pkg, [], true);
+    expect(rn.compatNotes).toEqual([]);
+  });
+
+  it("emits RN notes when react-native is a peer dependency", async () => {
+    const pkg = await fixture({
+      "package.json": JSON.stringify({
+        name: "some-native-mod",
+        version: "1.0.0",
+        peerDependencies: { "react-native": ">=0.72" },
+      }),
+      "ios/Mod.m": "@implementation Mod\n@end",
+    });
+    const rn = await analyzeRnHardening(pkg, [], true);
+    expect(rn.compatNotes.length).toBeGreaterThan(0);
+  });
+
+  it("detects React Native via an RCTBridgeModule symbol in native source", async () => {
+    const pkg = await fixture({
+      "package.json": JSON.stringify({ name: "x", version: "1.0.0" }),
+      "ios/Mod.m": "#import <React/RCTBridgeModule.h>\n@implementation Mod\n@end",
+    });
+    const rn = await analyzeRnHardening(pkg, [], true);
+    expect(rn.compatNotes.join(" ")).toContain("bare workflow");
   });
 });
