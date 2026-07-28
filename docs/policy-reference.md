@@ -1,6 +1,6 @@
 # Policy reference
 
-The team policy is an optional file in your project root that is applied **on top of** every targate assessment. It is **escalation-only** — it can make a decision stricter, never more permissive — with a single, deliberate exception: `allowKnownPackages` can pre-clear a *soft* block. It can never override a **hard** block.
+The team policy is an optional file in your project root that is applied **on top of** every targate assessment. It is **escalation-only** — it can make a decision stricter, never more permissive — with a single, deliberate exception: `allowKnownPackages` can pre-clear a _soft_ block. It can never override a **hard** block.
 
 Scaffold one with `targate policy init [--format yaml|json]`. This page is the complete reference; for the workflow around it (approvals, pnpm builds) see [Team workflow](team-workflow.md).
 
@@ -20,8 +20,8 @@ targate.policy.yaml   →  .yml   →  .json
 
 ```ts
 interface PolicyFile {
-  dependencyPolicy: DependencyPolicy;   // required
-  aiCache?: AiCachePolicy;              // optional — see ai-cache.md
+  dependencyPolicy: DependencyPolicy; // required
+  aiCache?: AiCachePolicy; // optional — see ai-cache.md
   registries?: Record<string, { mirrorOf: string }>;
   resourceLimits?: ResourceLimits;
 }
@@ -48,6 +48,7 @@ interface DependencyPolicy {
   blockPackages?: string[];
   requireSignedApprovals?: boolean;
   requirePublicMirrorVerification?: boolean;
+  trustBehaviorFingerprint?: boolean;
   internalScopes?: string[];
   codeAudit?: "off" | "flagged" | "direct" | "all";
 }
@@ -65,19 +66,20 @@ registries:
 
 ### `dependencyPolicy` fields
 
-| Field | Type | Default¹ | Effect |
-|---|---|---|---|
-| `blockRecentlyPublishedPackages` | boolean | `false` | If a package is younger than `minPackageAgeDays` (7 if unset), **block** it. |
-| `minPackageAgeDays` | number ≥ 0 | `7`² | Minimum package age. Younger packages are escalated to **require_approval** (or **block** if `blockRecentlyPublishedPackages` is also set). |
-| `requireApprovalForNativeCode` | boolean | `false` | Any package with native code (iOS/Android/Podspec/Gradle/CMake) → **require_approval**. |
-| `requireApprovalForLifecycleScripts` | boolean | `true`¹ | Any package with lifecycle scripts → **require_approval**. |
-| `blockMissingRepositoryForRuntimeDeps` | boolean | `false` | Package with no repository metadata → **block**. |
-| `allowKnownPackages` | string[] | `["react", "react-native"]`¹ | Pre-approved names. Clears **soft** (heuristic) blocks to `allow`; **cannot** clear a hard block. |
-| `blockPackages` | string[] | `[]` | Names that are always **blocked**, evaluated before the allow list. |
-| `requireSignedApprovals` | boolean | `false` | Only honor approvals whose SSH signature verifies against the committed `.targate/allowed-signers`; unsigned/invalid entries are ignored (the package asks again). See [signed approvals](team-workflow.md#signed-approvals--targate-approve---sign). |
-| `requirePublicMirrorVerification` | boolean | `false` | A mirrored package whose upstream registry cannot be reached becomes `require_approval` instead of `allow_with_warnings`. Divergence is always a hard block regardless of this setting. Enabled by the `strict`, `ci`, and `ai-agent` presets. |
-| `internalScopes` | string[] (each starting `@`) | `[]` | Scopes whose package **names must not leak**: OSV, npm downloads, maintainer search and GitHub lookups are skipped, typosquat similarity is not applied, and every skip is shown in the report/score. See [private registries](private-registries.md#internalscopes--name-privacy). |
-| `codeAudit` | `"off"` \| `"flagged"` \| `"direct"` \| `"all"` | `"off"` | Scope of the AI **source-code audit** (`--audit-code`): `flagged` audits only packages the deterministic pass flagged, `direct` the project's direct dependencies, `all` every analyzed package. Findings only ever **escalate** the verdict (clamped — a hard block can never be audited into an approval). The `--audit-code` flag turns it on ad-hoc (at least `flagged`); `strict`/`ai-agent` enable `flagged`, `ci` forces `off`. |
+| Field                                  | Type                                            | Default¹                     | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------- | ----------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `blockRecentlyPublishedPackages`       | boolean                                         | `false`                      | If a package is younger than `minPackageAgeDays` (7 if unset), **block** it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `minPackageAgeDays`                    | number ≥ 0                                      | `7`²                         | Minimum package age. Younger packages are escalated to **require_approval** (or **block** if `blockRecentlyPublishedPackages` is also set).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `requireApprovalForNativeCode`         | boolean                                         | `false`                      | Any package with native code (iOS/Android/Podspec/Gradle/CMake) → **require_approval**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `requireApprovalForLifecycleScripts`   | boolean                                         | `true`¹                      | Any package with lifecycle scripts → **require_approval**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `blockMissingRepositoryForRuntimeDeps` | boolean                                         | `false`                      | Package with no repository metadata → **block**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `allowKnownPackages`                   | string[]                                        | `["react", "react-native"]`¹ | Pre-approved names. Clears **soft** (heuristic) blocks to `allow`; **cannot** clear a hard block.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `blockPackages`                        | string[]                                        | `[]`                         | Names that are always **blocked**, evaluated before the allow list.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `requireSignedApprovals`               | boolean                                         | `false`                      | Only honor approvals whose SSH signature verifies against the committed `.targate/allowed-signers`; unsigned/invalid entries are ignored (the package asks again). See [signed approvals](team-workflow.md#signed-approvals--targate-approve---sign).                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `requirePublicMirrorVerification`      | boolean                                         | `false`                      | A mirrored package whose upstream registry cannot be reached becomes `require_approval` instead of `allow_with_warnings`. Divergence is always a hard block regardless of this setting. Enabled by the `strict`, `ci`, and `ai-agent` presets.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `trustBehaviorFingerprint`             | boolean                                         | `false`                      | Reuse a prior approval of a **different version** of the same package when the new version's **behavior fingerprint** is unchanged — so a routine bump of an already-vetted dependency does not re-prompt. A match can only clear a **soft** verdict; an install-script change, a new dangerous capability (network/child_process/eval), a provenance downgrade, an incomplete analysis, or any **hard** block all still re-prompt, and a legacy approval with no recorded fingerprint is never reused. Off by default (approvals stay strictly version-exact). Packages with install scripts (e.g. esbuild) still re-prompt on every release by design — their install code changes each version. |
+| `internalScopes`                       | string[] (each starting `@`)                    | `[]`                         | Scopes whose package **names must not leak**: OSV, npm downloads, maintainer search and GitHub lookups are skipped, typosquat similarity is not applied, and every skip is shown in the report/score. See [private registries](private-registries.md#internalscopes--name-privacy).                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `codeAudit`                            | `"off"` \| `"flagged"` \| `"direct"` \| `"all"` | `"off"`                      | Scope of the AI **source-code audit** (`--audit-code`): `flagged` audits only packages the deterministic pass flagged, `direct` the project's direct dependencies, `all` every analyzed package. Findings only ever **escalate** the verdict (clamped — a hard block can never be audited into an approval). The `--audit-code` flag turns it on ad-hoc (at least `flagged`); `strict`/`ai-agent` enable `flagged`, `ci` forces `off`.                                                                                                                                                                                                                                                             |
 
 ¹ Defaults shown are the values `targate policy init` scaffolds. A field you omit from your file simply doesn't apply — there is no hidden default beyond note ².
 ² `minPackageAgeDays` only takes effect when it is set, or when `blockRecentlyPublishedPackages` is `true` (in which case an unset `minPackageAgeDays` falls back to `7`).
@@ -86,28 +88,28 @@ registries:
 
 Controls reuse of AI assessments between runs (never used in CI). Full detail in [AI response cache](ai-cache.md).
 
-| Field | Type | Default | Effect |
-|---|---|---|---|
-| `enabled` | boolean | `true` | Turn the AI response cache on/off. |
-| `scope` | `"user"` \| `"project"` | `"user"` | Where the cache lives. |
-| `ttlHours` | number > 0 | `24` | How long a cached assessment stays fresh. |
-| `exclude` | string[] | `[]` | Package names never served from cache. |
+| Field      | Type                    | Default  | Effect                                    |
+| ---------- | ----------------------- | -------- | ----------------------------------------- |
+| `enabled`  | boolean                 | `true`   | Turn the AI response cache on/off.        |
+| `scope`    | `"user"` \| `"project"` | `"user"` | Where the cache lives.                    |
+| `ttlHours` | number > 0              | `24`     | How long a cached assessment stays fresh. |
+| `exclude`  | string[]                | `[]`     | Package names never served from cache.    |
 
 ### `resourceLimits` fields
 
 Every value is a positive integer. Durations are milliseconds; sizes are bytes. Defaults are deliberately generous enough for normal npm packages but finite.
 
-| Field | Default | Effect |
-|---|---:|---|
-| `networkTimeoutMs` | `15000` | Whole-response timeout for untrusted network requests, including body streaming. |
-| `maxResponseBytes` | `16777216` | Maximum body size for registry, OSV, npm search/downloads, maintainer, and GitHub JSON responses. |
-| `maxTarballBytes` | `67108864` | Maximum compressed tarball download. |
-| `maxExtractedBytes` | `268435456` | Maximum total uncompressed bytes extracted for one package. |
-| `maxFiles` | `20000` | Maximum archive entries and extracted filesystem objects; also bounds the shared file index consumed by every static analyzer. |
-| `maxFileBytes` | `33554432` | Maximum size of one extracted/scanned file. |
-| `maxScanDuration` | `20000` | Maximum static-analysis duration for one package. |
-| `maxAuditFiles` | `15` | Maximum source files sent to the AI code audit (`--audit-code`) for one package. |
-| `maxAuditBytes` | `262144` | Maximum total source bytes sent to the AI code audit for one package; larger files are sliced. |
+| Field               |     Default | Effect                                                                                                                         |
+| ------------------- | ----------: | ------------------------------------------------------------------------------------------------------------------------------ |
+| `networkTimeoutMs`  |     `15000` | Whole-response timeout for untrusted network requests, including body streaming.                                               |
+| `maxResponseBytes`  |  `16777216` | Maximum body size for registry, OSV, npm search/downloads, maintainer, and GitHub JSON responses.                              |
+| `maxTarballBytes`   |  `67108864` | Maximum compressed tarball download.                                                                                           |
+| `maxExtractedBytes` | `268435456` | Maximum total uncompressed bytes extracted for one package.                                                                    |
+| `maxFiles`          |     `20000` | Maximum archive entries and extracted filesystem objects; also bounds the shared file index consumed by every static analyzer. |
+| `maxFileBytes`      |  `33554432` | Maximum size of one extracted/scanned file.                                                                                    |
+| `maxScanDuration`   |     `20000` | Maximum static-analysis duration for one package.                                                                              |
+| `maxAuditFiles`     |        `15` | Maximum source files sent to the AI code audit (`--audit-code`) for one package.                                               |
+| `maxAuditBytes`     |    `262144` | Maximum total source bytes sent to the AI code audit for one package; larger files are sliced.                                 |
 
 Crossing a package-analysis limit is not a clean result: targate renders the missing evidence as `UNKNOWN` and deterministically requires approval. Network-only reputation/OSV failures retain their documented degraded-state policy.
 
@@ -160,14 +162,14 @@ export default policy;
 
 targate emits one of four decisions, ordered by strictness (the single source of truth for "which is stricter"):
 
-| Decision | Strictness | Install behaviour |
-|---|---|---|
-| `allow` | 0 | Installs (confirmation prompt unless `--yes`). |
-| `allow_with_warnings` | 1 | Installs after surfacing warnings (confirmation unless `--yes`). |
-| `require_approval` | 2 | Defaults to installing with `--ignore-scripts`, or record an approval. |
-| `block` | 3 | Never installs; exits `2`. |
+| Decision              | Strictness | Install behaviour                                                      |
+| --------------------- | ---------- | ---------------------------------------------------------------------- |
+| `allow`               | 0          | Installs (confirmation prompt unless `--yes`).                         |
+| `allow_with_warnings` | 1          | Installs after surfacing warnings (confirmation unless `--yes`).       |
+| `require_approval`    | 2          | Defaults to installing with `--ignore-scripts`, or record an approval. |
+| `block`               | 3          | Never installs; exits `2`.                                             |
 
-"Escalation" means moving *up* this scale; the policy engine never moves a decision down it — except `allowKnownPackages`, which sets `allow` directly.
+"Escalation" means moving _up_ this scale; the policy engine never moves a decision down it — except `allowKnownPackages`, which sets `allow` directly.
 
 ## Precedence
 

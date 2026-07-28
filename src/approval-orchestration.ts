@@ -4,6 +4,7 @@ import {
   recordApproval,
   removeApproval,
   type ApprovalRecord,
+  type ResolvedApproval,
 } from "./approvals.js";
 import { recordDenial, removeDenial } from "./denials.js";
 import { recordBuildApproval } from "./pnpm-builds.js";
@@ -32,10 +33,33 @@ export function clearAssessmentWithApproval(
   };
 }
 
+/**
+ * Transparent clear for a fingerprint reuse (P2): the approval is for a DIFFERENT
+ * version whose behavior matched. Distinct reason so the report never implies an
+ * exact approval that does not exist.
+ */
+export function clearAssessmentWithFingerprint(
+  assessment: RiskAssessment,
+  name: string,
+  matchedVersion: string,
+  approval: ApprovalRecord,
+): RiskAssessment {
+  return {
+    ...assessment,
+    decision: "allow_with_warnings",
+    risk: assessment.risk === "high" ? "medium" : assessment.risk,
+    reasons: [
+      ...assessment.reasons,
+      `[team] cleared by matching behavior fingerprint of ${name}@${matchedVersion} (approved ${approval.approvedAt.slice(0, 10)}, ${approval.mode}) — no behavior change.`,
+    ],
+  };
+}
+
 export function applyRootApproval(
   analysis: PackageAnalysis,
-  approval: ApprovalRecord | null,
+  resolved: ResolvedApproval | null,
 ): { assessment: RiskAssessment; enforceNoScripts: boolean } {
+  const approval = resolved?.record ?? null;
   const trust = resolvePackageTrust(
     analysis.assessment,
     isHardBlock(analysis.signals),
@@ -44,27 +68,35 @@ export function applyRootApproval(
   const softBlock =
     analysis.assessment.decision === "block" && !trust.hardBlocked;
   const canClear =
-    approval &&
+    !!approval &&
     (analysis.assessment.decision === "require_approval" || softBlock);
+  const { name, version } = analysis.metadata;
+  let assessment = analysis.assessment;
+  if (canClear && approval) {
+    assessment =
+      resolved!.via === "fingerprint"
+        ? clearAssessmentWithFingerprint(
+            assessment,
+            name,
+            resolved!.matchedVersion!,
+            approval,
+          )
+        : clearAssessmentWithApproval(assessment, name, version, approval);
+  }
   return {
-    assessment: canClear
-      ? clearAssessmentWithApproval(
-          analysis.assessment,
-          analysis.metadata.name,
-          analysis.metadata.version,
-          approval,
-        )
-      : analysis.assessment,
-    enforceNoScripts: canClear
-      ? approval.mode === "no-scripts"
-      : trust.scriptPolicy === "deny",
+    assessment,
+    enforceNoScripts:
+      canClear && approval
+        ? approval.mode === "no-scripts"
+        : trust.scriptPolicy === "deny",
   };
 }
 
 export function applyTransitiveApproval(
   result: TransitiveResult,
-  approval: ApprovalRecord,
+  resolved: ResolvedApproval,
 ): void {
+  const approval = resolved.record;
   result.approved = true;
   result.approvalMode = approval.mode;
   result.scriptPolicy = approval.mode === "no-scripts" ? "deny" : "allow";
@@ -72,12 +104,20 @@ export function applyTransitiveApproval(
     !result.hardBlock &&
     ["require_approval", "block"].includes(result.assessment.decision)
   ) {
-    result.assessment = clearAssessmentWithApproval(
-      result.assessment,
-      result.name,
-      result.version,
-      approval,
-    );
+    result.assessment =
+      resolved.via === "fingerprint"
+        ? clearAssessmentWithFingerprint(
+            result.assessment,
+            result.name,
+            resolved.matchedVersion!,
+            approval,
+          )
+        : clearAssessmentWithApproval(
+            result.assessment,
+            result.name,
+            result.version,
+            approval,
+          );
   }
 }
 

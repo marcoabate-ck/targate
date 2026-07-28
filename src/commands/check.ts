@@ -3,9 +3,9 @@ import { recordArtifactObservations } from "../artifact-ledger.js";
 import type { AssessOptions } from "../ai.js";
 import {
   buildApprovalContext,
-  getApproval,
   isCiEnvironment,
   recordApproval,
+  resolveApproval,
 } from "../approvals.js";
 import {
   applyRootApproval,
@@ -174,7 +174,16 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   // Root clearing happens BEFORE --deep aggregation, so a root approval can
   // never accidentally clear an escalation caused by unapproved transitives.
   const approvals = session.approvals!;
-  const priorApproval = getApproval(approvals, metadata.name, metadata.version);
+  const priorApproval = resolveApproval(
+    approvals,
+    metadata.name,
+    metadata.version,
+    analysis.fingerprint,
+    {
+      allowFingerprintReuse:
+        policy?.policy.dependencyPolicy.trustBehaviorFingerprint,
+    },
+  );
   const approvedRoot = applyRootApproval(analysis, priorApproval);
   assessment = approvedRoot.assessment;
   let enforceNoScripts = approvedRoot.enforceNoScripts;
@@ -224,7 +233,16 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
         (r.assessment.decision === "require_approval" ||
           r.assessment.decision === "block");
       for (const r of deepResults) {
-        const prior = getApproval(approvals, r.name, r.version);
+        const prior = resolveApproval(
+          approvals,
+          r.name,
+          r.version,
+          r.fingerprint,
+          {
+            allowFingerprintReuse:
+              policy?.policy.dependencyPolicy.trustBehaviorFingerprint,
+          },
+        );
         if (prior) {
           applyTransitiveApproval(r, prior);
           if (r.scriptPolicy === "deny") enforceNoScripts = true;

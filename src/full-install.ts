@@ -1,4 +1,4 @@
-import { getApproval, type ApprovalsMap } from "./approvals.js";
+import { resolveApproval, type ApprovalsMap } from "./approvals.js";
 import { getDenial, type DenialsMap } from "./denials.js";
 import type { AssessOptions } from "./ai.js";
 import { snapshotLockfile } from "./lockfile.js";
@@ -8,7 +8,11 @@ import {
   type InstallPlan,
 } from "./install-plan.js";
 import type { LoadedPolicy } from "./policy.js";
-import { analyzeTransitiveDeps, type TreePackage, type TransitiveResult } from "./transitive.js";
+import {
+  analyzeTransitiveDeps,
+  type TreePackage,
+  type TransitiveResult,
+} from "./transitive.js";
 import type { CodeAuditScope, Decision, PackageManager } from "./types.js";
 import {
   aggregateTreeTrust,
@@ -36,7 +40,10 @@ export interface ProjectTree {
 }
 
 /** Parse a lockfile's full set of packages into a sorted, de-duplicated tree. */
-export function treeFromLockfile(pm: PackageManager, content: string): TreePackage[] {
+export function treeFromLockfile(
+  pm: PackageManager,
+  content: string,
+): TreePackage[] {
   return packagesFromLockfile(pm, content);
 }
 
@@ -55,7 +62,11 @@ export async function resolveProjectTree(
     return { packages: treeFromLockfile(pm, lockContent), source: "lockfile" };
   }
 
-  const plan = await resolveInstallPlan({ packageManager: pm, cwd, updateLockfile: true });
+  const plan = await resolveInstallPlan({
+    packageManager: pm,
+    cwd,
+    updateLockfile: true,
+  });
   return { packages: plan.packages, source: "resolved" };
 }
 
@@ -87,14 +98,19 @@ export function aggregateInstallDecision(results: InstallVetResult[]): {
       unresolved:
         r.unresolved ??
         (r.hardBlock === true ||
-          ((r.assessment.decision === "block" || r.assessment.decision === "require_approval") &&
+          ((r.assessment.decision === "block" ||
+            r.assessment.decision === "require_approval") &&
             !r.approved)),
       approved: r.approved,
-      scriptPolicy: r.scriptPolicy ?? (r.approvalMode === "no-scripts" ? "deny" : "allow"),
+      scriptPolicy:
+        r.scriptPolicy ?? (r.approvalMode === "no-scripts" ? "deny" : "allow"),
       reasons: [...r.assessment.reasons],
     })),
   );
-  return { decision: aggregate.decision, exitCode: aggregate.unresolved ? 2 : 0 };
+  return {
+    decision: aggregate.decision,
+    exitCode: aggregate.unresolved ? 2 : 0,
+  };
 }
 
 export interface InstallReport {
@@ -126,7 +142,11 @@ export interface VetInstallOptions {
   codeAudit?: CodeAuditScope;
   onResult?: (result: InstallVetResult, index: number, total: number) => void;
   /** Live progress (spinner/ETA) — see AnalyzeTransitiveOptions.onProgress. */
-  onProgress?: (phase: "scan" | "assess" | "analyze", done: number, total: number) => void;
+  onProgress?: (
+    phase: "scan" | "assess" | "analyze",
+    done: number,
+    total: number,
+  ) => void;
   /** Injection point for tests — defaults to the real transitive walker. */
   analyzeAll?: typeof analyzeTransitiveDeps;
   /** Pre-resolved immutable plan; avoids resolving a second tree. */
@@ -138,9 +158,23 @@ function resolveVetResult(
   r: TransitiveResult,
   approvals: ApprovalsMap,
   denials?: DenialsMap,
+  allowFingerprintReuse?: boolean,
 ): InstallVetResult {
-  const approval = getApproval(approvals, r.name, r.version);
-  const trust = resolvePackageTrust(r.assessment, r.hardBlock === true, approval);
+  const resolved = resolveApproval(
+    approvals,
+    r.name,
+    r.version,
+    r.fingerprint,
+    {
+      allowFingerprintReuse,
+    },
+  );
+  const approval = resolved?.record ?? null;
+  const trust = resolvePackageTrust(
+    r.assessment,
+    r.hardBlock === true,
+    approval,
+  );
   const denial = denials ? getDenial(denials, r.name, r.version) : null;
   return {
     ...r,
@@ -177,21 +211,29 @@ function directDependencyNames(manifestContent: string): Set<string> {
 }
 
 /** Enumerate the tree, vet every unique package, and aggregate the verdict. */
-export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport> {
-  const plan = opts.plan ?? await resolveInstallPlan({
-    packageManager: opts.packageManager,
-    cwd: opts.cwd,
-    updateLockfile: false,
-  });
+export async function vetInstall(
+  opts: VetInstallOptions,
+): Promise<InstallReport> {
+  const plan =
+    opts.plan ??
+    (await resolveInstallPlan({
+      packageManager: opts.packageManager,
+      cwd: opts.cwd,
+      updateLockfile: false,
+    }));
   // Tag the project's direct dependencies so codeAudit scope "direct" can target
   // them; the lockfile tree itself does not preserve the direct/transitive line.
   const directNames = directDependencyNames(plan.manifestContent);
   const packages =
     directNames.size > 0
-      ? plan.packages.map((p) => (directNames.has(p.name) ? { ...p, isDirect: true } : p))
+      ? plan.packages.map((p) =>
+          directNames.has(p.name) ? { ...p, isDirect: true } : p,
+        )
       : plan.packages;
   const source = plan.source === "existing" ? "lockfile" : "resolved";
   const analyzeAll = opts.analyzeAll ?? analyzeTransitiveDeps;
+  const allowFingerprintReuse =
+    opts.policy?.policy.dependencyPolicy.trustBehaviorFingerprint ?? false;
 
   const raw = await analyzeAll(packages, {
     assess: opts.assess,
@@ -205,12 +247,21 @@ export async function vetInstall(opts: VetInstallOptions): Promise<InstallReport
     lockfileTrusted: plan.source === "existing",
     onProgress: opts.onProgress,
     onResult: (r, i, total) => {
-      opts.onResult?.(resolveVetResult(r, opts.approvals, opts.denials), i, total);
+      opts.onResult?.(
+        resolveVetResult(
+          r,
+          opts.approvals,
+          opts.denials,
+          allowFingerprintReuse,
+        ),
+        i,
+        total,
+      );
     },
   });
 
   const results: InstallVetResult[] = raw.map((r) =>
-    resolveVetResult(r, opts.approvals, opts.denials),
+    resolveVetResult(r, opts.approvals, opts.denials, allowFingerprintReuse),
   );
   const { decision, exitCode } = aggregateInstallDecision(results);
 
