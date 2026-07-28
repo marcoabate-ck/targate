@@ -55,7 +55,11 @@ function stubNetwork(): void {
         };
       }
       if (url.endsWith(".tgz")) {
-        return { ok: true, status: 200, arrayBuffer: async () => new Uint8Array(tarballBytes).buffer };
+        return {
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => new Uint8Array(tarballBytes).buffer,
+        };
       }
       return {
         ok: true,
@@ -68,14 +72,18 @@ function stubNetwork(): void {
               repository: { url: "https://github.com/x/left-pad" },
               maintainers: [{ name: "x" }],
               dist: {
-                tarball: "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz",
+                tarball:
+                  "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz",
                 integrity: tarballIntegrity(),
               },
               scripts: {},
               dependencies: {},
             },
           },
-          time: { created: "2016-01-01T00:00:00Z", "1.3.0": "2018-01-01T00:00:00Z" },
+          time: {
+            created: "2016-01-01T00:00:00Z",
+            "1.3.0": "2018-01-01T00:00:00Z",
+          },
         }),
       };
     }),
@@ -122,6 +130,7 @@ describe("targate add --json emits only JSON on stdout (agent contract)", () => 
     const parsed = JSON.parse(lines[0]);
     expect(Object.keys(parsed).sort()).toEqual([
       "assessment",
+      "behaviorFingerprint",
       "command",
       "deep",
       "install",
@@ -136,9 +145,15 @@ describe("targate add --json emits only JSON on stdout (agent contract)", () => 
     expect(parsed.score.total).toBeGreaterThan(0);
     expect(parsed.deep).toBeNull();
     expect(parsed.install.status).toBe("skipped");
+    // Behavior fingerprint is recorded/surfaced (consulted by no decision yet):
+    // left-pad has no install scripts, so its list is empty.
+    expect(parsed.behaviorFingerprint.schemaVersion).toBe(1);
+    expect(parsed.behaviorFingerprint.installScripts).toEqual([]);
 
     // The run is recorded for `targate explain --last` (best-effort side effect).
-    const lastRun = JSON.parse(await readFile(path.join(dir, ".targate", "last-run.json"), "utf8"));
+    const lastRun = JSON.parse(
+      await readFile(path.join(dir, ".targate", "last-run.json"), "utf8"),
+    );
     expect(lastRun.command).toBe("add");
     expect(lastRun.packages[0].metadata.name).toBe("left-pad");
   });

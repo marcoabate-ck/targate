@@ -64,11 +64,15 @@ export type ApproveOutcome = "hard-blocked" | "already-allowed" | "approvable";
  *   esbuild's env+network install script) is exactly what a human approval is
  *   for — record it.
  */
-export function approveOutcome(decision: Decision, hardBlock: boolean): ApproveOutcome {
+export function approveOutcome(
+  decision: Decision,
+  hardBlock: boolean,
+): ApproveOutcome {
   const trust = resolvePackageTrust(
     {
       decision,
-      risk: decision === "block" ? "high" : decision === "allow" ? "low" : "medium",
+      risk:
+        decision === "block" ? "high" : decision === "allow" ? "low" : "medium",
       summary: "",
       reasons: [],
       recommendedAction: "",
@@ -108,15 +112,23 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     if (!opts.json) console.log(line);
   };
 
-  note(dim(`\nReviewing ${bold(name)}${version ? `@${version}` : ""} for approval ...`));
+  note(
+    dim(
+      `\nReviewing ${bold(name)}${version ? `@${version}` : ""} for approval ...`,
+    ),
+  );
 
-  const session = await prepareAnalysisSession(opts.assess, { noCache: opts.noCache });
+  const session = await prepareAnalysisSession(opts.assess, {
+    noCache: opts.noCache,
+  });
   const { policy, assess } = session;
   const auditScope = resolveCodeAuditScope(
     opts.codeAudit ?? false,
     policy?.policy.dependencyPolicy.codeAudit,
   );
-  const onStage = createAnalysisStageReporter(note, { failOnOsvError: opts.failOnOsvError });
+  const onStage = createAnalysisStageReporter(note, {
+    failOnOsvError: opts.failOnOsvError,
+  });
 
   let analysis;
   try {
@@ -144,18 +156,21 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
   if (opts.deep) {
     const tree = await resolveTransitiveTree(metadata.name, metadata.version);
     if (tree.length > 0) {
-      note(dim(`  … analyzing ${tree.length} transitive dependencies (--deep)`));
+      note(
+        dim(`  … analyzing ${tree.length} transitive dependencies (--deep)`),
+      );
       deepResults = await analyzeDependencyTree(tree, session, {
-          json: opts.json,
-          failOnOsvError: opts.failOnOsvError,
-          noReputation: opts.noReputation,
-          codeAudit: auditScope,
-        });
+        json: opts.json,
+        failOnOsvError: opts.failOnOsvError,
+        noReputation: opts.noReputation,
+        codeAudit: auditScope,
+      });
     }
     assessment = aggregateWithTransitive(assessment, deepResults ?? []);
   }
 
-  const hardBlock = isHardBlock(signals) || (deepResults ?? []).some((r) => r.hardBlock);
+  const hardBlock =
+    isHardBlock(signals) || (deepResults ?? []).some((r) => r.hardBlock);
   const outcome = approveOutcome(assessment.decision, hardBlock);
 
   // Record the run for `targate explain --last`. Best-effort, never gates.
@@ -172,10 +187,17 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     // `targate install`), NOT a second prompt — one prompt keeps the flow clear
     // and avoids a fragile second readline read. Default is the safer
     // scripts-disabled mode.
-    const mode: ApprovalRecord["mode"] = opts.allowScripts ? "normal" : "no-scripts";
+    const mode: ApprovalRecord["mode"] = opts.allowScripts
+      ? "normal"
+      : "no-scripts";
     let confirmed = opts.assumeYes;
     if (interactive) {
-      if (!opts.json) console.log(renderReport(metadata, signals, assessment, score, { deep: opts.deep }));
+      if (!opts.json)
+        console.log(
+          renderReport(metadata, signals, assessment, score, {
+            deep: opts.deep,
+          }),
+        );
       confirmed = await confirm(
         `Record approval for ${metadata.name}@${metadata.version} (${mode}) in .targate/approvals.json? It is not installed now.`,
         true,
@@ -184,7 +206,8 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     if (confirmed) {
       // Trust history: record the circumstances (tool version, verdict,
       // provider/model, policy hash) alongside the approval itself.
-      const ai = assessment.source === "ai" ? describeProvider(opts.assess) : null;
+      const ai =
+        assessment.source === "ai" ? describeProvider(opts.assess) : null;
       const context = buildApprovalContext({
         assessment,
         score: score.total,
@@ -194,14 +217,25 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
         aiModel: ai?.model,
       });
       try {
-        approval = await recordApproval(metadata.name, metadata.version, mode, process.cwd(), {
-          context,
-          sign: opts.sign ? approvalSigner() : undefined,
-        });
+        approval = await recordApproval(
+          metadata.name,
+          metadata.version,
+          mode,
+          process.cwd(),
+          {
+            context,
+            sign: opts.sign ? approvalSigner() : undefined,
+            behaviorFingerprint: analysis.fingerprint,
+          },
+        );
       } catch (err) {
         // A signing failure must abort loudly — never silently record an
         // unsigned approval when the human asked for a signed one.
-        console.error(red(`\nApproval NOT recorded: ${err instanceof Error ? err.message : String(err)}`));
+        console.error(
+          red(
+            `\nApproval NOT recorded: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        );
         return 1;
       }
       // On pnpm projects, persist the scripts decision through pnpm's native
@@ -223,11 +257,25 @@ export async function approveCommand(opts: ApproveOptions): Promise<number> {
     }
   } else if (!opts.json) {
     // Nothing to prompt for; still show the report for context.
-    console.log(renderReport(metadata, signals, assessment, score, { deep: opts.deep }));
+    console.log(
+      renderReport(metadata, signals, assessment, score, { deep: opts.deep }),
+    );
   }
 
   if (opts.json) {
-    printJson("approve", { metadata, signals, assessment, score, deep: deepResults, outcome, approval, ...(analysis.sourceAudit ? { sourceAudit: analysis.sourceAudit } : {}) });
+    printJson("approve", {
+      metadata,
+      signals,
+      assessment,
+      score,
+      deep: deepResults,
+      outcome,
+      approval,
+      ...(analysis.sourceAudit ? { sourceAudit: analysis.sourceAudit } : {}),
+      ...(analysis.fingerprint
+        ? { behaviorFingerprint: analysis.fingerprint }
+        : {}),
+    });
   }
 
   switch (outcome) {

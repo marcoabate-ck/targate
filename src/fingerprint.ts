@@ -1,19 +1,15 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { ContentFindings } from "./types.js";
 import {
   INSTALL_TIME_SCRIPT_NAMES,
   referencedScriptFiles,
 } from "./analyze/scripts.js";
-import {
-  readIndexedFile,
-  type IndexedFile,
-  type PackageFileIndex,
-} from "./analyze/file-index.js";
 
 /**
  * Behavior fingerprint — the load-bearing primitive behind "approve the
- * behavior, not the version" (see docs/design/trust-friction.md §5). It records
+ * behavior, not the version" (trust-friction design proposal, §5). It records
  * exactly what an attacker must change to execute code, so that a version bump
  * whose fingerprint is unchanged can be auto-passed while a bump that changes
  * behavior re-prompts.
@@ -99,8 +95,12 @@ export interface FingerprintInput {
   content: ContentFindings;
   /** Whether the registry served provenance attestations. */
   hasProvenance: boolean;
-  /** Indexed tarball, for hashing referenced install-script files. */
-  index: PackageFileIndex;
+  /** Extracted package root, for hashing referenced install-script files. Only
+   *  the 0–2 files a lifecycle command names are read — no full directory walk. */
+  packageDir: string;
+  /** False when analysis was degraded/truncated — a partial fingerprint must
+   *  never be treated as an unchanged match (§5.4, fail-closed). */
+  complete: boolean;
 }
 
 function parseSha512(integrity: string | undefined): string | undefined {
@@ -109,18 +109,17 @@ function parseSha512(integrity: string | undefined): string | undefined {
   return token;
 }
 
-/** Resolve a script-referenced path to an indexed file: exact relPath first,
- *  then a unique basename match. Returns null when it cannot be resolved. */
-function resolveReferenced(
-  index: PackageFileIndex,
+/** Read a script-referenced file from inside the package root, guarding against
+ *  path escape. Returns its content, or null when absent / outside the root. */
+async function readReferenced(
+  packageDir: string,
   ref: string,
-): IndexedFile | null {
-  const normalized = path.posix.normalize(ref);
-  const exact = index.files.find((f) => f.relPath === normalized);
-  if (exact) return exact;
-  const base = path.posix.basename(normalized);
-  const byBase = index.byBasename.get(base);
-  return byBase && byBase.length === 1 ? byBase[0] : null;
+): Promise<string | null> {
+  const root = path.resolve(packageDir);
+  const target = path.resolve(root, ref);
+  const rel = path.relative(root, target);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return null; // escapes the root
+  return readFile(target, "utf8").catch(() => null);
 }
 
 export async function computeFingerprint(
@@ -135,10 +134,9 @@ export async function computeFingerprint(
     const referencedFileHashes: Record<string, string> = {};
     for (const ref of referencedScriptFiles(command)) {
       const key = path.posix.normalize(ref);
-      const file = resolveReferenced(input.index, key);
-      referencedFileHashes[key] = file
-        ? shortHash(await readIndexedFile(file))
-        : ABSENT_FILE;
+      const content = await readReferenced(input.packageDir, key);
+      referencedFileHashes[key] =
+        content === null ? ABSENT_FILE : shortHash(content);
     }
     installScripts.push({
       name,
@@ -165,7 +163,7 @@ export async function computeFingerprint(
     dangerousCapabilities,
     lowRiskCapabilities,
     provenanceState: input.hasProvenance ? "present" : "none",
-    complete: !input.index.truncated,
+    complete: input.complete,
   };
 }
 

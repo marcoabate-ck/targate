@@ -8,7 +8,6 @@ import {
   compareFingerprints,
   computeFingerprint,
 } from "../src/fingerprint.js";
-import { buildPackageFileIndex } from "../src/analyze/file-index.js";
 import type { ContentFindings } from "../src/types.js";
 
 const tmpDirs: string[] = [];
@@ -46,13 +45,13 @@ afterAll(async () => {
 describe("computeFingerprint", () => {
   it("hashes install-script referenced files, not just the command string", async () => {
     const dir = await makePackage({ "install.js": "console.log('v1')" });
-    const index = await buildPackageFileIndex(dir);
     const fp = await computeFingerprint({
       integrity: "sha512-abc==",
       scripts: { postinstall: "node install.js", prepare: "bob build" },
       content: content(),
       hasProvenance: true,
-      index,
+      packageDir: dir,
+      complete: true,
     });
     // prepare is pack-time — excluded; only postinstall is fingerprinted.
     expect(fp.installScripts).toHaveLength(1);
@@ -67,12 +66,12 @@ describe("computeFingerprint", () => {
 
   it("records ABSENT_FILE when a referenced script file is missing from the tarball", async () => {
     const dir = await makePackage({ "index.js": "module.exports = 1" });
-    const index = await buildPackageFileIndex(dir);
     const fp = await computeFingerprint({
       scripts: { postinstall: "node install.js" },
       content: content(),
       hasProvenance: false,
-      index,
+      packageDir: dir,
+      complete: true,
     });
     expect(fp.installScripts[0].referencedFileHashes["install.js"]).toBe(
       ABSENT_FILE,
@@ -80,9 +79,22 @@ describe("computeFingerprint", () => {
     expect(fp.provenanceState).toBe("none");
   });
 
+  it("treats a referenced file that escapes the package root as absent", async () => {
+    const dir = await makePackage({ "index.js": "x" });
+    const fp = await computeFingerprint({
+      scripts: { postinstall: "node ../../etc/evil.js" },
+      content: content(),
+      hasProvenance: false,
+      packageDir: dir,
+      complete: true,
+    });
+    expect(fp.installScripts[0].referencedFileHashes["../../etc/evil.js"]).toBe(
+      ABSENT_FILE,
+    );
+  });
+
   it("tiers capabilities from content findings", async () => {
     const dir = await makePackage({ "index.js": "x" });
-    const index = await buildPackageFileIndex(dir);
     const fp = await computeFingerprint({
       content: content({
         hasNetworkCalls: true,
@@ -91,7 +103,8 @@ describe("computeFingerprint", () => {
         hasProcessEnvAccess: true,
       }),
       hasProvenance: false,
-      index,
+      packageDir: dir,
+      complete: true,
     });
     expect(fp.dangerousCapabilities).toEqual([
       "child_process",

@@ -6,6 +6,7 @@ import { loadConfigFile } from "./config-loader.js";
 import type { ApprovalMode } from "./trust-decision.js";
 import { isApprovalApplicable } from "./trust-decision.js";
 import type { Decision, RiskAssessment, RiskLevel } from "./types.js";
+import type { BehaviorFingerprint } from "./fingerprint.js";
 import { TARGATE_VERSION } from "./version.js";
 
 /**
@@ -13,7 +14,10 @@ import { TARGATE_VERSION } from "./version.js";
  * concurrent second process can never truncate `approvals.json`/`denials.json`
  * and silently drop the team's committed approvals.
  */
-export async function atomicWrite(file: string, content: string): Promise<void> {
+export async function atomicWrite(
+  file: string,
+  content: string,
+): Promise<void> {
   const tmp = `${file}.${randomUUID()}.tmp`;
   await writeFile(tmp, content);
   await rename(tmp, file);
@@ -92,6 +96,11 @@ export interface ApprovalRecord {
   context?: ApprovalContext;
   /** Cryptographic signature over the entry (see targate approve --sign). */
   signature?: ApprovalSignature;
+  /** Behavior fingerprint of the approved bytes (trust-friction design proposal).
+   *  Recorded for future "approve the behavior, not the version" comparison — no
+   *  decision consults it yet. When the entry is signed, it is part of the signed
+   *  payload. */
+  behaviorFingerprint?: BehaviorFingerprint;
 }
 
 /** Cap the reasons kept in an approval's trust-history context. */
@@ -121,8 +130,12 @@ export function buildApprovalContext(input: {
         }
       : {}),
     ...(input.score !== undefined ? { score: input.score } : {}),
-    ...(input.policyFile ? { policyFile: input.policyFile, policyHash: input.policyHash } : {}),
-    ...(input.aiProvider ? { aiProvider: input.aiProvider, aiModel: input.aiModel } : {}),
+    ...(input.policyFile
+      ? { policyFile: input.policyFile, policyHash: input.policyHash }
+      : {}),
+    ...(input.aiProvider
+      ? { aiProvider: input.aiProvider, aiModel: input.aiModel }
+      : {}),
   };
 }
 
@@ -142,7 +155,9 @@ function isApprovalsMap(value: unknown): value is Record<string, unknown> {
  * files are merged: hand-curated yaml/yml sources first, then the tool-managed
  * approvals.json on top. Repository config is declarative only — never executed.
  */
-export async function loadApprovals(cwd: string = process.cwd()): Promise<ApprovalsMap> {
+export async function loadApprovals(
+  cwd: string = process.cwd(),
+): Promise<ApprovalsMap> {
   const merged: ApprovalsMap = {};
   for (const name of APPROVALS_FILENAMES) {
     const file = path.join(cwd, APPROVALS_DIR, name);
@@ -150,13 +165,18 @@ export async function loadApprovals(cwd: string = process.cwd()): Promise<Approv
     try {
       const doc = await loadConfigFile(file);
       if (!isApprovalsMap(doc)) {
-        console.error(`[targate] ignoring malformed ${file}: expected an approvals mapping`);
+        console.error(
+          `[targate] ignoring malformed ${file}: expected an approvals mapping`,
+        );
         continue;
       }
       for (const [key, record] of Object.entries(doc)) {
-        if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
-        if (isApprovalApplicable(record)) merged[key] = record as ApprovalRecord;
-        else console.error(`[targate] ignoring invalid approval ${file}#${key}`);
+        if (key === "__proto__" || key === "constructor" || key === "prototype")
+          continue;
+        if (isApprovalApplicable(record))
+          merged[key] = record as ApprovalRecord;
+        else
+          console.error(`[targate] ignoring invalid approval ${file}#${key}`);
       }
     } catch (err) {
       // A broken approvals source must never crash the analysis — it only
@@ -169,7 +189,11 @@ export async function loadApprovals(cwd: string = process.cwd()): Promise<Approv
   return merged;
 }
 
-export function getApproval(approvals: ApprovalsMap, name: string, version: string) {
+export function getApproval(
+  approvals: ApprovalsMap,
+  name: string,
+  version: string,
+) {
   const approval = approvals[`${name}@${version}`];
   return isApprovalApplicable(approval, version) ? approval : null;
 }
@@ -182,6 +206,8 @@ export interface RecordApprovalExtras {
    *  signing failure aborts the write — a "signed" approval must never be
    *  silently recorded unsigned. */
   sign?: (key: string, record: ApprovalRecord) => Promise<ApprovalSignature>;
+  /** Behavior fingerprint to record alongside the approval (instrumentation). */
+  behaviorFingerprint?: BehaviorFingerprint;
 }
 
 /**
@@ -203,11 +229,16 @@ export async function recordApproval(
     try {
       const doc = JSON.parse(await readFile(file, "utf8"));
       if (isApprovalsMap(doc)) {
-        existing = Object.fromEntries(Object.entries(doc).filter(([key, value]) => {
-          const valid = isApprovalApplicable(value);
-          if (!valid) console.error(`[targate] ignoring invalid approval ${file}#${key}`);
-          return valid;
-        })) as ApprovalsMap;
+        existing = Object.fromEntries(
+          Object.entries(doc).filter(([key, value]) => {
+            const valid = isApprovalApplicable(value);
+            if (!valid)
+              console.error(
+                `[targate] ignoring invalid approval ${file}#${key}`,
+              );
+            return valid;
+          }),
+        ) as ApprovalsMap;
       }
     } catch {
       /* unreadable json — rewrite it */
@@ -219,6 +250,9 @@ export async function recordApproval(
     approvedAt: new Date().toISOString(),
     approvedBy: process.env.USER ?? process.env.USERNAME,
     ...(extras.context ? { context: extras.context } : {}),
+    ...(extras.behaviorFingerprint
+      ? { behaviorFingerprint: extras.behaviorFingerprint }
+      : {}),
   };
   if (extras.sign) {
     record.signature = await extras.sign(key, record);

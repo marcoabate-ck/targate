@@ -31,8 +31,20 @@ import { policyFileDigest, resolveCodeAuditScope } from "../policy.js";
 import { describeProvider } from "../providers/index.js";
 import { isHardBlock } from "../rules.js";
 import { recordBuildApproval } from "../pnpm-builds.js";
-import { fetchPackageMetadata, PackageNotFoundError, parsePackageSpec } from "../registry.js";
-import { bold, cyan, dim, green, red, renderReport, yellow } from "../report.js";
+import {
+  fetchPackageMetadata,
+  PackageNotFoundError,
+  parsePackageSpec,
+} from "../registry.js";
+import {
+  bold,
+  cyan,
+  dim,
+  green,
+  red,
+  renderReport,
+  yellow,
+} from "../report.js";
 import { multiSelect } from "../select.js";
 import {
   aggregateWithTransitive,
@@ -92,7 +104,11 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     if (!opts.json) console.log(line);
   };
 
-  note(dim(`\nPre-install review started for ${bold(name)}${version ? `@${version}` : ""} ...`));
+  note(
+    dim(
+      `\nPre-install review started for ${bold(name)}${version ? `@${version}` : ""} ...`,
+    ),
+  );
 
   const session = await prepareAnalysisSession(opts.assess, {
     noCache: opts.noCache,
@@ -103,7 +119,9 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
     opts.codeAudit ?? false,
     policy?.policy.dependencyPolicy.codeAudit,
   );
-  const onStage = createAnalysisStageReporter(note, { failOnOsvError: opts.failOnOsvError });
+  const onStage = createAnalysisStageReporter(note, {
+    failOnOsvError: opts.failOnOsvError,
+  });
 
   let analysis;
   let installPlan: InstallPlan | null = null;
@@ -167,33 +185,44 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   let deepResults: TransitiveResult[] | null = null;
   if (opts.deep) {
     // The plan was resolved before root analysis to bind its tarball too.
-    if (!installPlan) throw new Error("Internal error: deep install plan missing");
+    if (!installPlan)
+      throw new Error("Internal error: deep install plan missing");
     const tree = installPlan.packages;
     if (tree.length === 0) {
       note(dim(`  ✓ no transitive dependencies to analyze`));
     } else {
-      note(dim(`  … analyzing ${tree.length} transitive dependencies (--deep)`));
+      note(
+        dim(`  … analyzing ${tree.length} transitive dependencies (--deep)`),
+      );
       deepResults = await analyzeDependencyTree(tree, session, {
-          json: opts.json,
-          failOnOsvError: opts.failOnOsvError,
-          concurrency: opts.concurrency,
-          noAiBatch: opts.noAiBatch,
-          noReputation: opts.noReputation,
-          codeAudit: auditScope,
-          lockfileTrusted: installPlan.source === "existing",
-          renderResult: (r) => {
-            const icon = STAGE_ICON[r.assessment.decision] ?? "?";
-            const paint = r.assessment.decision === "allow" ? dim : r.assessment.decision === "block" ? red : yellow;
-            return paint(`    ${icon} ${r.name}@${r.version} → ${r.assessment.decision}`);
-          },
-        });
+        json: opts.json,
+        failOnOsvError: opts.failOnOsvError,
+        concurrency: opts.concurrency,
+        noAiBatch: opts.noAiBatch,
+        noReputation: opts.noReputation,
+        codeAudit: auditScope,
+        lockfileTrusted: installPlan.source === "existing",
+        renderResult: (r) => {
+          const icon = STAGE_ICON[r.assessment.decision] ?? "?";
+          const paint =
+            r.assessment.decision === "allow"
+              ? dim
+              : r.assessment.decision === "block"
+                ? red
+                : yellow;
+          return paint(
+            `    ${icon} ${r.name}@${r.version} → ${r.assessment.decision}`,
+          );
+        },
+      });
 
       // A flagged transitive dependency clears exactly like the root: a
       // committed approval for that exact version counts, and hard blocks
       // never clear.
       const transitiveNeedsApproval = (r: TransitiveResult): boolean =>
         !r.hardBlock &&
-        (r.assessment.decision === "require_approval" || r.assessment.decision === "block");
+        (r.assessment.decision === "require_approval" ||
+          r.assessment.decision === "block");
       for (const r of deepResults) {
         const prior = getApproval(approvals, r.name, r.version);
         if (prior) {
@@ -215,7 +244,10 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
           [
             ...pending.map((r) => ({
               label: `${r.name}@${r.version}`,
-              hint: r.assessment.decision === "block" ? "soft block" : r.assessment.decision,
+              hint:
+                r.assessment.decision === "block"
+                  ? "soft block"
+                  : r.assessment.decision,
             })),
             ...hard.map((r) => ({
               label: `${r.name}@${r.version}`,
@@ -233,7 +265,11 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
             clearAssessment: true,
           });
           enforceNoScripts = true;
-          note(green(`  ✓ approved ${picked.length} transitive package(s) (no-scripts)`));
+          note(
+            green(
+              `  ✓ approved ${picked.length} transitive package(s) (no-scripts)`,
+            ),
+          );
         }
       }
     }
@@ -245,9 +281,13 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   await persistAnalysisRun("add", analysis, assessment, session.cwd);
 
   if (!opts.json) {
-    console.log(renderReport(metadata, signals, assessment, score, { deep: opts.deep }));
+    console.log(
+      renderReport(metadata, signals, assessment, score, { deep: opts.deep }),
+    );
     if (deepResults) {
-      const flagged = deepResults.filter((r) => r.assessment.decision !== "allow");
+      const flagged = deepResults.filter(
+        (r) => r.assessment.decision !== "allow",
+      );
       console.log(
         bold(`Transitive dependencies`) +
           dim(
@@ -267,45 +307,58 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
   const hardBlock =
     isHardBlock(signals) || (deepResults ?? []).some((r) => r.hardBlock);
   const overridableBlock = assessment.decision === "block" && !hardBlock;
-  const needsApproval = assessment.decision === "require_approval" || overridableBlock;
+  const needsApproval =
+    assessment.decision === "require_approval" || overridableBlock;
 
-  const result = await gateInstall(assessment.decision, pm, `${metadata.name}@${metadata.version}`, {
-    assumeYes: opts.assumeYes,
-    dryRun: opts.dryRun,
-    overridable: overridableBlock,
-    // A "no-scripts" prior approval is enforced, not advisory (security
-    // analysis finding 8): the cleared package installs with --ignore-scripts.
-    ignoreScripts: enforceNoScripts,
-    commands: installPlan
-      ? {
-          normal: buildBootstrapInstallCommand(pm, { frozenLockfile: true }),
-          noScripts: buildBootstrapInstallCommand(pm, {
-            frozenLockfile: true,
-            ignoreScripts: true,
-          }),
-        }
-      : undefined,
-    beforeInstall: installPlan
-      ? async () => {
-          await applyInstallPlan(installPlan!);
-        }
-      : undefined,
-    verifyInstall: installPlan
-      ? async () => verifyInstallPlan(installPlan!)
-      : undefined,
-    // --json is machine output: never write an interactive prompt to stdout.
-    // Anything that would need a confirmation is declined (an agent re-runs
-    // with --yes to install); --yes still auto-installs allow/warn as usual.
-    confirmFn: opts.json ? async () => false : undefined,
-  });
+  const result = await gateInstall(
+    assessment.decision,
+    pm,
+    `${metadata.name}@${metadata.version}`,
+    {
+      assumeYes: opts.assumeYes,
+      dryRun: opts.dryRun,
+      overridable: overridableBlock,
+      // A "no-scripts" prior approval is enforced, not advisory (security
+      // analysis finding 8): the cleared package installs with --ignore-scripts.
+      ignoreScripts: enforceNoScripts,
+      commands: installPlan
+        ? {
+            normal: buildBootstrapInstallCommand(pm, { frozenLockfile: true }),
+            noScripts: buildBootstrapInstallCommand(pm, {
+              frozenLockfile: true,
+              ignoreScripts: true,
+            }),
+          }
+        : undefined,
+      beforeInstall: installPlan
+        ? async () => {
+            await applyInstallPlan(installPlan!);
+          }
+        : undefined,
+      verifyInstall: installPlan
+        ? async () => verifyInstallPlan(installPlan!)
+        : undefined,
+      // --json is machine output: never write an interactive prompt to stdout.
+      // Anything that would need a confirmation is declined (an agent re-runs
+      // with --yes to install); --yes still auto-installs allow/warn as usual.
+      confirmFn: opts.json ? async () => false : undefined,
+    },
+  );
 
-  let artifactLedger: { status: "recorded" | "failed"; reason?: string } | undefined;
+  let artifactLedger:
+    { status: "recorded" | "failed"; reason?: string } | undefined;
   if (result.status === "installed") {
     try {
       await recordArtifactObservations([
-        { name: metadata.name, version: metadata.version, artifact: signals.artifact },
+        {
+          name: metadata.name,
+          version: metadata.version,
+          artifact: signals.artifact,
+        },
         ...(deepResults ?? []).flatMap((r) =>
-          r.artifact ? [{ name: r.name, version: r.version, artifact: r.artifact }] : [],
+          r.artifact
+            ? [{ name: r.name, version: r.version, artifact: r.artifact }]
+            : [],
         ),
       ]);
       artifactLedger = { status: "recorded" };
@@ -325,8 +378,13 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       score,
       deep: deepResults,
       ...(analysis.sourceAudit ? { sourceAudit: analysis.sourceAudit } : {}),
+      ...(analysis.fingerprint
+        ? { behaviorFingerprint: analysis.fingerprint }
+        : {}),
       ...(installPlan ? { planFingerprint: installPlan.fingerprint } : {}),
-      ...(installPlan ? { artifactFingerprint: installPlan.artifactFingerprint } : {}),
+      ...(installPlan
+        ? { artifactFingerprint: installPlan.artifactFingerprint }
+        : {}),
       install: result,
       ...(artifactLedger ? { artifactLedger } : {}),
     });
@@ -334,11 +392,15 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
 
   switch (result.status) {
     case "blocked":
-      note(red(bold("\nInstallation blocked. This package was not installed.")));
+      note(
+        red(bold("\nInstallation blocked. This package was not installed.")),
+      );
       return 2;
     case "skipped":
       if (opts.dryRun && result.command) {
-        note(dim(`\nDry run — recommended command: ${result.command.join(" ")}`));
+        note(
+          dim(`\nDry run — recommended command: ${result.command.join(" ")}`),
+        );
       } else {
         note(dim("\nNothing installed."));
       }
@@ -351,35 +413,61 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       }
       return 0;
     case "failed":
-      note(red(`\nInstall command failed (${result.command.join(" ")}) with exit code ${result.exitCode}${result.reason ? `: ${result.reason}` : "."}`));
+      note(
+        red(
+          `\nInstall command failed (${result.command.join(" ")}) with exit code ${result.exitCode}${result.reason ? `: ${result.reason}` : "."}`,
+        ),
+      );
       return 1;
     case "installed": {
       // These modes are only reached on a REAL install (dry-run never prompts
       // and never reaches here — it returns "skipped").
       note(
-        green(result.mode === "no-scripts" ? "\nInstalled with lifecycle scripts disabled." : "\nInstalled."),
+        green(
+          result.mode === "no-scripts"
+            ? "\nInstalled with lifecycle scripts disabled."
+            : "\nInstalled.",
+        ),
       );
       if (artifactLedger?.status === "recorded") {
         note(dim("  ✓ artifact identity recorded in .targate/artifacts.json"));
       } else if (artifactLedger?.status === "failed") {
-        note(yellow(`  ⚠ artifact identity could not be recorded: ${artifactLedger.reason}`));
+        note(
+          yellow(
+            `  ⚠ artifact identity could not be recorded: ${artifactLedger.reason}`,
+          ),
+        );
       }
 
       // Phase 2 — record the human approval so the team doesn't re-review.
       // Covers both require_approval and a freshly-approved soft block.
       if (needsApproval) {
-        const ai = assessment.source === "ai" ? describeProvider(opts.assess) : null;
-        await recordApproval(metadata.name, metadata.version, result.mode, process.cwd(), {
-          context: buildApprovalContext({
-            assessment,
-            score: score.total,
-            policyFile: policy ? path.basename(policy.file) : undefined,
-            policyHash: policy ? await policyFileDigest(policy.file) : undefined,
-            aiProvider: ai?.provider,
-            aiModel: ai?.model,
-          }),
-        });
-        note(dim(`  ✓ approval recorded in .targate/approvals.json (commit it to share)`));
+        const ai =
+          assessment.source === "ai" ? describeProvider(opts.assess) : null;
+        await recordApproval(
+          metadata.name,
+          metadata.version,
+          result.mode,
+          process.cwd(),
+          {
+            context: buildApprovalContext({
+              assessment,
+              score: score.total,
+              policyFile: policy ? path.basename(policy.file) : undefined,
+              policyHash: policy
+                ? await policyFileDigest(policy.file)
+                : undefined,
+              aiProvider: ai?.provider,
+              aiModel: ai?.model,
+            }),
+            behaviorFingerprint: analysis.fingerprint,
+          },
+        );
+        note(
+          dim(
+            `  ✓ approval recorded in .targate/approvals.json (commit it to share)`,
+          ),
+        );
         // pnpm approve-builds edits pnpm-workspace.yaml for the install.
         if (pm === "pnpm" && signals.hasLifecycleScripts) {
           const written = await recordBuildApproval(
@@ -388,7 +476,9 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
           );
           if (written) {
             note(
-              dim(`  ✓ pnpm approve-builds updated (${written}): scripts ${result.mode === "normal" ? "allowed" : "ignored"}`),
+              dim(
+                `  ✓ pnpm approve-builds updated (${written}): scripts ${result.mode === "normal" ? "allowed" : "ignored"}`,
+              ),
             );
           }
         }
@@ -400,7 +490,8 @@ export async function checkCommand(opts: CheckOptions): Promise<number> {
       if (diff.added.length > 0) {
         note(cyan(`\nLockfile diff — ${diff.added.length} package(s) added:`));
         for (const entry of diff.added.slice(0, 25)) note(dim(`  + ${entry}`));
-        if (diff.added.length > 25) note(dim(`  … and ${diff.added.length - 25} more`));
+        if (diff.added.length > 25)
+          note(dim(`  … and ${diff.added.length - 25} more`));
       }
       return 0;
     }

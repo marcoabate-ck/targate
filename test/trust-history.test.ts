@@ -30,7 +30,9 @@ const execFileAsync = promisify(execFile);
  *  fail — the behavior is exercised wherever both are on PATH. */
 function onPath(bin: string): boolean {
   try {
-    execFileSync(process.platform === "win32" ? "where" : "which", [bin], { stdio: "ignore" });
+    execFileSync(process.platform === "win32" ? "where" : "which", [bin], {
+      stdio: "ignore",
+    });
     return true;
   } catch {
     return false;
@@ -92,20 +94,64 @@ describe("trust history — approval context", () => {
   });
 
   it("recordApproval persists the context and returns the record as written", async () => {
-    const record = await recordApproval("esbuild", "0.27.3", "no-scripts", dir, {
-      context: buildApprovalContext({ assessment, score: 61 }),
-    });
+    const record = await recordApproval(
+      "esbuild",
+      "0.27.3",
+      "no-scripts",
+      dir,
+      {
+        context: buildApprovalContext({ assessment, score: 61 }),
+      },
+    );
     expect(record.context?.decision).toBe("require_approval");
     const approvals = await loadApprovals(dir);
     expect(approvals["esbuild@0.27.3"].context?.score).toBe(61);
-    expect(approvals["esbuild@0.27.3"].context?.targateVersion).toBe(TARGATE_VERSION);
+    expect(approvals["esbuild@0.27.3"].context?.targateVersion).toBe(
+      TARGATE_VERSION,
+    );
+  });
+
+  it("recordApproval persists a behavior fingerprint and it round-trips", async () => {
+    const behaviorFingerprint = {
+      schemaVersion: 1 as const,
+      installScripts: [
+        {
+          name: "postinstall",
+          commandHash: "abcd012345678901",
+          referencedFileHashes: {},
+        },
+      ],
+      dangerousCapabilities: ["network"],
+      lowRiskCapabilities: ["env"],
+      provenanceState: "present" as const,
+      complete: true,
+    };
+    const record = await recordApproval(
+      "esbuild",
+      "0.27.3",
+      "no-scripts",
+      dir,
+      {
+        behaviorFingerprint,
+      },
+    );
+    expect(record.behaviorFingerprint).toEqual(behaviorFingerprint);
+    const approvals = await loadApprovals(dir);
+    expect(approvals["esbuild@0.27.3"].behaviorFingerprint).toEqual(
+      behaviorFingerprint,
+    );
   });
 
   it("old-format approvals (no context) still load", async () => {
     await mkdir(path.join(dir, ".targate"), { recursive: true });
     await writeFile(
       path.join(dir, ".targate", "approvals.json"),
-      JSON.stringify({ "legacy@1.0.0": { mode: "no-scripts", approvedAt: "2026-01-01T00:00:00Z" } }),
+      JSON.stringify({
+        "legacy@1.0.0": {
+          mode: "no-scripts",
+          approvedAt: "2026-01-01T00:00:00Z",
+        },
+      }),
     );
     const approvals = await loadApprovals(dir);
     expect(approvals["legacy@1.0.0"].mode).toBe("no-scripts");
@@ -137,7 +183,9 @@ describe("canonical approval payload", () => {
   it("changes when any covered field is tampered with", () => {
     const base = canonicalApprovalPayload("a@1.0.0", record);
     expect(canonicalApprovalPayload("a@1.0.1", record)).not.toBe(base);
-    expect(canonicalApprovalPayload("a@1.0.0", { ...record, mode: "normal" })).not.toBe(base);
+    expect(
+      canonicalApprovalPayload("a@1.0.0", { ...record, mode: "normal" }),
+    ).not.toBe(base);
     expect(
       canonicalApprovalPayload("a@1.0.0", { ...record, approvedBy: "mallory" }),
     ).not.toBe(base);
@@ -147,7 +195,17 @@ describe("canonical approval payload", () => {
 describe("signed approvals (ssh-keygen)", () => {
   async function makeKeyAndSigners(identity: string): Promise<string> {
     const keyPath = path.join(dir, "testkey");
-    await execFileAsync("ssh-keygen", ["-t", "ed25519", "-f", keyPath, "-N", "", "-C", identity, "-q"]);
+    await execFileAsync("ssh-keygen", [
+      "-t",
+      "ed25519",
+      "-f",
+      keyPath,
+      "-N",
+      "",
+      "-C",
+      identity,
+      "-q",
+    ]);
     const pub = await readFile(`${keyPath}.pub`, "utf8");
     await mkdir(path.join(dir, ".targate"), { recursive: true });
     await writeFile(
@@ -160,37 +218,63 @@ describe("signed approvals (ssh-keygen)", () => {
   /** git identity so signerIdentity() is deterministic in the temp repo. */
   async function gitIdentity(identity: string): Promise<void> {
     await execFileAsync("git", ["init", "-q", "."], { cwd: dir });
-    await execFileAsync("git", ["config", "user.email", identity], { cwd: dir });
+    await execFileAsync("git", ["config", "user.email", identity], {
+      cwd: dir,
+    });
   }
 
-  it.skipIf(!hasSigningTools)("signs on record and verifies against allowed-signers; tampering invalidates", async () => {
-    const keyPath = await makeKeyAndSigners("alice@example.com");
-    await gitIdentity("alice@example.com");
-    vi.stubEnv("TARGATE_SIGNING_KEY", keyPath);
+  it.skipIf(!hasSigningTools)(
+    "signs on record and verifies against allowed-signers; tampering invalidates",
+    async () => {
+      const keyPath = await makeKeyAndSigners("alice@example.com");
+      await gitIdentity("alice@example.com");
+      vi.stubEnv("TARGATE_SIGNING_KEY", keyPath);
 
-    const record = await recordApproval("esbuild", "0.27.3", "no-scripts", dir, {
-      context: buildApprovalContext({ assessment }),
-      sign: approvalSigner(dir),
-    });
-    expect(record.signature?.format).toBe("ssh");
-    expect(record.signature?.signer).toBe("alice@example.com");
-    expect(record.signature?.signature).toContain("BEGIN SSH SIGNATURE");
+      const record = await recordApproval(
+        "esbuild",
+        "0.27.3",
+        "no-scripts",
+        dir,
+        {
+          context: buildApprovalContext({ assessment }),
+          sign: approvalSigner(dir),
+        },
+      );
+      expect(record.signature?.format).toBe("ssh");
+      expect(record.signature?.signer).toBe("alice@example.com");
+      expect(record.signature?.signature).toContain("BEGIN SSH SIGNATURE");
 
-    expect((await verifyApprovalSignature("esbuild@0.27.3", record, dir)).status).toBe("valid");
-    // Tamper with a covered field → invalid.
-    const tampered = { ...record, mode: "normal" as const };
-    expect((await verifyApprovalSignature("esbuild@0.27.3", tampered, dir)).status).toBe("invalid");
-    // Wrong key (different version string means different payload) → invalid.
-    expect((await verifyApprovalSignature("esbuild@0.27.4", record, dir)).status).toBe("invalid");
-  });
+      expect(
+        (await verifyApprovalSignature("esbuild@0.27.3", record, dir)).status,
+      ).toBe("valid");
+      // Tamper with a covered field → invalid.
+      const tampered = { ...record, mode: "normal" as const };
+      expect(
+        (await verifyApprovalSignature("esbuild@0.27.3", tampered, dir)).status,
+      ).toBe("invalid");
+      // Wrong key (different version string means different payload) → invalid.
+      expect(
+        (await verifyApprovalSignature("esbuild@0.27.4", record, dir)).status,
+      ).toBe("invalid");
+    },
+  );
 
   it("reports unsigned and no-allowed-signers distinctly", async () => {
-    const unsigned: ApprovalRecord = { mode: "no-scripts", approvedAt: "2026-01-01T00:00:00Z" };
-    expect((await verifyApprovalSignature("a@1.0.0", unsigned, dir)).status).toBe("unsigned");
+    const unsigned: ApprovalRecord = {
+      mode: "no-scripts",
+      approvedAt: "2026-01-01T00:00:00Z",
+    };
+    expect(
+      (await verifyApprovalSignature("a@1.0.0", unsigned, dir)).status,
+    ).toBe("unsigned");
 
     const signed: ApprovalRecord = {
       ...unsigned,
-      signature: { format: "ssh", signer: "alice@example.com", signature: "not-a-real-sig" },
+      signature: {
+        format: "ssh",
+        signer: "alice@example.com",
+        signature: "not-a-real-sig",
+      },
     };
     // No .targate/allowed-signers in this repo yet.
     expect((await verifyApprovalSignature("a@1.0.0", signed, dir)).status).toBe(
@@ -203,36 +287,51 @@ describe("signed approvals (ssh-keygen)", () => {
     await expect(resolveSigningKey(dir)).rejects.toThrow(/does not exist/);
   });
 
-  it.skipIf(!hasSigningTools)("enforceSignedApprovals keeps only verified entries; policy off is a no-op", async () => {
-    const keyPath = await makeKeyAndSigners("alice@example.com");
-    await gitIdentity("alice@example.com");
-    vi.stubEnv("TARGATE_SIGNING_KEY", keyPath);
+  it.skipIf(!hasSigningTools)(
+    "enforceSignedApprovals keeps only verified entries; policy off is a no-op",
+    async () => {
+      const keyPath = await makeKeyAndSigners("alice@example.com");
+      await gitIdentity("alice@example.com");
+      vi.stubEnv("TARGATE_SIGNING_KEY", keyPath);
 
-    const good = await recordApproval("good", "1.0.0", "no-scripts", dir, {
-      sign: approvalSigner(dir),
-    });
-    const approvals = {
-      "good@1.0.0": good,
-      "unsigned@1.0.0": { mode: "no-scripts", approvedAt: "2026-01-01T00:00:00Z" },
-      "tampered@1.0.0": { ...good, mode: "normal" },
-    } as Record<string, ApprovalRecord>;
+      const good = await recordApproval("good", "1.0.0", "no-scripts", dir, {
+        sign: approvalSigner(dir),
+      });
+      const approvals = {
+        "good@1.0.0": good,
+        "unsigned@1.0.0": {
+          mode: "no-scripts",
+          approvedAt: "2026-01-01T00:00:00Z",
+        },
+        "tampered@1.0.0": { ...good, mode: "normal" },
+      } as Record<string, ApprovalRecord>;
 
-    const { kept, dropped } = await enforceSignedApprovals(approvals, dir);
-    expect(Object.keys(kept)).toEqual(["good@1.0.0"]);
-    expect(dropped.map((d) => d.key).sort()).toEqual(["tampered@1.0.0", "unsigned@1.0.0"]);
+      const { kept, dropped } = await enforceSignedApprovals(approvals, dir);
+      expect(Object.keys(kept)).toEqual(["good@1.0.0"]);
+      expect(dropped.map((d) => d.key).sort()).toEqual([
+        "tampered@1.0.0",
+        "unsigned@1.0.0",
+      ]);
 
-    // Policy off → untouched, no verification runs.
-    const untouched = await applySignedApprovalsPolicy(approvals, undefined, dir);
-    expect(untouched).toBe(approvals);
+      // Policy off → untouched, no verification runs.
+      const untouched = await applySignedApprovalsPolicy(
+        approvals,
+        undefined,
+        dir,
+      );
+      expect(untouched).toBe(approvals);
 
-    // Policy on → stderr explains each dropped entry.
-    const errors: string[] = [];
-    vi.spyOn(console, "error").mockImplementation((...a) => errors.push(a.join(" ")));
-    const filtered = await applySignedApprovalsPolicy(approvals, true, dir);
-    expect(Object.keys(filtered)).toEqual(["good@1.0.0"]);
-    expect(errors.join("\n")).toContain("unsigned@1.0.0");
-    expect(errors.join("\n")).toContain("requireSignedApprovals");
-  });
+      // Policy on → stderr explains each dropped entry.
+      const errors: string[] = [];
+      vi.spyOn(console, "error").mockImplementation((...a) =>
+        errors.push(a.join(" ")),
+      );
+      const filtered = await applySignedApprovalsPolicy(approvals, true, dir);
+      expect(Object.keys(filtered)).toEqual(["good@1.0.0"]);
+      expect(errors.join("\n")).toContain("unsigned@1.0.0");
+      expect(errors.join("\n")).toContain("requireSignedApprovals");
+    },
+  );
 });
 
 describe("targate history", () => {
@@ -243,7 +342,9 @@ describe("targate history", () => {
     await recordApproval("a-pkg", "1.0.0", "no-scripts", dir);
 
     const logs: string[] = [];
-    vi.spyOn(console, "log").mockImplementation((...a) => logs.push(a.join(" ")));
+    vi.spyOn(console, "log").mockImplementation((...a) =>
+      logs.push(a.join(" ")),
+    );
     const code = await historyCommand({ json: true, verify: false });
     expect(code).toBe(0);
     const doc = JSON.parse(logs.join("\n"));
@@ -251,7 +352,10 @@ describe("targate history", () => {
     expect(doc.command).toBe("history");
     expect(doc.total).toBe(2);
     expect(doc.entries[0].key).toBe("a-pkg@1.0.0"); // recorded last → newest first
-    expect(doc.entries.find((e: { key: string }) => e.key === "b-pkg@2.0.0").context.score).toBe(55);
+    expect(
+      doc.entries.find((e: { key: string }) => e.key === "b-pkg@2.0.0").context
+        .score,
+    ).toBe(55);
   });
 
   it("filters by package and by exact version", async () => {
@@ -260,7 +364,9 @@ describe("targate history", () => {
     await recordApproval("other", "9.0.0", "no-scripts", dir);
 
     const logs: string[] = [];
-    vi.spyOn(console, "log").mockImplementation((...a) => logs.push(a.join(" ")));
+    vi.spyOn(console, "log").mockImplementation((...a) =>
+      logs.push(a.join(" ")),
+    );
     await historyCommand({ spec: "a-pkg", json: true, verify: false });
     const doc = JSON.parse(logs.join("\n"));
     expect(doc.total).toBe(2);
@@ -270,31 +376,50 @@ describe("targate history", () => {
     expect(JSON.parse(logs.join("\n")).total).toBe(1);
   });
 
-  it.skipIf(!hasSigningTools)("--verify exits 2 when a signature is invalid", async () => {
-    const keyPath = path.join(dir, "testkey");
-    await execFileAsync("ssh-keygen", ["-t", "ed25519", "-f", keyPath, "-N", "", "-q"]);
-    const pub = await readFile(`${keyPath}.pub`, "utf8");
-    await mkdir(path.join(dir, ".targate"), { recursive: true });
-    await writeFile(
-      path.join(dir, ".targate", "allowed-signers"),
-      `alice@example.com namespaces="${SIGNING_NAMESPACE}" ${pub}`,
-    );
-    await execFileAsync("git", ["init", "-q", "."], { cwd: dir });
-    await execFileAsync("git", ["config", "user.email", "alice@example.com"], { cwd: dir });
-    vi.stubEnv("TARGATE_SIGNING_KEY", keyPath);
+  it.skipIf(!hasSigningTools)(
+    "--verify exits 2 when a signature is invalid",
+    async () => {
+      const keyPath = path.join(dir, "testkey");
+      await execFileAsync("ssh-keygen", [
+        "-t",
+        "ed25519",
+        "-f",
+        keyPath,
+        "-N",
+        "",
+        "-q",
+      ]);
+      const pub = await readFile(`${keyPath}.pub`, "utf8");
+      await mkdir(path.join(dir, ".targate"), { recursive: true });
+      await writeFile(
+        path.join(dir, ".targate", "allowed-signers"),
+        `alice@example.com namespaces="${SIGNING_NAMESPACE}" ${pub}`,
+      );
+      await execFileAsync("git", ["init", "-q", "."], { cwd: dir });
+      await execFileAsync(
+        "git",
+        ["config", "user.email", "alice@example.com"],
+        { cwd: dir },
+      );
+      vi.stubEnv("TARGATE_SIGNING_KEY", keyPath);
 
-    await recordApproval("signed-pkg", "1.0.0", "no-scripts", dir, { sign: approvalSigner(dir) });
-    // Tamper on disk.
-    const file = path.join(dir, ".targate", "approvals.json");
-    const doc = JSON.parse(await readFile(file, "utf8"));
-    doc["signed-pkg@1.0.0"].mode = "normal";
-    await writeFile(file, JSON.stringify(doc, null, 2));
+      await recordApproval("signed-pkg", "1.0.0", "no-scripts", dir, {
+        sign: approvalSigner(dir),
+      });
+      // Tamper on disk.
+      const file = path.join(dir, ".targate", "approvals.json");
+      const doc = JSON.parse(await readFile(file, "utf8"));
+      doc["signed-pkg@1.0.0"].mode = "normal";
+      await writeFile(file, JSON.stringify(doc, null, 2));
 
-    const logs: string[] = [];
-    vi.spyOn(console, "log").mockImplementation((...a) => logs.push(a.join(" ")));
-    const code = await historyCommand({ json: true, verify: true });
-    expect(code).toBe(2);
-    const out = JSON.parse(logs.join("\n"));
-    expect(out.entries[0].verification.status).toBe("invalid");
-  });
+      const logs: string[] = [];
+      vi.spyOn(console, "log").mockImplementation((...a) =>
+        logs.push(a.join(" ")),
+      );
+      const code = await historyCommand({ json: true, verify: true });
+      expect(code).toBe(2);
+      const out = JSON.parse(logs.join("\n"));
+      expect(out.entries[0].verification.status).toBe("invalid");
+    },
+  );
 });
