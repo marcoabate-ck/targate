@@ -21,7 +21,7 @@ The recorded mode is **binding at install time**: a `no-scripts` approval makes 
 
 **Triaging several packages at once.** When `targate install` (including `--dry-run`) flags multiple packages, an interactive terminal offers an **arrow-key triage picker** (↑/↓ move, `a` approve, `d` deny, `s` toggle scripts, enter confirm) with a live per-package detail panel — see [Transitive dependencies & full-tree install](transitive-and-install.md). Approvals default to `no-scripts` (press `s`, or use `targate approve <pkg> --allow-scripts`, when a package genuinely needs its lifecycle scripts); denials are written to `.targate/denials.json` so the rejected version is never re-offered. **Commit both files** — approvals and denials travel with the repo the same way. A denial can be reversed later with `targate approve <pkg>@<version>` (which clears the denial).
 
-`--dry-run` is *not* how you approve: it is a pure preview (analyze + report, no prompt, no install, nothing recorded).
+`--dry-run` is _not_ how you approve: it is a pure preview (analyze + report, no prompt, no install, nothing recorded).
 
 ## Approval cache — `.targate/approvals.*`
 
@@ -75,25 +75,14 @@ aiCache: # see ai-cache.md
   exclude: []
 ```
 
-```ts
-// targate.policy.ts — fully typed
-import type { PolicyFile } from "targate";
-
-const policy: PolicyFile = {
-  dependencyPolicy: { minPackageAgeDays: 7, requireApprovalForLifecycleScripts: true },
-};
-
-export default policy;
-```
-
-`.yaml`/`.json` files are declarative and load by default. Legacy `.ts`/`.js` files are ignored unless a trusted operator sets **`TARGATE_ALLOW_EXEC_CONFIG=1`**; only then are they executed through [jiti](https://github.com/unjs/jiti), with a strong warning. Every loaded format goes through the same schema validation. Prefer the generated YAML policy, especially in repositories agents may clone. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages. Its power is bounded by the [hard/soft block](decisions.md#hard-vs-soft-blocks) distinction:
+Configuration is **declarative only** — `targate.policy.yaml` / `.yml` / `.json`, parsed and never executed (the same file in JSON form carries the identical schema). Executable `.ts`/`.js` policy and the `jiti` runtime were removed, so a cloned repository can never run code through a targate config file; a leftover legacy file is ignored and flagged by `targate doctor`. Every format goes through the same schema validation. The policy is applied **on top of** the AI/rules assessment and can only make decisions stricter — with one exception: `allowKnownPackages` pre-approves packages. Its power is bounded by the [hard/soft block](decisions.md#hard-vs-soft-blocks) distinction:
 
 - a **hard block** (known-malicious record, or a `curl … | bash`-style download-and-execute) can never be overridden — the package stays blocked, and the report notes the allow list was ignored;
 - a **soft/heuristic block** (e.g. an install script that reads env + hits the network, like esbuild) **is** cleared to `allow` by an allow-list entry — a deliberate, committed decision to trust that package. Prefer a version-pinned `.targate/approvals.json` entry (recorded automatically when you approve interactively) when you want to trust one exact version rather than all future ones.
 
 ## Trust history — `targate history`
 
-Every recorded approval carries its circumstances — the **trust history**: who approved, when, what the analysis concluded at that moment (decision, risk, score, top reasons), which targate version and AI provider/model produced the verdict, and which policy file (name + sha256) was in force. It is written into the same committed `.targate/approvals.json`, so git history on that file is the audit trail of *who committed which trust decision*.
+Every recorded approval carries its circumstances — the **trust history**: who approved, when, what the analysis concluded at that moment (decision, risk, score, top reasons), which targate version and AI provider/model produced the verdict, and which policy file (name + sha256) was in force. It is written into the same committed `.targate/approvals.json`, so git history on that file is the audit trail of _who committed which trust decision_.
 
 ```bash
 targate history                 # every approval, newest first
@@ -122,7 +111,7 @@ An approvals file is only as trustworthy as the last person with write access to
 targate approve esbuild@0.27.3 --sign
 ```
 
-- **Mechanism:** OpenSSH signatures (`ssh-keygen -Y`) — the same scheme git uses for SSH commit signing, so developers already have the keys and no extra tooling is installed. The key is resolved from `TARGATE_SIGNING_KEY`, then `git config user.signingkey` (a key file path, or a literal `ssh-ed25519 …` public key signed via ssh-agent), then `~/.ssh/id_ed25519`/`id_ecdsa`/`id_rsa`. *GPG and Sigstore/SLSA attestations are deliberately out of scope for now.*
+- **Mechanism:** OpenSSH signatures (`ssh-keygen -Y`) — the same scheme git uses for SSH commit signing, so developers already have the keys and no extra tooling is installed. The key is resolved from `TARGATE_SIGNING_KEY`, then `git config user.signingkey` (a key file path, or a literal `ssh-ed25519 …` public key signed via ssh-agent), then `~/.ssh/id_ed25519`/`id_ecdsa`/`id_rsa`. _GPG and Sigstore/SLSA attestations are deliberately out of scope for now._
 - **What is signed:** the canonical JSON of the whole entry — package\@version, mode, date, approver, and the trust-history context — in the dedicated `targate-approval` namespace (a signature can never be replayed from another context, even with the same key). Changing **any** covered field invalidates it: flipping a `no-scripts` approval to `normal` is exactly the tampering the signature catches.
 - **Trust anchor:** the committed `.targate/allowed-signers` file, standard OpenSSH [ALLOWED SIGNERS](https://man.openbsd.org/ssh-keygen#ALLOWED_SIGNERS) format:
 
@@ -138,13 +127,13 @@ marco@acme.com namespaces="targate-approval" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5…
 
 Ready-made policies to start from instead of a blank default:
 
-| Preset | Intent |
-|---|---|
-| `default` | Balanced: lifecycle scripts need approval, everything else warns |
-| `strict` | Young packages block, native code + scripts need approval, `requireSignedApprovals` on, empty allow list |
-| `react-native` | Native code (Podspec / Gradle / permissions) always gets a human; missing repos block |
-| `ci` | Approvals only from the committed file; scripts and missing repos stop the build; AI cache off |
-| `ai-agent` | For unattended agents: anything needing judgment stops the agent — a human approves out-of-band |
+| Preset         | Intent                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------- |
+| `default`      | Balanced: lifecycle scripts need approval, everything else warns                                         |
+| `strict`       | Young packages block, native code + scripts need approval, `requireSignedApprovals` on, empty allow list |
+| `react-native` | Native code (Podspec / Gradle / permissions) always gets a human; missing repos block                    |
+| `ci`           | Approvals only from the committed file; scripts and missing repos stop the build; AI cache off           |
+| `ai-agent`     | For unattended agents: anything needing judgment stops the agent — a human approves out-of-band          |
 
 ```bash
 targate policy init --preset strict            # yaml by default
@@ -155,7 +144,7 @@ The generated file's header names the preset, and every preset passes the same s
 
 ## Monitoring risk over time — `targate monitor`
 
-Approving a package vouches for it *at a point in time*. `targate monitor` re-checks the packages you already trust and reports what got worse since a stored baseline — a new vulnerability, a maintainer change, a deprecation, an archived repository, lost provenance, a suspicious new release, or a download drop. It is a light, metadata-only pass (no tarball download, no AI), so it is cheap to run on a schedule.
+Approving a package vouches for it _at a point in time_. `targate monitor` re-checks the packages you already trust and reports what got worse since a stored baseline — a new vulnerability, a maintainer change, a deprecation, an archived repository, lost provenance, a suspicious new release, or a download drop. It is a light, metadata-only pass (no tarball download, no AI), so it is cheap to run on a schedule.
 
 ```bash
 targate monitor            # approvals + direct dependencies

@@ -21,7 +21,7 @@ targate add <package>[@version] --yes
 
 - `--yes` lets targate install packages it rates `allow` / `allow_with_warnings` automatically, while it will **never** auto-install a package rated `require_approval` or `block` — those always require a human.
 - Add `--deep` for production/runtime dependencies to also analyze the full transitive tree: `targate add <pkg> --yes --deep`.
-- Add `--json` when you need to parse the verdict programmatically (prints `{ schemaVersion, command, metadata, signals, assessment, score, deep, install }`; the decision is `assessment.decision`, while `install.status` is the actual install outcome; new keys may be added within a schemaVersion — ignore unknown keys).
+- Add `--json` when you need to parse the verdict programmatically (prints `{ schemaVersion, command, metadata, signals, assessment, score, deep, behaviorFingerprint, install }`; the decision is `assessment.decision`, while `install.status` is the actual install outcome; new keys may be added within a schemaVersion — ignore unknown keys).
 - Inspect `signals.artifact.trust` in JSON when artifact provenance matters. `mutated` is a non-overridable hard block; `unverified`, `private-only`, and `public-unavailable` are explicit weaker-trust states, never proof of authenticity.
 - If `signals.analysisDegraded` is present, treat every listed item as **UNKNOWN**, not clean. Resource-limit results require human approval; do not raise limits or reinterpret placeholder `false` fields to make the install pass.
 - Add `--no-cache` to force a fresh analysis, ignoring any cached verdict — e.g. when re-checking a package you suspect changed. Different tarball bytes always invalidate automatically because the SHA-512 artifact digest is part of the cache key.
@@ -43,14 +43,15 @@ These analyze and report but never install and never record anything — use the
 - `targate explain <pkg>` — why a package would be allowed or blocked, in plain language (`targate explain --last` re-explains the run that just finished, offline).
 - `targate history <pkg>` — the team's trust history: who approved which version, when, and under which policy/AI model. Useful when a gate stops you on a package the team has approved before at a different version.
 - `targate graph --why <pkg>` — every dependency chain that pulls a package into the tree, risk-annotated ("why is this here?"). `targate graph` writes an interactive HTML risk graph of the whole tree when the user asks for an overview.
+- `targate audit <pkg>` — an AI source-code audit: reads a bounded, risky subset of the package's actual source (install scripts, files touching env/child_process/network/eval, entry points) for obfuscated behavior the deterministic scanners miss. Findings only ever make the verdict **stricter** (escalation-only, clamped — never an approval). Add `--audit-code` to `add` / `install` to fold the same audit into a gated install. Needs an AI provider; without one it does not run.
 
 ## Hard guardrails
 
 - **Never bypass a targate BLOCK** by calling `npm`/`pnpm`/`yarn` directly. If targate refuses a package, that decision stands until a human overrides it.
 - **Do not run `targate approve` to get past a gate.** `targate approve <pkg>` records a human approval without installing — it is a **human** affordance for clearing a `require_approval` / soft block. When targate exits 2, surface the reasons and let a person decide; don't approve on their behalf.
-- **Never manufacture trust.** Do not edit `.targate/approvals.json`, `.targate/artifacts.json`, `.targate/allowed-signers`, the team policy, or `.npmrc` to change what passes the gate, and never run `targate approve --sign` — a signature asserts a **human** identity with that person's SSH key. Artifact-identity mismatches cannot be cleared with `targate approve`.
+- **Never manufacture trust.** Do not edit `.targate/approvals.json`, `.targate/denials.json`, `.targate/artifacts.json`, `.targate/allowed-signers`, the team policy, or `.npmrc` to change what passes the gate, and never run `targate approve --sign` — a signature asserts a **human** identity with that person's SSH key. Artifact-identity mismatches cannot be cleared with `targate approve`.
 - **Do not disable analysis** (`--no-ai` only changes the reasoning layer; it does not weaken the deterministic security floor — but there is no flag that turns the gate off, and you should not try to find one).
-- **Do not enable executable repository config.** Never set `TARGATE_ALLOW_EXEC_CONFIG=1` on the user's behalf. YAML/JSON is the safe default; running legacy JS/TS policy is a human trust decision.
+- **Do not weaken the policy.** targate config is declarative only (`.yaml`/`.yml`/`.json`, parsed never executed — there is no code-execution path to enable). Don't relax `targate.policy.*`, add `allowKnownPackages` entries, or set `dependencyPolicy.trustBehaviorFingerprint` on the user's behalf to make a package pass — policy is a human/team decision.
 - **Do not choose targate's AI provider.** Run `targate` with no `--provider` flag: it auto-detects a configured model from the environment, or falls back to its built-in deterministic rules engine. It works fully offline.
 
 ## In CI

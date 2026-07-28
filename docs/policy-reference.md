@@ -143,19 +143,16 @@ resourceLimits:
   maxScanDuration: 20000
 ```
 
-```ts
-// targate.policy.ts — fully typed (the type import is erased at runtime)
-import type { PolicyFile } from "targate";
+`targate.policy.json` — the same schema in JSON (declarative, parsed never executed):
 
-const policy: PolicyFile = {
-  dependencyPolicy: {
-    minPackageAgeDays: 14,
-    requireApprovalForLifecycleScripts: true,
-    blockPackages: ["left-pad"],
-  },
-};
-
-export default policy;
+```json
+{
+  "dependencyPolicy": {
+    "minPackageAgeDays": 14,
+    "requireApprovalForLifecycleScripts": true,
+    "blockPackages": ["left-pad"]
+  }
+}
 ```
 
 ## Decision values
@@ -212,7 +209,7 @@ Invalid YAML/JSON is reported as an `Invalid YAML: …` error rather than silent
 
 - **Local:** all fields apply; `aiCache` speeds up re-reviews.
 - **CI (the `CI` env var is set):** the `aiCache` is **not** used — CI always recomputes so a stale cached assessment can't mask a change. Policy escalations still apply. `targate approve` refuses to run in CI entirely; approvals reach CI only through the reviewed, committed `.targate/approvals.json`. Pair with `--fail-on-osv-error` so an unreachable OSV lookup fails closed. See [CI integration](ci.md).
-- **Untrusted repos:** no action is needed; executable `targate.policy.{ts,js,…}` is skipped by default and only declarative `.yaml`/`.json` loads. Do not set `TARGATE_ALLOW_EXEC_CONFIG=1` until the repository code has been reviewed.
+- **Untrusted repos:** no action is needed; config is declarative only (`.yaml`/`.yml`/`.json`, parsed never executed), so a cloned repo cannot run code through a targate policy file. Any leftover legacy executable `targate.policy.{ts,js,…}` is ignored and flagged by `targate doctor`.
 
 ## Related
 
