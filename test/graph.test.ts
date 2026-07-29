@@ -363,6 +363,31 @@ describe("layoutGraph", () => {
     expect(() => layoutGraph(g)).not.toThrow();
     expect(layoutGraph(g).nodes.size).toBe(g.nodes.length);
   });
+
+  // Regression: a root with dozens of direct deps put every child in one layer,
+  // producing a single row ~11000px wide and a ~17:1 aspect ratio that rendered
+  // as a ~70px-tall strip once scaled to a page. The layer must now wrap.
+  it("wraps a wide layer so the aspect ratio stays page-like", () => {
+    const nodes: DependencyGraph["nodes"] = [
+      { id: "root@1.0.0", name: "root", version: "1.0.0", risk: "low", kind: "root" },
+    ];
+    const edges: DependencyGraph["edges"] = [];
+    for (let i = 0; i < 60; i++) {
+      const id = `dep-${i}@1.0.0`;
+      nodes.push({ id, name: `dep-${i}`, version: "1.0.0", risk: "low", kind: "dependency" });
+      edges.push({ from: "root@1.0.0", to: id });
+    }
+    const g: DependencyGraph = { ...syntheticGraph(), nodes, edges, roots: ["root@1.0.0"] };
+    const layout = layoutGraph(g);
+    expect(layout.nodes.size).toBe(nodes.length);
+    // 60 children can't fit one capped row, so they wrap onto several — the
+    // drawing is no longer a thin strip.
+    expect(layout.width / layout.height).toBeLessThan(6);
+    // Semantic layering is still intact: every child sits below the root.
+    for (const e of edges) {
+      expect(layout.nodes.get(e.to)!.layer).toBeGreaterThan(layout.nodes.get(e.from)!.layer);
+    }
+  });
 });
 
 describe("renderers", () => {
