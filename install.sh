@@ -24,7 +24,7 @@ set -eu
 # "untrusted comment:" line). Verification is mandatory, so an empty value makes
 # the installer refuse to install — fill this in before cutting a release.
 # Overridable at runtime via TARGATE_MINISIGN_PUBKEY (same single-line format).
-MINISIGN_PUBKEY_DEFAULT="RWRWhwiii5/4059Qt8rbESflWRnN5hbhVubYJJvGa4tObtrf3kmZHUsX"
+MINISIGN_PUBKEY_DEFAULT="RWROYgkxZuVG3PppmmTquN1eRbv3BxEpUoATnDihh7L2XY93XqIRvwHd"
 
 REPO="${TARGATE_REPO:-marcoabate-ck/targate}"
 VERSION="${TARGATE_VERSION:-latest}"
