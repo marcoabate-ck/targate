@@ -1,7 +1,7 @@
 # How it works
 
 ```
-developer intent → package inspection → AI risk reasoning → safe install decision
+developer intent → package inspection → risk reasoning (deterministic; AI optional) → safe install decision
 ```
 
 `targate` analyzes an npm package **before** it touches your machine, then produces an allow / warn / approve / block decision and only runs the real install if the package passes. For the component-level map and the deterministic-vs-probabilistic split, see [Architecture](architecture.md).

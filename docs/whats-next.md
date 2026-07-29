@@ -44,4 +44,4 @@ Reach, discoverability, and long-term value.
 
 ---
 
-Positioning: *targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents.* That layer ships today with pre-install security as its first application — it already helps you **inspect and approve** packages before they enter the codebase. The direction we're building toward adds **intent-aware recommendation**: helping you *choose* the right package, with project context, not only vet the one you already named.
+Positioning: *targate is install-time supply-chain security for npm — open source, AI-optional, and run from your terminal.* Today it **inspects and approves** packages before they enter the codebase. Under the hood it is a dependency intelligence and decision engine, and that engine can grow beyond the install gate: the direction we're building toward adds **intent-aware recommendation** — helping you *choose* the right package, with project context, not only vet the one you already named.

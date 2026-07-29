@@ -1,6 +1,6 @@
 # Security policy
 
-targate is a supply-chain security tool. A vulnerability in it can directly weaken
+targate is an install-time supply-chain security tool. A vulnerability in it can directly weaken
 the defenses of everyone who runs it, so we treat reports seriously and ask you to
 disclose them privately.
 
