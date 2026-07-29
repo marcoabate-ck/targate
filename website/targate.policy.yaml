@@ -1,0 +1,14 @@
+# Team policy for the docs site's own dependency gate (`targate install`,
+# run from website/). The Astro/Starlight/vitest tree ships many large prebuilt
+# native binaries — @esbuild/*, @astrojs/compiler-binding-*, @img/sharp-* — whose
+# tarballs don't finish streaming within the default 15s network timeout under
+# concurrency, so they intermittently degrade to UNKNOWN and gate as
+# require_approval. Raising the timeout lets them analyze cleanly instead of
+# flapping. (No lifecycle scripts in those packages; the risk model is unchanged.)
+
+# No policy escalations beyond the built-in defaults — this file exists only to
+# widen the network timeout for the large native-binary tarballs.
+dependencyPolicy: {}
+
+resourceLimits:
+  networkTimeoutMs: 60000
