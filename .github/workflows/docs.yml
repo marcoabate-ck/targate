@@ -60,6 +60,10 @@ jobs:
         working-directory: website
         run: pnpm typecheck
 
+      - name: Test the site (landing timeline model)
+        working-directory: website
+        run: pnpm test
+
       - name: Build (TypeDoc API + Astro/Starlight)
         working-directory: website
         run: pnpm build
