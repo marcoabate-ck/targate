@@ -13,7 +13,7 @@ const REPO = ENV_REPO || "targate";
 
 const config: Config = {
   title: "targate",
-  tagline: "Gate every dependency before it runs.",
+  tagline: "Install-time supply-chain security for npm — open source, AI-optional, in your terminal.",
   favicon: "img/favicon.svg",
 
   url: `https://${ORG}.github.io`,

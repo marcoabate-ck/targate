@@ -1,7 +1,7 @@
 {
   "name": "targate",
   "version": "0.1.0",
-  "description": "targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents. Its first application is pre-install security analysis for npm packages, built around React Native teams' needs.",
+  "description": "targate is install-time supply-chain security for npm — open source, AI-optional, and run from your terminal. It vets every dependency (tarball, lifecycle scripts, lockfile, reputation, known-malicious records) before its code can run, and only installs if it passes.",
   "type": "module",
   "bin": {
     "targate": "./dist/cli.js"
@@ -60,8 +60,14 @@
   "keywords": [
     "security",
     "supply-chain",
+    "supply-chain-security",
+    "sca",
+    "software-composition-analysis",
+    "dependency-security",
+    "cli",
     "react-native",
     "npm",
+    "install-time",
     "pre-install"
   ],
   "license": "MIT",

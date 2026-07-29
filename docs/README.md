@@ -1,6 +1,6 @@
 # targate documentation
 
-targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents. Its first application is pre-install security.
+targate is install-time supply-chain security for npm — open source, AI-optional, and run from your terminal. It vets every dependency before its code can run — see [supply chain vs. application security](why.md#supply-chain-security-not-application-security).
 
 Detailed specifications for [`targate`](../README.md). Start with the root README for an overview and quick start; these pages go deep on each topic.
 

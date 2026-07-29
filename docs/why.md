@@ -1,6 +1,20 @@
 # Why targate
 
+targate is **install-time supply-chain security for npm** — open source, AI-optional, and run entirely from your terminal.
+
 Installing an npm package is not a passive download. `npm install` (and `pnpm`/`yarn`) resolves a tree, fetches tarballs, and — unless you opt out — **runs each package's lifecycle scripts on your machine, with your permissions**, before you have read a single line of what you just pulled in. targate exists to put a decision point in front of that moment.
+
+## Supply chain security, not application security
+
+Application-security tools — SAST, linters, AI code reviewers — analyze **the code you write**, looking for bugs and vulnerabilities in your own source. targate answers a different question: **is it safe to bring this third-party dependency onto my machine at all?** That risk lands at install time, before any of your code runs, and it needs checks an application-security scanner does not perform:
+
+- **Tarball pre-analysis.** The exact published artifact is fetched into an isolated quarantine and inspected _before_ it can be installed — not the repository, the published bytes.
+- **Install simulation without execution.** Lifecycle scripts are read, never run; an optional sandbox observes a real `npm install` inside a throwaway container and reports what it tried to do.
+- **Lifecycle-script verification.** `preinstall`/`install`/`postinstall` command strings and the files they reference are statically analyzed for fetch-and-execute (`curl … | bash`), credential access, and other install-time behavior.
+- **Lockfile pre-download analysis.** With `--deep` / `targate install`, the resolved lockfile is analyzed _before_ the real download, so a malicious transitive dependency is caught before it lands — not after.
+- **Reputation as an install gate.** Package and maintainer reputation, age, provenance, and known-malicious records **decide** the install, not merely annotate a report.
+
+The two are complementary: an app-sec scanner keeps your own code clean; targate keeps untrusted third-party code from running on your machine in the first place.
 
 ## The one-line problem
 

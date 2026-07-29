@@ -16,7 +16,7 @@ import {
  * sentence so positioning cannot drift; the docs check enforces it.
  */
 export const PRODUCT_DESCRIPTION =
-  "targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents.";
+  "targate is install-time supply-chain security for npm — open source, AI-optional, and run from your terminal.";
 
 export const README_COMMANDS_START = "<!-- targate:commands:start -->";
 export const README_COMMANDS_END = "<!-- targate:commands:end -->";
