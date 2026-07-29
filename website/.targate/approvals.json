@@ -25,6 +25,19 @@
       ]
     }
   },
+  "vite@7.3.6": {
+    "mode": "normal",
+    "approvedAt": "2026-07-29T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "[unknown] npm registry metadata exceeds the 16 MiB analysis limit — same as vite@8.1.5. This second copy is a dev-only dependency of vitest (the test runner); no install-time scripts.",
+        "Vouched: pinned by the reviewed lockfile; used only for the landing timeline unit tests, never shipped."
+      ]
+    }
+  },
   "fsevents@2.3.3": {
     "mode": "normal",
     "approvedAt": "2026-07-16T00:00:00.000Z",

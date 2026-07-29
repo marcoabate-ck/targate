@@ -3,7 +3,7 @@ title: How it works
 description: The targate analysis pipeline — from npm metadata to a gated install decision.
 ---
 
-import Mermaid from "../../components/Mermaid.astro";
+import Mermaid from "../../../components/Mermaid.astro";
 
 Every gate runs the same pipeline. The guiding shape is:
 
@@ -25,7 +25,7 @@ Every gate runs the same pipeline. The guiding shape is:
 
 ## 1. Resolve metadata
 
-targate fetches the package's registry metadata (the full packument) — version, dependencies, declared lifecycle scripts, repository, maintainers, publish times, and the tarball URL and integrity. Private registries and per-scope `.npmrc` credentials are honored; see **[Scenarios → private registries](/scenarios/#private-registries)**.
+targate fetches the package's registry metadata (the full packument) — version, dependencies, declared lifecycle scripts, repository, maintainers, publish times, and the tarball URL and integrity. Private registries and per-scope `.npmrc` credentials are honored; see **[Scenarios → private registries](/docs/scenarios/#private-registries)**.
 
 ## 2. Quarantine the tarball
 
@@ -34,7 +34,7 @@ The tarball is downloaded into an isolated temporary directory and **its bytes a
 - If the bytes match trusted evidence, the artifact is authentic and analysis proceeds.
 - If they **differ** from that evidence, the artifact is `mutated` and **hard-blocked** — a compromised mirror that rewrites both tarball and metadata is caught by the independent public comparison.
 
-Extraction happens **without running any lifecycle script**, with strict path handling (no escapes, no symlinks) and bounded file counts, sizes, and total bytes. See **[Decisions & trust](/concepts/decisions-and-trust/)** for the trust levels.
+Extraction happens **without running any lifecycle script**, with strict path handling (no escapes, no symlinks) and bounded file counts, sizes, and total bytes. See **[Decisions & trust](/docs/concepts/decisions-and-trust/)** for the trust levels.
 
 ## 3. Static analysis
 
@@ -42,7 +42,7 @@ targate inspects the extracted, authentic tarball:
 
 - **Lifecycle scripts** — `preinstall`/`install`/`postinstall` are install-time (they run on a registry install); `prepare`/`prepack` are pack/publish-time and are reported as informational, not install-time risk. Command strings are scanned for suspicious constructs (shell invocation, `curl … | bash`, `node -e`, credential-file references, base64, absolute-path writes).
 - **File contents** — install-time code is prioritized and scanned for `process.env` access, child-process spawning, network calls, `eval`/`Function`, and minified/obfuscated payloads.
-- **React Native native surface** — iOS/Android directories, `.podspec`, `build.gradle`, `CMakeLists.txt`, prebuilt binaries and frameworks, autolinking config, and dangerous Android permissions. See **[React Native hardening](/concepts/react-native/)**.
+- **React Native native surface** — iOS/Android directories, `.podspec`, `build.gradle`, `CMakeLists.txt`, prebuilt binaries and frameworks, autolinking config, and dangerous Android permissions. See **[React Native hardening](/docs/concepts/react-native/)**.
 
 ## 4. OSV / OpenSSF lookup
 
@@ -61,7 +61,7 @@ This verdict is a **floor**.
 
 ## 6. AI reviewer — stricter only
 
-If an AI provider is configured, the model reviews the same signals and can add context. Its decision is **clamped**: it can raise a verdict's severity but can never lower the rules-engine floor. A jailbroken or prompt-injected model cannot turn `require_approval` or `block` into `allow`. With no provider configured, the rules engine's verdict stands alone. See **[AI & privacy](/concepts/ai-and-privacy/)**.
+If an AI provider is configured, the model reviews the same signals and can add context. Its decision is **clamped**: it can raise a verdict's severity but can never lower the rules-engine floor. A jailbroken or prompt-injected model cannot turn `require_approval` or `block` into `allow`. With no provider configured, the rules engine's verdict stands alone. See **[AI & privacy](/docs/concepts/ai-and-privacy/)**.
 
 ## 7. The decision gates the install
 
@@ -69,4 +69,4 @@ If an AI provider is configured, the model reviews the same signals and can add 
 - **require_approval** → install is refused unless a committed approval covers this exact version; interactively, targate offers to install with scripts disabled or to record an approval.
 - **block** → never installed. Hard blocks can never be overridden; soft (heuristic) blocks can be deliberately cleared by a committed approval or allow-list entry.
 
-Read on: **[Decisions & trust](/concepts/decisions-and-trust/)** · **[Approvals & policy](/concepts/approvals-and-policy/)**.
+Read on: **[Decisions & trust](/docs/concepts/decisions-and-trust/)** · **[Approvals & policy](/docs/concepts/approvals-and-policy/)**.

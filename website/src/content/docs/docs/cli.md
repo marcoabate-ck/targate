@@ -40,5 +40,5 @@ Most analysis commands accept: `--json` (structured output), `--dry-run`, `--yes
 The `2` code is what you gate CI on: a non-zero-but-not-error signal that a human decision is required.
 
 :::tip
-For task-specific walkthroughs — CI, private registries, monorepos, coding agents, sandboxing, upgrade review — see **[Scenarios](/scenarios/)**.
+For task-specific walkthroughs — CI, private registries, monorepos, coding agents, sandboxing, upgrade review — see **[Scenarios](/docs/scenarios/)**.
 :::

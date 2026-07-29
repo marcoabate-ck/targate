@@ -1,8 +1,10 @@
 name: Docs
 
-# Build the Starlight (Astro) site (which runs TypeDoc against ../src for the
-# API reference) and deploy it to GitHub Pages. The docs dependency tree is
-# itself gated through targate — the tool eats its own dog food on its own docs.
+# Build check for the Astro/Starlight site (landing + docs). Deployment is
+# handled by Cloudflare Pages (connected to this repo, serving targate.dev), so
+# this workflow only *verifies* the build on every change — it does not deploy.
+# The docs dependency tree is itself gated through targate: the tool eats its
+# own dog food on its own docs.
 on:
   push:
     branches: [main]
@@ -17,15 +19,8 @@ on:
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
-# Least privilege by default: only the deploy job gets Pages/OIDC write (below).
-# The build job (which also runs on PRs) needs nothing beyond read.
 permissions:
   contents: read
-
-# One in-flight deploy at a time; don't cancel a running publish.
-concurrency:
-  group: docs-pages
-  cancel-in-progress: false
 
 jobs:
   build:
@@ -61,33 +56,10 @@ jobs:
         # or blocked package. Approvals live in website/.targate/approvals.json.
         run: node ../dist/cli.js install --dry-run
 
-      - name: Type-check the site config
+      - name: Type-check the site
         working-directory: website
         run: pnpm typecheck
 
       - name: Build (TypeDoc API + Astro/Starlight)
         working-directory: website
         run: pnpm build
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
-        with:
-          path: website/dist
-
-  deploy:
-    name: deploy to GitHub Pages
-    # Only publish from main; PRs build (above) to catch breakage but never deploy.
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: build
-    runs-on: ubuntu-latest
-    # Elevated permissions scoped to this job only — the Pages OIDC deploy.
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

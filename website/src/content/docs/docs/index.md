@@ -70,10 +70,10 @@ Decision: ALLOW   (risk: low, source: rules)
 
 ## Where to go next
 
-- **[Getting started](/getting-started/)** — install the CLI and gate your first package.
-- **[How it works](/how-it-works/)** — the full analysis pipeline, step by step.
-- **[Scenarios](/scenarios/)** — CI gating, private registries, monorepos, coding agents, sandboxing.
-- **[API reference](/api/readme/)** — the exported TypeScript types (config itself is declarative YAML/JSON).
+- **[Getting started](/docs/getting-started/)** — install the CLI and gate your first package.
+- **[How it works](/docs/how-it-works/)** — the full analysis pipeline, step by step.
+- **[Scenarios](/docs/scenarios/)** — CI gating, private registries, monorepos, coding agents, sandboxing.
+- **[API reference](/docs/api/readme/)** — the exported TypeScript types (config itself is declarative YAML/JSON).
 
 :::note[What ships today vs. the vision]
 Install-time supply-chain security is what targate is today. Under the hood it is a dependency **intelligence and decision** layer, and that engine can grow beyond the install gate. Everything in this guide is implemented and tested; directional roadmap items are called out as such.

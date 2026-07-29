@@ -14,7 +14,7 @@ Every package resolves to exactly one decision, ordered by severity:
 | <span class="verdict verdict--approve">REQUIRE_APPROVAL</span> | A human should vouch first (install-time scripts, suspicious constructs, unknown analysis). | Only with a committed approval |
 | <span class="verdict verdict--block">BLOCK</span> | Dangerous or untrustworthy. | No |
 
-The **rules engine** produces this verdict deterministically. An AI reviewer, if configured, may raise the severity but can never lower it — the rules verdict is a floor. See **[AI & privacy](/concepts/ai-and-privacy/)**.
+The **rules engine** produces this verdict deterministically. An AI reviewer, if configured, may raise the severity but can never lower it — the rules verdict is a floor. See **[AI & privacy](/docs/concepts/ai-and-privacy/)**.
 
 ## Hard vs soft blocks
 

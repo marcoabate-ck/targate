@@ -70,7 +70,7 @@ targate approve esbuild@0.27.3
 targate approve esbuild@0.27.3 --sign   # add an SSH signature
 ```
 
-See **[Approvals & policy](/concepts/approvals-and-policy/)** for how approvals are read, merged, and enforced.
+See **[Approvals & policy](/docs/concepts/approvals-and-policy/)** for how approvals are read, merged, and enforced.
 
 ## Gate the whole tree
 
@@ -88,10 +88,10 @@ targate install               # gate, then install
 ```
 
 :::tip[Why isn't --deep the default?]
-A deep run resolves and analyzes the entire transitive tree — more registry/tarball/OSV traffic and, with an AI provider, more model calls. Keeping it opt-in lets the quick "is this package OK?" check stay fast and cheap; the [response cache](/concepts/transitive-and-install/) amortizes the cost on repeat runs, and a shallow `ALLOW` reminds you the tree wasn't analyzed.
+A deep run resolves and analyzes the entire transitive tree — more registry/tarball/OSV traffic and, with an AI provider, more model calls. Keeping it opt-in lets the quick "is this package OK?" check stay fast and cheap; the [response cache](/docs/concepts/transitive-and-install/) amortizes the cost on repeat runs, and a shallow `ALLOW` reminds you the tree wasn't analyzed.
 :::
 
-See **[Transitive analysis & install](/concepts/transitive-and-install/)**.
+See **[Transitive analysis & install](/docs/concepts/transitive-and-install/)**.
 
 ## Check your environment
 

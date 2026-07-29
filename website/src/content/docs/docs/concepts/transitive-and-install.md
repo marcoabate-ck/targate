@@ -31,7 +31,7 @@ targate install --update-lockfile --dry-run  # resolve a fresh plan and review i
 - `--frozen-lockfile` mirrors the package manager's frozen install.
 - `--update-lockfile` resolves a staged install plan (in a throwaway directory, scripts disabled) to produce the lockfile to review.
 
-The install is refused if anything is blocked or unapproved. Interactively, targate offers to approve the approvable packages in one step; the rest must be cleared with committed approvals. See **[Approvals & policy](/concepts/approvals-and-policy/)**.
+The install is refused if anything is blocked or unapproved. Interactively, targate offers to approve the approvable packages in one step; the rest must be cleared with committed approvals. See **[Approvals & policy](/docs/concepts/approvals-and-policy/)**.
 
 ## pnpm build scripts
 

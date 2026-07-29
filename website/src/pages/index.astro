@@ -1,0 +1,123 @@
+---
+import Landing from "../layouts/Landing.astro";
+import Header from "../components/landing/Header.astro";
+import Footer from "../components/landing/Footer.astro";
+import InstallComparison from "../components/landing/InstallComparison.astro";
+import { COPY, LINKS } from "../lib/landing.js";
+---
+
+<Landing>
+  <Header />
+  <main>
+    <!-- Hero -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="wrap">
+        <p class="eyebrow">{COPY.eyebrow}</p>
+        <h1 id="hero-title">{COPY.headline}</h1>
+        <p class="lead">{COPY.subhead}</p>
+        <div class="cta-row">
+          <a class="btn btn--primary" href={LINKS.gettingStarted}>Get started</a>
+          <a class="btn" href={LINKS.docs}>Documentation</a>
+          <a class="btn" href={LINKS.github} rel="noopener">GitHub</a>
+        </div>
+        <p class="supporting">{COPY.supporting}</p>
+
+        <InstallComparison />
+      </div>
+    </section>
+
+    <!-- Problem -->
+    <section id="problem" aria-labelledby="problem-title">
+      <div class="wrap">
+        <p class="eyebrow">The problem</p>
+        <h2 id="problem-title">Installing a package is not just downloading files.</h2>
+        <p class="section-lead">
+          Lifecycle scripts may access your shell, filesystem, environment variables,
+          credentials and network during installation — before you have read a line of the code.
+        </p>
+        <pre class="tree" aria-hidden="true">npm install
+├── filesystem
+├── environment
+├── credentials
+└── network</pre>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section id="how-it-works" aria-labelledby="how-title">
+      <div class="wrap">
+        <p class="eyebrow">How it works</p>
+        <h2 id="how-title">Resolve, quarantine, inspect — then decide.</h2>
+        <p class="section-lead">
+          Every gate runs the same deterministic pipeline. The tarball is verified and
+          extracted without ever running a lifecycle script.
+        </p>
+        <div class="pipeline">
+          <div class="step"><div class="k">RESOLVE</div><div class="d">Fetch registry metadata and the exact version to install.</div></div>
+          <div class="step"><div class="k">QUARANTINE</div><div class="d">Download the tarball into isolation — no code executes.</div></div>
+          <div class="step"><div class="k">VERIFY</div><div class="d">Check the artifact's SHA-512 against every independent source.</div></div>
+          <div class="step"><div class="k">INSPECT</div><div class="d">Scan lifecycle scripts, contents, and native surface; query OSV.</div></div>
+          <div class="step"><div class="k">DECIDE</div><div class="d">A deterministic rules engine returns the verdict.</div></div>
+          <div class="step block"><div class="k">INSTALL OR BLOCK</div><div class="d">Install only if it passes; otherwise stop before execution.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Deterministic security -->
+    <section id="deterministic" aria-labelledby="det-title">
+      <div class="wrap">
+        <p class="eyebrow">Deterministic by default</p>
+        <h2 id="det-title">The rules engine decides. AI can only make the verdict stricter.</h2>
+        <p class="section-lead">
+          targate runs on a deterministic rules engine with no AI required. When an AI
+          reviewer is configured, it can raise severity but can never turn a <span style="color:var(--block)">BLOCK</span> into an <span style="color:var(--allow)">ALLOW</span>.
+        </p>
+        <pre class="flow" aria-hidden="true">Rules engine
+↓
+<span class="allow">ALLOW</span> / <span class="approve">REQUIRE_APPROVAL</span> / <span class="block">BLOCK</span>
+↓
+Optional AI review
+↓
+same or stricter verdict</pre>
+      </div>
+    </section>
+
+    <!-- Use cases -->
+    <section id="use-cases" aria-labelledby="uc-title">
+      <div class="wrap">
+        <p class="eyebrow">Use cases</p>
+        <h2 id="uc-title">One gate, everywhere packages enter.</h2>
+        <div class="cards">
+          <div class="card"><h3>Local development</h3><p>Gate <code>targate add</code> before a dependency ever lands on your machine.</p></div>
+          <div class="card"><h3>CI &amp; pull requests</h3><p>Fail a PR on a risky dependency change with committed, reviewed approvals.</p></div>
+          <div class="card"><h3>Coding agents</h3><p>Make AI agents route installs through the gate instead of running <code>npm install</code> blind.</p></div>
+          <div class="card"><h3>React Native &amp; native surfaces</h3><p>Inspect podspecs, Gradle, and prebuilt binaries that run build-time code.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Final CTA -->
+    <section class="final" aria-labelledby="final-title">
+      <div class="wrap">
+        <p class="eyebrow">{COPY.payoff}</p>
+        <h2 id="final-title">Code should earn trust before execution.</h2>
+        <div class="term" aria-hidden="true">
+          <div class="term__bar"><span class="term__dot"></span><span class="term__label">targate</span></div>
+          <div class="term__body"><span class="line cmd show">$ targate add lodash</span>
+<span class="line neutral show">
+Pre-install review — lodash@4.17.21</span>
+<span class="line success show">  ✓ no lifecycle scripts</span>
+<span class="line success show">  ✓ no known malicious-package records</span>
+<span class="line success show">  ✓ repository metadata present</span>
+<span class="line info show">
+Decision: ALLOW   (risk: low, source: rules)</span></div>
+        </div>
+        <div class="cta-row">
+          <a class="btn btn--primary" href={LINKS.docs}>Read the documentation</a>
+          <a class="btn" href={LINKS.github} rel="noopener">View on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Landing>
