@@ -1,5 +1,11 @@
 # targate — install-time supply-chain security for npm, in your terminal
 
+[![npm](https://img.shields.io/npm/v/targate?logo=npm&color=cb3837)](https://www.npmjs.com/package/targate)
+[![CI](https://github.com/marcoabate-ck/targate/actions/workflows/ci.yml/badge.svg)](https://github.com/marcoabate-ck/targate/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-targate.dev-6366f1)](https://targate.dev)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.13-brightgreen?logo=node.js&logoColor=white)](package.json)
+
 **targate is install-time supply-chain security for npm — open source, AI-optional, and run from your terminal.** It vets every dependency **before** its code can run: it fetches the published tarball into an isolated quarantine (lifecycle scripts never execute), reads the install-time scripts, analyzes the resolved lockfile before anything is downloaded for real, checks reputation and known-malicious records, and returns an allow / warn / approve / block decision — then runs the real install only if the package passes.
 
 Four things define it:
@@ -160,7 +166,7 @@ The distinction that matters: today targate _inspects and decides_; the vision i
 
 ## Documentation
 
-Full specifications live in [`docs/`](docs/README.md):
+The full docs are online at **[targate.dev/docs](https://targate.dev/docs/)**. The same specifications live in [`docs/`](docs/README.md):
 
 | Topic                                             | Page                                                        |
 | ------------------------------------------------- | ----------------------------------------------------------- |
