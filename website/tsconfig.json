@@ -1,7 +1,5 @@
 {
-  "extends": "@docusaurus/tsconfig",
-  "compilerOptions": {
-    "baseUrl": "."
-  },
-  "exclude": [".docusaurus", "build"]
+  "extends": "astro/tsconfigs/strict",
+  "include": [".astro/types.d.ts", "**/*"],
+  "exclude": ["dist"]
 }

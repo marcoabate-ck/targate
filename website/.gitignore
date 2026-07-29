@@ -1,7 +1,7 @@
-# Docusaurus
-/.docusaurus/
-/build/
+# Astro / Starlight
+/.astro/
+/dist/
 /node_modules/
 
-# TypeDoc output is generated at build time from ../src.
-/docs/api/
+# TypeDoc output is generated at build time from ../src into the docs collection.
+/src/content/docs/api/

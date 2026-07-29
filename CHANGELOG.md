@@ -111,12 +111,13 @@ init` supports `--format yaml|json`. A leftover legacy executable file is ignore
   redirect handling) and `src/signing.ts`.
 - **Dependency CVE bumps.** `tar` 7.5.19 → 7.5.22 (runtime, used by the tarball
   quarantine extractor — GHSA fix), and the build/docs toolchains bumped
-  `postcss` 8.5.16 → 8.5.23 and `brace-expansion` 5.0.7 → 5.0.8. A residual
-  `brace-expansion@1.1.16` remains reachable only through the docs site's local
-  preview tooling (`@docusaurus/core` → `serve-handler` → `minimatch@3`); it has
-  no patched 1.x release and 5.x is API-incompatible with `minimatch@3`, so it is
-  pinned upstream — build/preview-only, never shipped, and not reachable with
-  attacker-controlled input.
+  `postcss` 8.5.16 → 8.5.23 and `brace-expansion` 5.0.7 → 5.0.8.
+- **Docs site migrated from Docusaurus to Starlight (Astro).** This removes the
+  `@docusaurus/core` → `serve-handler` → `minimatch@3` → `brace-expansion@1.1.16`
+  chain that carried an unfixable high-severity DoS advisory (no patched 1.x, and
+  5.x was API-incompatible with `minimatch@3`). The new docs dependency tree has
+  no known vulnerabilities. The docs are build/tooling only and never shipped in
+  the npm package.
 
 ### Packaging
 

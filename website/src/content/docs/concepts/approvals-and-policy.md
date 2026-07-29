@@ -1,10 +1,7 @@
 ---
 title: Approvals & policy
-sidebar_position: 2
 description: How targate records human trust, verifies signatures, and enforces a declarative team policy.
 ---
-
-# Approvals & policy
 
 ## Approvals
 
@@ -63,4 +60,4 @@ Key properties of the policy engine:
 - **Internal scopes.** Declaring internal scopes marks your own private packages so name-leaking lookups (OSV, download stats, maintainer search, GitHub) are skipped — visibly, and shown in the report.
 - **Auditable.** An approval records the policy file name and a hash of its bytes at approval time, so the trust history shows which policy was in force.
 
-See the typed shapes on the **[API reference](../api)** (`PolicyFile`, `DependencyPolicy`, `RegistryPolicy`, `ApprovalRecord`).
+See the typed shapes on the **[API reference](/api/readme/)** (`PolicyFile`, `DependencyPolicy`, `RegistryPolicy`, `ApprovalRecord`).

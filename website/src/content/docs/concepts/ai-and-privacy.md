@@ -1,10 +1,7 @@
 ---
 title: AI & privacy
-sidebar_position: 4
 description: How the AI reviewer is constrained, how to run it locally, and what leaves your machine.
 ---
-
-# AI & privacy
 
 ## The AI can only make verdicts stricter
 

@@ -1,10 +1,7 @@
 ---
 title: Scenarios
-sidebar_position: 5
 description: Real workflows — CI gating, private registries, monorepos, coding agents, sandboxing, and upgrade review.
 ---
-
-# Scenarios
 
 ## Gate a pull request in CI
 
@@ -15,7 +12,7 @@ targate ci init                                   # scaffold a workflow
 targate ci --base-ref origin/main --fail-on-osv-error
 ```
 
-`targate ci` compares the dependency changes against a Git ref and exits `2` when the new or changed dependencies don't pass. Because approvals are **read** in CI but never **created** there, a package only passes if a committed, reviewed approval covers it — see **[Approvals & policy](./concepts/approvals-and-policy)**. To vet the entire tree instead of just the diff, use `targate install --dry-run`.
+`targate ci` compares the dependency changes against a Git ref and exits `2` when the new or changed dependencies don't pass. Because approvals are **read** in CI but never **created** there, a package only passes if a committed, reviewed approval covers it — see **[Approvals & policy](/concepts/approvals-and-policy/)**. To vet the entire tree instead of just the diff, use `targate install --dry-run`.
 
 ## Review an upgrade (yours, Renovate's, Dependabot's)
 
@@ -27,7 +24,7 @@ targate diff lodash --fail-on medium         # exit 2 at medium risk or above
 
 `diff` is a statement of **facts** with a deterministic risk rubric — no AI, no policy escalation. It compares lifecycle scripts, dependencies (flagging non-registry specifiers like `git+`/`file:`), maintainers, repository, native surface, advisories (new and resolved), size, provenance, deprecation, and the security score. New lifecycle scripts, a new hard block, or a dependency moved to a non-registry source are HIGH risk.
 
-## Private registries & `.npmrc` {#private-registries}
+## Private registries
 
 targate honors your `.npmrc`: default and per-scope registries, global overrides, and nerf-darted `_authToken` / `_auth` / `username+_password` credentials with `${ENV}` expansion, for both metadata and tarball fetches. Declare **internal scopes** in policy so your own private package names are never sent to third-party lookups (OSV, download stats, GitHub) — the skip is shown in the report and score.
 

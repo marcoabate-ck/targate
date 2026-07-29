@@ -2,40 +2,31 @@
   "name": "targate-docs",
   "version": "0.0.0",
   "private": true,
-  "description": "Documentation site for targate — gate every dependency before it runs.",
+  "type": "module",
+  "description": "Documentation site for targate — install-time supply-chain security for npm.",
   "packageManager": "pnpm@11.13.1",
   "scripts": {
-    "docusaurus": "docusaurus",
-    "start": "docusaurus start",
-    "build": "docusaurus build",
-    "serve": "docusaurus serve",
-    "clear": "docusaurus clear",
-    "typecheck": "tsc"
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "typecheck": "astro check"
   },
   "dependencies": {
-    "@docusaurus/core": "^3.10.2",
-    "@docusaurus/preset-classic": "^3.10.2",
-    "@docusaurus/theme-mermaid": "^3.10.2",
-    "@mdx-js/react": "^3.1.1",
-    "clsx": "^2.1.1",
-    "prism-react-renderer": "^2.4.1",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "@astrojs/starlight": "^0.41.5",
+    "astro": "^7.1.5",
+    "mermaid": "^11.12.0",
+    "sharp": "^0.35.3",
+    "starlight-typedoc": "^0.23.0",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.12.0"
   },
   "devDependencies": {
-    "@docusaurus/module-type-aliases": "^3.10.2",
-    "@docusaurus/tsconfig": "^3.10.2",
-    "@docusaurus/types": "^3.10.2",
-    "docusaurus-plugin-typedoc": "^1.4.2",
-    "typedoc": "^0.28.20",
-    "typedoc-plugin-markdown": "^4.12.0",
+    "@astrojs/check": "^0.9.10",
     "typescript": "~5.9.2"
   },
   "engines": {
     "node": ">=22.13"
-  },
-  "browserslist": {
-    "production": [">0.5%", "not dead", "not op_mini all"],
-    "development": ["last 3 chrome version", "last 3 firefox version", "last 5 safari version"]
   }
 }

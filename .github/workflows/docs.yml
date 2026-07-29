@@ -1,8 +1,8 @@
 name: Docs
 
-# Build the Docusaurus site (which runs TypeDoc against ../src for the API
-# reference) and deploy it to GitHub Pages. The docs dependency tree is itself
-# gated through targate — the tool eats its own dog food on its own docs.
+# Build the Starlight (Astro) site (which runs TypeDoc against ../src for the
+# API reference) and deploy it to GitHub Pages. The docs dependency tree is
+# itself gated through targate — the tool eats its own dog food on its own docs.
 on:
   push:
     branches: [main]
@@ -65,14 +65,14 @@ jobs:
         working-directory: website
         run: pnpm typecheck
 
-      - name: Build (TypeDoc API + Docusaurus)
+      - name: Build (TypeDoc API + Astro/Starlight)
         working-directory: website
         run: pnpm build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
-          path: website/build
+          path: website/dist
 
   deploy:
     name: deploy to GitHub Pages

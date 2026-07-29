@@ -1,10 +1,7 @@
 ---
 title: React Native hardening
-sidebar_position: 5
 description: Why native surface matters and what targate inspects in React Native packages.
 ---
-
-# React Native hardening
 
 targate's first audience is **React Native teams**, and RN dependencies carry risk that pure-JS analysis misses: a package can ship **native code** that runs build-time logic on developer machines and in CI, long before any JavaScript executes.
 
@@ -35,4 +32,4 @@ targate graph --only native,scripts
 targate graph --only high-risk --format svg --output risk.svg
 ```
 
-The graph renders as self-contained interactive HTML, static SVG, Graphviz DOT, Mermaid (for GitHub PRs), or JSON — see **[Scenarios](../scenarios)**.
+The graph renders as self-contained interactive HTML, static SVG, Graphviz DOT, Mermaid (for GitHub PRs), or JSON — see **[Scenarios](/scenarios/)**.
