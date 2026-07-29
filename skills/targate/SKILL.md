@@ -9,7 +9,7 @@ description: >-
 
 # Gate npm installs through targate
 
-`targate` is a pre-install security gate for npm packages. Installing a package runs its install-time lifecycle scripts on this machine, so every new dependency must be analyzed by `targate` **before** it is installed.
+`targate` is an install-time supply-chain security gate for npm packages. Installing a package runs its install-time lifecycle scripts on this machine, so every new dependency must be analyzed by `targate` **before** it is installed.
 
 ## The rule
 

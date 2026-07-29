@@ -87,7 +87,7 @@ describe("documentation consistency", () => {
 describe("product positioning (Milestone 6.1)", () => {
   it("keeps one canonical primary description", () => {
     expect(PRODUCT_DESCRIPTION).toBe(
-      "targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents.",
+      "targate is install-time supply-chain security for npm — open source, AI-optional, and run from your terminal.",
     );
   });
 
@@ -102,9 +102,12 @@ describe("product positioning (Milestone 6.1)", () => {
     expect(manifest.description).toContain(PRODUCT_DESCRIPTION);
   });
 
-  it("keeps pre-install security framed as the first application, not the whole category", () => {
+  it("leads with the supply-chain-security category and distinguishes it from app-sec", () => {
     const readme = readFileSync(path.join(repoRoot, "README.md"), "utf8");
-    expect(readme).toMatch(/first application/i);
+    // The H1 states the category up front, not an abstract "intelligence layer".
+    expect(readme).toMatch(/^# targate — install-time supply-chain security for npm/m);
+    expect(readme).toMatch(/supply-chain, not application security/i);
+    // The honest roadmap section is kept.
     expect(readme).toContain("What's shipped today vs. the vision");
   });
 });

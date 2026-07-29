@@ -1,8 +1,13 @@
-# targate — gate every dependency before it runs
+# targate — install-time supply-chain security for npm, in your terminal
 
-**targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents.** Its **first application** — the one shipped today — is **pre-install security**: it analyzes an npm package **before** it touches your machine (metadata, lifecycle scripts, tarball contents, React Native native surface, and known malicious-package records), produces an allow / warn / approve / block decision, and only runs the real install if the package passes. Pre-install security is the first application, not the whole category — see [what's shipped today vs. the vision](#whats-shipped-today-vs-the-vision).
+**targate is install-time supply-chain security for npm — open source, AI-optional, and run from your terminal.** It vets every dependency **before** its code can run: it fetches the published tarball into an isolated quarantine (lifecycle scripts never execute), reads the install-time scripts, analyzes the resolved lockfile before anything is downloaded for real, checks reputation and known-malicious records, and returns an allow / warn / approve / block decision — then runs the real install only if the package passes.
 
-Installing a package runs its lifecycle scripts on your machine. `targate` gates that moment. New to the problem it solves? Start with [Why targate](docs/why.md).
+Four things define it:
+
+- **Install-time.** The gate sits at the exact moment `npm install` would otherwise run a package's lifecycle scripts on your machine — _before_ code executes, not after.
+- **Supply-chain, not application security.** It reasons about what a third-party dependency _does when you install it_, not about bugs in the code you write. See [supply chain vs. application security](docs/why.md#supply-chain-security-not-application-security).
+- **AI-optional.** A deterministic rules engine decides on its own; an AI reviewer, when configured, can only make a verdict _stricter_ and can run on a local model. With no provider, nothing leaves your machine.
+- **Terminal-native & open source.** One CLI in the workflow and CI you already have — no dashboard, no account, no SaaS. New to the problem it solves? Start with [Why targate](docs/why.md).
 
 ## Quick start
 
@@ -135,7 +140,7 @@ Exit codes: `0` ok · `1` error · `2` blocked (or suspicious sandbox / failed C
 
 ## What's shipped today vs. the vision
 
-targate is a dependency **intelligence and decision** layer. Pre-install security is the first application built on that layer, not the whole of it. To keep messaging honest, here is the line between what ships today and where the product is going.
+Install-time supply-chain security is what targate _is_ today. Under the hood it is a dependency **intelligence and decision** layer, and that engine can grow beyond the install gate. To keep messaging honest, here is the line between what ships today and where the product is going.
 
 **Available today** — everything in this README is implemented and tested:
 

@@ -45,7 +45,7 @@ export const CORE_RULE =
   "Before adding or installing ANY npm dependency, run `targate add <package>[@version] --yes` instead of `npm install` / `pnpm add` / `yarn add`. If targate exits non-zero (2 = blocked or needs human approval), STOP and report its reasons to the user — never fall back to a raw package-manager install to get around it.";
 
 /** The full contract, shared by SKILL.md and AGENTS.md. No leading H1. */
-const AGENT_CONTRACT = `\`targate\` is a pre-install security gate for npm packages. Installing a package runs its install-time lifecycle scripts on this machine, so every new dependency must be analyzed by \`targate\` **before** it is installed.
+const AGENT_CONTRACT = `\`targate\` is an install-time supply-chain security gate for npm packages. Installing a package runs its install-time lifecycle scripts on this machine, so every new dependency must be analyzed by \`targate\` **before** it is installed.
 
 ## The rule
 

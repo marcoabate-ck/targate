@@ -1,6 +1,6 @@
 # Contributing to targate
 
-Thanks for your interest. targate is a security tool, so the bar for changes —
+Thanks for your interest. targate is an install-time supply-chain security tool, so the bar for changes —
 especially anything touching the decision path — is deliberately high. This guide
 explains how to get a change merged.
 

@@ -3,12 +3,31 @@ slug: /
 title: What is targate?
 sidebar_label: What is targate?
 sidebar_position: 1
-description: Why targate exists and what problem it solves — gating dependencies before their install scripts run.
+description: Install-time supply-chain security for npm — open source, AI-optional, and run from your terminal. It vets every dependency before its code can run.
 ---
 
-# targate — gate every dependency before it runs
+# targate — install-time supply-chain security for npm, in your terminal
 
-**targate is an AI-assisted dependency intelligence and decision layer for developers, teams, and coding agents.** Its first shipped application is **pre-install security**: it analyzes an npm package **before** it touches your machine, produces an allow / warn / approve / block decision, and only runs the real install if the package passes.
+**targate is open-source, AI-optional supply-chain security that runs where you install.** It vets every npm dependency **before** its code can run — analyzing the tarball, lifecycle scripts, and resolved lockfile, and checking reputation and known-malicious records — then returns an allow / warn / approve / block decision and only runs the real install if the package passes.
+
+Four things define it:
+
+- **Install-time** — the gate sits at the exact moment `npm install` would otherwise run a package's lifecycle scripts on your machine, before code executes.
+- **Supply-chain, not application security** — it reasons about what a third-party dependency does when you install it, not about bugs in the code you write.
+- **AI-optional** — a deterministic rules engine decides on its own; an AI reviewer, when configured, can only make a verdict stricter, and can run on a local model.
+- **Terminal-native & open source** — one CLI in the workflow and CI you already have. No dashboard, no account, no SaaS.
+
+## Supply chain security, not application security
+
+Application-security tools — SAST, linters, AI code reviewers — analyze **the code you write**, looking for bugs in your own source. targate answers a different question: **is it safe to bring this third-party dependency onto my machine at all?** That risk lands at install time, before any of your code runs, and it needs checks an application-security scanner does not perform:
+
+- **Tarball pre-analysis** — the exact published artifact is fetched into an isolated quarantine and inspected _before_ it can be installed.
+- **Install simulation without execution** — lifecycle scripts are read, never run; an optional sandbox observes a real `npm install` in a throwaway container and reports what it tried to do.
+- **Lifecycle-script verification** — `preinstall`/`install`/`postinstall` command strings and the files they reference are statically analyzed for fetch-and-execute and credential-access patterns.
+- **Lockfile pre-download analysis** — with `--deep` / `targate install`, the resolved lockfile is analyzed _before_ the real download, so a malicious transitive dependency is caught before it lands.
+- **Reputation as an install gate** — package and maintainer reputation, age, provenance, and known-malicious records **decide** the install, not merely annotate a report.
+
+The two are complementary: an app-sec scanner keeps your own code clean; targate keeps untrusted third-party code from running on your machine in the first place.
 
 ## The problem
 
@@ -62,5 +81,5 @@ Decision: ALLOW   (risk: low, source: rules)
 - **[API reference](./api)** — the exported TypeScript types (config itself is declarative YAML/JSON).
 
 :::note What ships today vs. the vision
-targate is a dependency **intelligence and decision** layer. Pre-install security is the first application built on it, not the whole category. Everything in this guide is implemented and tested; directional roadmap items are called out as such.
+Install-time supply-chain security is what targate is today. Under the hood it is a dependency **intelligence and decision** layer, and that engine can grow beyond the install gate. Everything in this guide is implemented and tested; directional roadmap items are called out as such.
 :::
