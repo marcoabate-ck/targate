@@ -1,0 +1,14 @@
+{
+  // Static-assets deploy for the Workers Builds flow: `npx wrangler deploy`
+  // uploads the built `dist/` as assets — there is no Worker script. Starlight's
+  // generated 404.html is served on unknown paths. `_headers` / `_redirects`
+  // inside dist/ are honored by Workers static assets.
+  //
+  // `name` must match the Workers project name you created in the dashboard.
+  "name": "targate",
+  "compatibility_date": "2025-01-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page"
+  }
+}

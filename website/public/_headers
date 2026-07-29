@@ -1,0 +1,12 @@
+# Cloudflare Pages security headers (applied to every response).
+# Conservative on purpose — no CSP yet, so Starlight/Mermaid inline styles and
+# scripts keep working. Tighten with a CSP later once the inline surface is audited.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+
+# Long-cache the fingerprinted build assets.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
