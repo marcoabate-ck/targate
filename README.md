@@ -53,8 +53,6 @@ Preview a package without installing anything with `--dry-run`, or record a comm
 
 `targate` ships three ways — all install the same CLI.
 
-> **Note:** only the **npm** method works today. The install script and the direct binary downloads go live with the **first tagged release** — until then their commands below are shown for reference and will 404.
-
 **npm** — every platform, needs Node ≥ 22.13:
 
 ```bash
