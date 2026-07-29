@@ -1,0 +1,158 @@
+---
+import { COPY, NPM_LINES, TARGATE_LINES, FINDING_BADGES } from "../../lib/landing.js";
+
+const a11ySummary =
+  "Comparison showing that npm executes a malicious package lifecycle script during installation, while targate inspects the same package in quarantine and blocks it before execution.";
+---
+
+<p class="compare-kicker">{COPY.comparisonKicker}</p>
+
+<div class="compare-status" aria-hidden="true">
+  <span class="npm">npm · EXECUTED</span>
+  <span class="targate">targate · BLOCKED</span>
+</div>
+
+<div class="compare" data-compare role="img" aria-label={a11ySummary}>
+  <!-- npm: installs first, trusts implicitly -->
+  <div class="term term--npm" data-side="npm" aria-hidden="true">
+    <div class="term__bar">
+      <span class="term__dot"></span>
+      <span class="term__label">npm</span>
+      <span class="term__tag">DIRECT INSTALL</span>
+    </div>
+    <p class="term__desc"><b>Installs first.</b> Trusts implicitly.</p>
+    <div class="term__body">
+      {NPM_LINES.map((l) => <span class={`line ${l.tone}`} data-at={l.at}>{l.text}</span>)}
+    </div>
+    <div class="verdict verdict--executed" data-verdict="npm">INSTALLED · executed before trust</div>
+  </div>
+
+  <!-- targate: inspects first, executes conditionally -->
+  <div class="term term--targate" data-side="targate" aria-hidden="true">
+    <div class="term__bar">
+      <span class="term__dot"></span>
+      <span class="term__label">targate</span>
+      <span class="term__tag">QUARANTINED INSTALL</span>
+    </div>
+    <p class="term__desc"><b>Inspects first.</b> Executes conditionally.</p>
+    <div class="quarantine"><span>QUARANTINE</span><span>NO CODE EXECUTED</span></div>
+    <div class="term__body">
+      {TARGATE_LINES.map((l) => <span class={`line ${l.tone}`} data-at={l.at}>{l.text}</span>)}
+    </div>
+    <div class="badges">
+      {FINDING_BADGES.map((b) => <span class="badge">{b}</span>)}
+    </div>
+    <div class="verdict verdict--blocked" data-verdict="targate">BLOCK · inspected before execution</div>
+  </div>
+</div>
+
+<div class="replay-row">
+  <button class="replay" type="button" aria-label="Replay the comparison animation">↻ Replay</button>
+</div>
+
+<p class="closing">
+  <span class="npm">{COPY.closing.npm}</span> <span class="targate">{COPY.closing.targate}</span>
+  <span class="payoff">{COPY.payoff}</span>
+</p>
+
+<noscript>
+  <p class="section-lead" style="margin-top:16px">
+    npm installs the package and its malicious <code>postinstall</code> runs immediately.
+    targate downloads the same package into quarantine, inspects it without executing it,
+    and blocks it — <strong>Decision: BLOCK (risk: high)</strong>. No package code runs.
+  </p>
+</noscript>
+
+<script>
+  import { TOTAL_MS, stateAt, stageStart } from "../../lib/landing.js";
+
+  const root = document.querySelector<HTMLElement>("[data-compare]");
+  if (root) {
+    const q = (sel: string) => Array.from(root.querySelectorAll<HTMLElement>(sel));
+    const npmLines = q('[data-side="npm"] .line');
+    const tarLines = q('[data-side="targate"] .line');
+    const npmTerm = root.querySelector<HTMLElement>(".term--npm")!;
+    const tarTerm = root.querySelector<HTMLElement>(".term--targate")!;
+    const npmVerdict = root.querySelector<HTMLElement>('[data-verdict="npm"]')!;
+    const tarVerdict = root.querySelector<HTMLElement>('[data-verdict="targate"]')!;
+    const badges = q(".badge");
+    const replay = document.querySelector<HTMLButtonElement>(".replay");
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    let raf = 0;
+    let startAt = 0;
+    let elapsed = 0;
+    let playing = false;
+    let inView = false;
+
+    const apply = (ms: number) => {
+      const s = stateAt(ms);
+      root.dataset.stage = s.stage;
+      npmLines.forEach((el, i) => el.classList.toggle("show", i < s.npmVisible));
+      tarLines.forEach((el, i) => el.classList.toggle("show", i < s.targateVisible));
+      tarTerm.classList.toggle("quarantining", ms >= stageStart("fetching"));
+      npmTerm.classList.toggle("breached", s.npmBreached);
+      tarTerm.classList.toggle("blocked", s.targateBlocked);
+      npmVerdict.classList.toggle("show", s.npmBreached);
+      tarVerdict.classList.toggle("show", s.targateBlocked);
+      const badgeStart = stageStart("analyzing");
+      badges.forEach((b, i) => b.classList.toggle("show", ms >= badgeStart + i * 300));
+    };
+
+    const frame = (now: number) => {
+      if (!playing) return;
+      elapsed = now - startAt;
+      if (elapsed >= TOTAL_MS) {
+        apply(TOTAL_MS);
+        playing = false;
+        return;
+      }
+      apply(elapsed);
+      raf = requestAnimationFrame(frame);
+    };
+    const play = () => {
+      if (playing || elapsed >= TOTAL_MS) return;
+      playing = true;
+      startAt = performance.now() - elapsed;
+      raf = requestAnimationFrame(frame);
+    };
+    const pause = () => {
+      playing = false;
+      cancelAnimationFrame(raf);
+    };
+    const reset = () => {
+      pause();
+      elapsed = 0;
+      apply(0);
+    };
+
+    if (reduce) {
+      apply(TOTAL_MS); // static final state, no timeline
+    } else {
+      apply(0);
+      new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            inView = e.isIntersecting;
+            if (inView && !document.hidden) play();
+            else pause();
+          }
+        },
+        { threshold: 0.4 },
+      ).observe(root);
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) pause();
+        else if (inView) play();
+      });
+    }
+
+    replay?.addEventListener("click", () => {
+      if (reduce) {
+        apply(TOTAL_MS);
+        return;
+      }
+      reset();
+      play();
+    });
+  }
+</script>

@@ -11,7 +11,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "typecheck": "astro check"
+    "typecheck": "astro check",
+    "test": "vitest run"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.5",
@@ -24,7 +25,8 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=22.13"

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0a0d14"/>
+  <rect x="24" y="24" width="1152" height="582" rx="16" fill="#10151f" stroke="#1f2733" stroke-width="2"/>
+  <text x="88" y="132" font-family="monospace" font-size="34" font-weight="700" fill="#e8ebf0">&gt; <tspan fill="#818cf8">targate</tspan></text>
+  <text x="88" y="214" font-family="monospace" font-size="21" letter-spacing="6" fill="#818cf8">INSTALL-TIME SUPPLY-CHAIN SECURITY</text>
+  <text x="86" y="332" font-family="sans-serif" font-size="76" font-weight="700" fill="#e8ebf0">Stop untrusted code</text>
+  <text x="86" y="416" font-family="sans-serif" font-size="76" font-weight="700" fill="#e8ebf0">before it runs.</text>
+  <text x="88" y="504" font-family="monospace" font-size="25" fill="#9aa6b8">Open source / Deterministic by default / AI optional</text>
+  <text x="88" y="556" font-family="monospace" font-size="22" fill="#34d399">targate add &lt;pkg&gt;  ->  inspect, then install or BLOCK</text>
+</svg>

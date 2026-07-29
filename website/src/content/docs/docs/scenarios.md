@@ -12,7 +12,7 @@ targate ci init                                   # scaffold a workflow
 targate ci --base-ref origin/main --fail-on-osv-error
 ```
 
-`targate ci` compares the dependency changes against a Git ref and exits `2` when the new or changed dependencies don't pass. Because approvals are **read** in CI but never **created** there, a package only passes if a committed, reviewed approval covers it — see **[Approvals & policy](/concepts/approvals-and-policy/)**. To vet the entire tree instead of just the diff, use `targate install --dry-run`.
+`targate ci` compares the dependency changes against a Git ref and exits `2` when the new or changed dependencies don't pass. Because approvals are **read** in CI but never **created** there, a package only passes if a committed, reviewed approval covers it — see **[Approvals & policy](/docs/concepts/approvals-and-policy/)**. To vet the entire tree instead of just the diff, use `targate install --dry-run`.
 
 ## Review an upgrade (yours, Renovate's, Dependabot's)
 

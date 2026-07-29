@@ -1,7 +1,12 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    // `website/` is a separate pnpm project (Astro/Starlight) with its own
+    // vitest and tsconfig (`extends: astro/tsconfigs/strict`, resolvable only
+    // inside website/node_modules). Keep the root run out of it — the docs site
+    // runs its own tests via `website/ pnpm test`.
+    exclude: [...configDefaults.exclude, "website/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "text-summary"],
