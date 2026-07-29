@@ -32,6 +32,12 @@ export interface GraphLayout {
 export const NODE_HEIGHT = 34;
 const LAYER_GAP = 56;
 const COLUMN_GAP = 22;
+// A hairball layer (a root with dozens of direct deps, or many packages sharing
+// one depth) would otherwise lay out as a single row thousands of px wide,
+// giving the SVG a ~17:1 aspect ratio that renders as a thin ~70px strip once
+// scaled to a page. Cap a row's width and wrap the overflow onto stacked rows so
+// the drawing keeps roughly page proportions.
+const MAX_ROW_WIDTH = 1600;
 const CHAR_WIDTH = 7.3;
 const MIN_NODE_WIDTH = 70;
 const MAX_NODE_WIDTH = 280;
@@ -134,32 +140,50 @@ export function layoutGraph(graph: DependencyGraph): GraphLayout {
 
   // Coordinates.
   const label = new Map(graph.nodes.map((n) => [n.id, n.version ? `${n.name}@${n.version}` : n.name]));
-  const positioned = new Map<string, PositionedNode>();
-  let maxRowWidth = 0;
-  const rowWidths = layers.map((row) =>
-    row.reduce((sum, id) => sum + nodeWidth(label.get(id) ?? id) + COLUMN_GAP, -COLUMN_GAP),
-  );
-  maxRowWidth = Math.max(0, ...rowWidths);
+  const widthOf = (id: string): number => nodeWidth(label.get(id) ?? id);
 
+  // Wrap each ordered layer into width-capped visual rows so a hairball layer
+  // stacks instead of stretching into one enormous row. Order is preserved (the
+  // barycenter result), so wrapping only folds the row, it doesn't reshuffle it.
+  // An empty layer still yields one (empty) visual row to preserve its spacing.
+  const visualRows: { layer: number; ids: string[] }[] = [];
   layers.forEach((row, l) => {
-    let x = PADDING + (maxRowWidth - rowWidths[l]) / 2;
+    let current: string[] = [];
+    let currentWidth = -COLUMN_GAP;
     for (const id of row) {
-      const w = nodeWidth(label.get(id) ?? id);
-      positioned.set(id, {
-        id,
-        x: x + w / 2,
-        y: PADDING + l * (NODE_HEIGHT + LAYER_GAP) + NODE_HEIGHT / 2,
-        width: w,
-        height: NODE_HEIGHT,
-        layer: l,
-      });
+      const advance = widthOf(id) + COLUMN_GAP;
+      if (current.length > 0 && currentWidth + advance > MAX_ROW_WIDTH) {
+        visualRows.push({ layer: l, ids: current });
+        current = [];
+        currentWidth = -COLUMN_GAP;
+      }
+      current.push(id);
+      currentWidth += advance;
+    }
+    visualRows.push({ layer: l, ids: current });
+  });
+  if (visualRows.length === 0) visualRows.push({ layer: 0, ids: [] });
+
+  const rowWidths = visualRows.map((r) =>
+    r.ids.reduce((sum, id) => sum + widthOf(id) + COLUMN_GAP, -COLUMN_GAP),
+  );
+  const maxRowWidth = Math.max(0, ...rowWidths);
+
+  const positioned = new Map<string, PositionedNode>();
+  visualRows.forEach((r, vr) => {
+    let x = PADDING + (maxRowWidth - Math.max(0, rowWidths[vr])) / 2;
+    const y = PADDING + vr * (NODE_HEIGHT + LAYER_GAP) + NODE_HEIGHT / 2;
+    for (const id of r.ids) {
+      const w = widthOf(id);
+      positioned.set(id, { id, x: x + w / 2, y, width: w, height: NODE_HEIGHT, layer: r.layer });
       x += w + COLUMN_GAP;
     }
   });
 
+  const rowCount = visualRows.length;
   return {
     nodes: positioned,
     width: maxRowWidth + PADDING * 2,
-    height: PADDING * 2 + layers.length * NODE_HEIGHT + (layers.length - 1) * LAYER_GAP,
+    height: PADDING * 2 + rowCount * NODE_HEIGHT + (rowCount - 1) * LAYER_GAP,
   };
 }
