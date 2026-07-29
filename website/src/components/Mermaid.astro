@@ -1,0 +1,57 @@
+---
+/**
+ * Client-side Mermaid renderer. mermaid.js is imported inside the <script>, so
+ * it is bundled only for pages that actually use this component — no headless
+ * browser at build time, no global dependency. The diagram source is passed as
+ * a prop and rendered as escaped text; the script decodes it and draws the SVG.
+ */
+interface Props {
+  chart: string;
+}
+const { chart } = Astro.props;
+---
+
+<pre class="mermaid not-content">{chart}</pre>
+
+<script>
+  import mermaid from "mermaid";
+
+  const themeFor = () =>
+    document.documentElement.dataset.theme === "dark" ? "dark" : "default";
+
+  const render = async () => {
+    const nodes = document.querySelectorAll<HTMLElement>(
+      ".mermaid:not([data-processed])",
+    );
+    if (nodes.length === 0) return;
+    mermaid.initialize({ startOnLoad: false, theme: themeFor() });
+    await mermaid.run({ nodes });
+  };
+
+  // Initial render, and re-render after Starlight's client-side navigation.
+  render();
+  document.addEventListener("astro:after-swap", render);
+
+  // Re-render when the user toggles light/dark so the diagram matches.
+  const observer = new MutationObserver(() => {
+    document
+      .querySelectorAll<HTMLElement>(".mermaid[data-processed]")
+      .forEach((el) => {
+        // Restore the source so mermaid.run can reprocess it under the new theme.
+        if (el.dataset.source) {
+          el.textContent = el.dataset.source;
+          el.removeAttribute("data-processed");
+        }
+      });
+    render();
+  });
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
+
+  // Stash the original source before the first render consumes it.
+  document.querySelectorAll<HTMLElement>(".mermaid").forEach((el) => {
+    if (!el.dataset.source) el.dataset.source = el.textContent ?? "";
+  });
+</script>

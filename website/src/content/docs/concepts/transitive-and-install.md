@@ -1,10 +1,7 @@
 ---
 title: Transitive analysis & install
-sidebar_position: 3
 description: Gating a single package's tree with --deep, and vetting the whole lockfile with targate install.
 ---
-
-# Transitive analysis & install
 
 ## `--deep`: analyze the transitive tree
 
@@ -14,7 +11,7 @@ description: Gating a single package's tree with --deep, and vetting the whole l
 targate add esbuild --yes --deep
 ```
 
-:::tip Strongly recommended before a real install
+:::tip[Strongly recommended before a real install]
 A shallow `ALLOW` only vouches for the package you named, and a malicious dependency usually hides deeper in the tree — so run `--deep` (or `targate install`) before adding a dependency to a real project or in CI. It is **opt-in, not default**, because a deep run resolves and analyzes the entire transitive tree (more registry/tarball/OSV traffic and, with an AI provider, more model calls). Keeping it opt-in leaves the quick per-package check fast and cheap; the response cache amortizes repeat runs, and a shallow `ALLOW` reminds you the tree wasn't analyzed.
 :::
 
@@ -34,7 +31,7 @@ targate install --update-lockfile --dry-run  # resolve a fresh plan and review i
 - `--frozen-lockfile` mirrors the package manager's frozen install.
 - `--update-lockfile` resolves a staged install plan (in a throwaway directory, scripts disabled) to produce the lockfile to review.
 
-The install is refused if anything is blocked or unapproved. Interactively, targate offers to approve the approvable packages in one step; the rest must be cleared with committed approvals. See **[Approvals & policy](./approvals-and-policy)**.
+The install is refused if anything is blocked or unapproved. Interactively, targate offers to approve the approvable packages in one step; the rest must be cleared with committed approvals. See **[Approvals & policy](/concepts/approvals-and-policy/)**.
 
 ## pnpm build scripts
 

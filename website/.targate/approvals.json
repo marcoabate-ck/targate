@@ -1,14 +1,27 @@
 {
-  "core-js@3.49.0": {
+  "esbuild@0.28.1": {
     "mode": "normal",
-    "approvedAt": "2026-07-16T00:00:00.000Z",
+    "approvedAt": "2026-07-29T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "block",
+      "source": "rules",
+      "reasons": [
+        "Native-binary installer: its install script reads process.env AND fetches its platform binary from the network — indistinguishable from exfiltration by static pattern, but the canonical, routinely-legitimate esbuild install. Soft block, cleared here.",
+        "Vouched: ubiquitous, widely-audited build tool; part of the Astro/Vite docs toolchain. Its build is separately gated by pnpm allowBuilds in website/pnpm-workspace.yaml."
+      ]
+    }
+  },
+  "vite@8.1.5": {
+    "mode": "normal",
+    "approvedAt": "2026-07-29T00:00:00.000Z",
     "approvedBy": "marco.abate@callstack.com",
     "context": {
       "decision": "require_approval",
       "source": "rules",
       "reasons": [
-        "postinstall prints a funding notice only (no build step); transitive dependency of the Docusaurus toolchain.",
-        "Vouched: reputable, ubiquitous polyfill; its build is separately gated by pnpm allowBuilds in website/pnpm-workspace.yaml."
+        "[unknown] npm registry metadata exceeds the 16 MiB analysis limit — vite's packument is genuinely very large, so the analysis is degraded, not clean. No install-time scripts.",
+        "Vouched: the build tool underpinning Astro; the exact version is pinned by the reviewed lockfile."
       ]
     }
   },
@@ -22,6 +35,97 @@
       "reasons": [
         "Registry packument declares an install-time script the checksum-verified tarball omits — benign npm packument/tarball drift, not tampering. macOS-only optional dependency of the toolchain.",
         "Vouched: bytes match the reviewed lockfile checksum; the authentic tarball runs no install-time script."
+      ]
+    }
+  },
+  "@pagefind/darwin-arm64@1.5.2": {
+    "mode": "normal",
+    "approvedAt": "2026-07-29T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "[unknown] the prebuilt `pagefind_extended` search binary exceeds the 32 MiB per-file scan limit, so contents can't be fully scanned — degraded, not clean. No lifecycle scripts.",
+        "Vouched: Pagefind is Starlight's bundled static search; these are its per-platform prebuilt binaries, an optionalDependency selected by OS/arch."
+      ]
+    }
+  },
+  "@pagefind/darwin-x64@1.5.2": {
+    "mode": "normal",
+    "approvedAt": "2026-07-29T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "[unknown] the prebuilt `pagefind_extended` search binary exceeds the 32 MiB per-file scan limit, so contents can't be fully scanned — degraded, not clean. No lifecycle scripts.",
+        "Vouched: Pagefind is Starlight's bundled static search; these are its per-platform prebuilt binaries, an optionalDependency selected by OS/arch."
+      ]
+    }
+  },
+  "@pagefind/freebsd-x64@1.5.2": {
+    "mode": "normal",
+    "approvedAt": "2026-07-29T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "[unknown] the prebuilt `pagefind_extended` search binary exceeds the 32 MiB per-file scan limit, so contents can't be fully scanned — degraded, not clean. No lifecycle scripts.",
+        "Vouched: Pagefind is Starlight's bundled static search; these are its per-platform prebuilt binaries, an optionalDependency selected by OS/arch."
+      ]
+    }
+  },
+  "@pagefind/linux-arm64@1.5.2": {
+    "mode": "normal",
+    "approvedAt": "2026-07-29T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "[unknown] the prebuilt `pagefind_extended` search binary exceeds the 32 MiB per-file scan limit, so contents can't be fully scanned — degraded, not clean. No lifecycle scripts.",
+        "Vouched: Pagefind is Starlight's bundled static search; these are its per-platform prebuilt binaries, an optionalDependency selected by OS/arch."
+      ]
+    }
+  },
+  "@pagefind/linux-x64@1.5.2": {
+    "mode": "normal",
+    "approvedAt": "2026-07-29T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "[unknown] the prebuilt `pagefind_extended` search binary exceeds the 32 MiB per-file scan limit, so contents can't be fully scanned — degraded, not clean. No lifecycle scripts.",
+        "Vouched: Pagefind is Starlight's bundled static search; these are its per-platform prebuilt binaries, an optionalDependency selected by OS/arch."
+      ]
+    }
+  },
+  "@pagefind/windows-arm64@1.5.2": {
+    "mode": "normal",
+    "approvedAt": "2026-07-29T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "[unknown] the prebuilt `pagefind_extended.exe` search binary exceeds the 32 MiB per-file scan limit, so contents can't be fully scanned — degraded, not clean. No lifecycle scripts.",
+        "Vouched: Pagefind is Starlight's bundled static search; these are its per-platform prebuilt binaries, an optionalDependency selected by OS/arch."
+      ]
+    }
+  },
+  "@pagefind/windows-x64@1.5.2": {
+    "mode": "normal",
+    "approvedAt": "2026-07-29T00:00:00.000Z",
+    "approvedBy": "marco.abate@callstack.com",
+    "context": {
+      "decision": "require_approval",
+      "source": "rules",
+      "reasons": [
+        "[unknown] the prebuilt `pagefind_extended.exe` search binary exceeds the 32 MiB per-file scan limit, so contents can't be fully scanned — degraded, not clean. No lifecycle scripts.",
+        "Vouched: Pagefind is Starlight's bundled static search; these are its per-platform prebuilt binaries, an optionalDependency selected by OS/arch."
       ]
     }
   }

@@ -1,10 +1,7 @@
 ---
 title: FAQ
-sidebar_position: 6
 description: Common questions about targate — trust, privacy, scope, and limitations.
 ---
-
-# FAQ
 
 ### Does targate run the package's install scripts?
 
@@ -12,7 +9,7 @@ No. Analysis happens in a **quarantine**: the tarball is downloaded, its bytes a
 
 ### Can a clever `postinstall` or a prompt-injected README trick the AI into allowing it?
 
-No. The deterministic **rules engine** decides first and its verdict is a floor. The AI can only make a verdict *stricter*, never weaker — see **[AI & privacy](./concepts/ai-and-privacy)**. And a hard block (mutated bytes, known-malicious, remote-code execution) can't be overridden by anything.
+No. The deterministic **rules engine** decides first and its verdict is a floor. The AI can only make a verdict *stricter*, never weaker — see **[AI & privacy](/concepts/ai-and-privacy/)**. And a hard block (mutated bytes, known-malicious, remote-code execution) can't be overridden by anything.
 
 ### Do I need an AI provider?
 
@@ -24,7 +21,7 @@ Your source code and dependency graph are not sent to any model when you run rul
 
 ### Why did a perfectly normal package (like esbuild or fsevents) get flagged?
 
-Native-binary installers legitimately read environment variables and fetch a platform binary at install time — indistinguishable from exfiltration by static pattern. targate marks these as **soft blocks / require-approval**, which you clear with a committed approval. See **[Decisions & trust](./concepts/decisions-and-trust)**.
+Native-binary installers legitimately read environment variables and fetch a platform binary at install time — indistinguishable from exfiltration by static pattern. targate marks these as **soft blocks / require-approval**, which you clear with a committed approval. See **[Decisions & trust](/concepts/decisions-and-trust/)**.
 
 ### Does targate replace `npm audit` or Dependabot?
 

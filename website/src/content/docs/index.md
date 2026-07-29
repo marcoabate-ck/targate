@@ -1,14 +1,9 @@
 ---
-slug: /
 title: What is targate?
-sidebar_label: What is targate?
-sidebar_position: 1
 description: Install-time supply-chain security for npm — open source, AI-optional, and run from your terminal. It vets every dependency before its code can run.
 ---
 
-# targate — install-time supply-chain security for npm, in your terminal
-
-**targate is open-source, AI-optional supply-chain security that runs where you install.** It vets every npm dependency **before** its code can run — analyzing the tarball, lifecycle scripts, and resolved lockfile, and checking reputation and known-malicious records — then returns an allow / warn / approve / block decision and only runs the real install if the package passes.
+**targate is install-time supply-chain security for npm — open source, AI-optional, and run from your terminal.** It vets every npm dependency **before** its code can run — analyzing the tarball, lifecycle scripts, and resolved lockfile, and checking reputation and known-malicious records — then returns an allow / warn / approve / block decision and only runs the real install if the package passes.
 
 Four things define it:
 
@@ -67,7 +62,7 @@ Decision: ALLOW   (risk: low, source: rules)
 
 ## Why it can be trusted
 
-- **Deterministic security floor.** A rules engine decides first; the AI reviewer can only make a verdict *stricter*, never weaker. A jailbroken or prompt-injected model cannot turn a block into an allow.
+- **Deterministic security floor.** A rules engine decides first; the AI reviewer can only make a verdict _stricter_, never weaker. A jailbroken or prompt-injected model cannot turn a block into an allow.
 - **Nothing untrusted executes during analysis.** Tarballs are SHA-512 identified and checked against every available registry, lockfile, public-mirror, and historical digest before being read in a resource-bounded quarantine.
 - **Auditable trust.** Every approval records who, when, the verdict, the tool version, the AI model, and the policy hash — and can be SSH-signed so a hand-edited approvals file cannot green a poisoned dependency.
 - **Local-AI capable.** The AI reasoning can run entirely on a local model; with no provider configured, targate runs on the deterministic rules engine alone and sends nothing to any model.
@@ -75,11 +70,11 @@ Decision: ALLOW   (risk: low, source: rules)
 
 ## Where to go next
 
-- **[Getting started](./getting-started)** — install the CLI and gate your first package.
-- **[How it works](./how-it-works)** — the full analysis pipeline, step by step.
-- **[Scenarios](./scenarios)** — CI gating, private registries, monorepos, coding agents, sandboxing.
-- **[API reference](./api)** — the exported TypeScript types (config itself is declarative YAML/JSON).
+- **[Getting started](/getting-started/)** — install the CLI and gate your first package.
+- **[How it works](/how-it-works/)** — the full analysis pipeline, step by step.
+- **[Scenarios](/scenarios/)** — CI gating, private registries, monorepos, coding agents, sandboxing.
+- **[API reference](/api/readme/)** — the exported TypeScript types (config itself is declarative YAML/JSON).
 
-:::note What ships today vs. the vision
+:::note[What ships today vs. the vision]
 Install-time supply-chain security is what targate is today. Under the hood it is a dependency **intelligence and decision** layer, and that engine can grow beyond the install gate. Everything in this guide is implemented and tested; directional roadmap items are called out as such.
 :::

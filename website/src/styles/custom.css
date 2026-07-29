@@ -1,0 +1,55 @@
+/**
+ * targate docs theme. Neutral, security-tool palette (deep indigo accent),
+ * ported to Starlight's design tokens. Starlight already handles light/dark;
+ * we only override the accent hue and the gray tint, plus the verdict chips.
+ */
+
+:root {
+  /* Indigo accent (light theme). */
+  --sl-color-accent-low: #e0e7ff;
+  --sl-color-accent: #4f46e5;
+  --sl-color-accent-high: #312aa0;
+}
+
+:root[data-theme="dark"] {
+  /* Lighter indigo for contrast on dark backgrounds. */
+  --sl-color-accent-low: #26224d;
+  --sl-color-accent: #818cf8;
+  --sl-color-accent-high: #c7d2fe;
+}
+
+/* The decision verdicts read as chips in prose. */
+.verdict {
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border-radius: 0.4rem;
+  font-weight: 600;
+  font-size: 0.85em;
+}
+.verdict--allow {
+  background: #dcfce7;
+  color: #166534;
+}
+.verdict--warn {
+  background: #fef9c3;
+  color: #854d0e;
+}
+.verdict--approve {
+  background: #ffedd5;
+  color: #9a3412;
+}
+.verdict--block {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* Mermaid diagrams: center and give the client-rendered SVG room. */
+.mermaid {
+  display: flex;
+  justify-content: center;
+  margin: 1.5rem 0;
+}
+.mermaid:not([data-processed]) {
+  /* Hide the raw source flash before mermaid.js renders it. */
+  visibility: hidden;
+}

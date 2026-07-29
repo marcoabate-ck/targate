@@ -1,10 +1,7 @@
 ---
 title: Decisions & trust
-sidebar_position: 1
 description: The four decisions, hard vs soft blocks, and how tarball artifact identity is established.
 ---
-
-# Decisions & trust
 
 ## The four decisions
 
@@ -17,7 +14,7 @@ Every package resolves to exactly one decision, ordered by severity:
 | <span class="verdict verdict--approve">REQUIRE_APPROVAL</span> | A human should vouch first (install-time scripts, suspicious constructs, unknown analysis). | Only with a committed approval |
 | <span class="verdict verdict--block">BLOCK</span> | Dangerous or untrustworthy. | No |
 
-The **rules engine** produces this verdict deterministically. An AI reviewer, if configured, may raise the severity but can never lower it — the rules verdict is a floor. See **[AI & privacy](./ai-and-privacy)**.
+The **rules engine** produces this verdict deterministically. An AI reviewer, if configured, may raise the severity but can never lower it — the rules verdict is a floor. See **[AI & privacy](/concepts/ai-and-privacy/)**.
 
 ## Hard vs soft blocks
 
