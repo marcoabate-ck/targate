@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
-import { parseRegistryPath } from "../src/proxy.js";
-import { ProxyVerdictCache, sha512Sri } from "../src/proxy-cache.js";
+import { parseRegistryPath, Semaphore } from "../src/proxy.js";
+import { ProxyVerdictCache, sha512Sri, type VerdictRecord } from "../src/proxy-cache.js";
 import { readProxyUplinks, scopeOf, uplinkFor } from "../src/proxy-uplinks.js";
 import { PendingApprovals } from "../src/proxy-approvals.js";
 import { CA_COMMON_NAME, caInstallCommand, caUninstallCommand } from "../src/proxy-tls.js";
@@ -121,6 +121,34 @@ describe("ProxyVerdictCache", () => {
     const reloaded = new ProxyVerdictCache(file);
     expect(reloaded.get("sha512-BBB")?.decision).toBe("block");
     expect(reloaded.size).toBe(1);
+  });
+
+  it("bounds growth by evicting the oldest entries", () => {
+    const cache = new ProxyVerdictCache(file, 2);
+    const rec = (n: string): VerdictRecord => ({ name: n, version: "1.0.0", decision: "allow", summary: "", at: 0 });
+    cache.set("d1", rec("a"));
+    cache.set("d2", rec("b"));
+    cache.set("d3", rec("c")); // evicts d1
+    expect(cache.size).toBe(2);
+    expect(cache.get("d1")).toBeUndefined();
+    expect(cache.get("d3")?.name).toBe("c");
+  });
+});
+
+describe("Semaphore", () => {
+  it("bounds concurrency and releases waiters in FIFO order", async () => {
+    const sem = new Semaphore(1);
+    await sem.acquire();
+    let secondAcquired = false;
+    const second = sem.acquire().then(() => {
+      secondAcquired = true;
+    });
+    // the second acquire must block while the single slot is held
+    await Promise.resolve();
+    expect(secondAcquired).toBe(false);
+    sem.release();
+    await second;
+    expect(secondAcquired).toBe(true);
   });
 });
 

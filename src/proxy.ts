@@ -2,6 +2,7 @@ import http from "node:http";
 import https from "node:https";
 import { Buffer } from "node:buffer";
 import { buildPackageSignals } from "./pipeline.js";
+import { DEFAULT_RESOURCE_LIMITS } from "./resource-limits.js";
 import { PendingApprovals } from "./proxy-approvals.js";
 import { ProxyVerdictCache, sha512Sri } from "./proxy-cache.js";
 import { uplinkFor, type ProxyUplink } from "./proxy-uplinks.js";
@@ -31,6 +32,34 @@ const DEFAULT_UPSTREAM = "https://registry.npmjs.org";
 
 /** Decisions whose bytes may be served. Everything else is refused (fail-closed). */
 const ALLOWED: ReadonlySet<Decision> = new Set<Decision>(["allow", "allow_with_warnings"]);
+
+/** Upstream request timeout and body caps, aligned with the analysis pipeline's limits. */
+const UPSTREAM_TIMEOUT_MS = DEFAULT_RESOURCE_LIMITS.networkTimeoutMs;
+const MAX_PACKUMENT_BYTES = DEFAULT_RESOURCE_LIMITS.maxResponseBytes;
+const MAX_TARBALL_BYTES = DEFAULT_RESOURCE_LIMITS.maxTarballBytes;
+/** Cap concurrent tarball fetch+vet operations so buffered bytes stay bounded (≈ cap × MAX_TARBALL_BYTES). */
+const MAX_CONCURRENT_VETS = 6;
+
+/** Minimal FIFO semaphore bounding concurrent work. Exported for tests. */
+export class Semaphore {
+  private available: number;
+  private readonly waiters: Array<() => void> = [];
+  constructor(max: number) {
+    this.available = max;
+  }
+  acquire(): Promise<void> {
+    if (this.available > 0) {
+      this.available--;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => this.waiters.push(resolve));
+  }
+  release(): void {
+    const next = this.waiters.shift();
+    if (next) next();
+    else this.available++;
+  }
+}
 
 export interface ProxyOptions {
   port: number;
@@ -95,6 +124,7 @@ function fetchUpstream(
   target: string,
   accept: string,
   auth?: string,
+  limits?: { timeoutMs?: number; maxBytes?: number },
 ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
   return new Promise((resolve, reject) => {
     const u = new URL(target);
@@ -103,9 +133,20 @@ function fetchUpstream(
     if (auth) headers.authorization = auth;
     const req = mod.request(u, { method: "GET", headers }, (res) => {
       const chunks: Buffer[] = [];
-      res.on("data", (c) => chunks.push(c as Buffer));
+      let size = 0;
+      res.on("data", (c) => {
+        size += (c as Buffer).length;
+        if (limits?.maxBytes && size > limits.maxBytes) {
+          req.destroy(new Error(`upstream response exceeds ${limits.maxBytes} bytes: ${target}`));
+          return;
+        }
+        chunks.push(c as Buffer);
+      });
       res.on("end", () => resolve({ status: res.statusCode ?? 502, headers: res.headers, body: Buffer.concat(chunks) }));
     });
+    if (limits?.timeoutMs) {
+      req.setTimeout(limits.timeoutMs, () => req.destroy(new Error(`upstream timed out after ${limits.timeoutMs}ms: ${target}`)));
+    }
     req.on("error", reject);
     req.end();
   });
@@ -134,6 +175,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
   const proxyOrigin = `${scheme}://${options.host ?? "127.0.0.1"}:${options.port}`;
   const cache = new ProxyVerdictCache();
   const pending = new PendingApprovals();
+  const vetGate = new Semaphore(MAX_CONCURRENT_VETS);
   const emit = (event: ProxyEvent): void => options.onEvent?.(event);
 
   /** Route a package to its upstream: a matching private-scope uplink, else the default. */
@@ -202,7 +244,10 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
     const parsed = parseRegistryPath(req.url ?? "");
     if (!parsed || req.method !== "GET") {
       // pass anything we do not vet straight through (e.g. self-update checks)
-      const up = await fetchUpstream(`${upstream}${req.url ?? "/"}`, String(req.headers.accept ?? "application/json"), auth);
+      const up = await fetchUpstream(`${upstream}${req.url ?? "/"}`, String(req.headers.accept ?? "application/json"), auth, {
+        timeoutMs: UPSTREAM_TIMEOUT_MS,
+        maxBytes: MAX_PACKUMENT_BYTES,
+      });
       res.writeHead(up.status, { "content-type": String(up.headers["content-type"] ?? "application/octet-stream") });
       res.end(up.body);
       return;
@@ -218,7 +263,22 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       const key = `${name}@${version}`;
       const started = Date.now();
 
-      const tar = await fetchUpstream(`${target.origin}${req.url}`, "application/octet-stream", upstreamAuth);
+      // Bound concurrent fetch+analysis so buffered bytes stay within
+      // MAX_CONCURRENT_VETS × MAX_TARBALL_BYTES. Released before any approval
+      // hold so a queue of held requests cannot starve the gate.
+      await vetGate.acquire();
+      let gateHeld = true;
+      const releaseGate = (): void => {
+        if (gateHeld) {
+          gateHeld = false;
+          vetGate.release();
+        }
+      };
+      try {
+      const tar = await fetchUpstream(`${target.origin}${req.url}`, "application/octet-stream", upstreamAuth, {
+        timeoutMs: UPSTREAM_TIMEOUT_MS,
+        maxBytes: MAX_TARBALL_BYTES,
+      });
       if (tar.status >= 400) {
         // let the client see the upstream's own error (404 for a bad version, etc.)
         res.writeHead(tar.status, { "content-type": String(tar.headers["content-type"] ?? "application/json") });
@@ -259,6 +319,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
             summary = `approval queue full — retry the install: ${summary}`;
             persist = false;
           } else {
+            releaseGate(); // free the analysis slot before the (possibly long) human wait
             emit({ kind: "pending", name, version });
             const outcome = await pending.register(digest, name, version, Date.now());
             if (outcome === "approve") {
@@ -287,12 +348,18 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       }
       res.writeHead(tar.status, { "content-type": String(tar.headers["content-type"] ?? "application/octet-stream") });
       res.end(tar.body);
+      } finally {
+        releaseGate();
+      }
       return;
     }
 
     // ---- packument ----
     emit({ kind: "packument", name: parsed.name });
-    const pack = await fetchUpstream(`${target.origin}${req.url}`, String(req.headers.accept ?? "application/json"), upstreamAuth);
+    const pack = await fetchUpstream(`${target.origin}${req.url}`, String(req.headers.accept ?? "application/json"), upstreamAuth, {
+      timeoutMs: UPSTREAM_TIMEOUT_MS,
+      maxBytes: MAX_PACKUMENT_BYTES,
+    });
     let body = pack.body;
     if (target.isPrivate) {
       // Private scope: rewrite dist.tarball from the private registry origin to

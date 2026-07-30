@@ -118,6 +118,11 @@ async function runForeground(port: number, options: ProxyOptions): Promise<numbe
     controlToken,
     startedAt: Date.now(),
   });
+  // A stray throw outside request handling must not kill the daemon: log it and
+  // keep serving (each request already has its own try/catch → 502).
+  process.on("uncaughtException", (err) => console.error(yellow(`proxy: uncaught ${err.message}`)));
+  process.on("unhandledRejection", (reason) => console.error(yellow(`proxy: unhandled ${String(reason)}`)));
+
   return await new Promise<number>((resolve) => {
     const shutdown = (): void => {
       clearProxyState();
