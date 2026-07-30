@@ -5,12 +5,18 @@ targate proxy setup
 ```
 
 The proxy is a transparent enforcement point: instead of remembering to run
-`targate add`, you point your package manager's registry at a local proxy, and
-**every** `npm install` / `npm ci` (and yarn / pnpm / bun) is vetted before a
-tarball's bytes ever reach your machine. It closes the gap left by CLI-only
-gating — a raw `npm install`, a script, or a CI job that never calls `targate`
-is still checked — without a shell wrapper and without depending on lifecycle
-scripts (so `--ignore-scripts` cannot switch it off).
+`targate add`, you point **npm**'s registry at a local proxy, and every
+`npm install` / `npm ci` is vetted before a tarball's bytes ever reach your
+machine. It closes the gap left by CLI-only gating — a raw `npm install`, a
+script, or a CI job that never calls `targate` is still checked — without a
+shell wrapper and without depending on lifecycle scripts (so `--ignore-scripts`
+cannot switch it off).
+
+> **npm only, for now.** Verified with npm ≥ 9. Other package managers speak the
+> same registry protocol, but pointing them at the proxy is not yet verified:
+> **bun was observed to bypass** a configured localhost registry in testing, and
+> pnpm's content store made routing inconclusive. Treat non-npm clients as
+> unsupported until verified.
 
 > **Status: experimental.** Flags and output may change in a minor release. It
 > vets **public** packages out of the box; private/scoped registries are

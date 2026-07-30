@@ -11,6 +11,7 @@ import {
   proxyLogFile,
   proxyStateDir,
   proxyStateFile,
+  rotateProxyLogIfLarge,
   writeProxyState,
   type ProxyState,
 } from "../proxy-daemon.js";
@@ -150,6 +151,7 @@ async function startDaemon(port: number, options: ProxyOptions): Promise<number>
 
   const { command, args } = selfInvocation(daemonExtraArgs(port, options));
   mkdirSync(proxyStateDir(), { recursive: true });
+  rotateProxyLogIfLarge();
   const log = openSync(proxyLogFile(), "a");
   const child = spawn(command, args, { detached: true, stdio: ["ignore", log, log] });
   child.unref();

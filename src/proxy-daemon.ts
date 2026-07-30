@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -31,6 +31,22 @@ export function proxyStateFile(): string {
 
 export function proxyLogFile(): string {
   return path.join(proxyStateDir(), "proxy.log");
+}
+
+/**
+ * Rotate the daemon log if it has grown past `maxBytes`, keeping one previous
+ * generation (`proxy.log.1`). Called before each daemon start, so a long-lived
+ * proxy's log is bounded across restarts. Best-effort.
+ */
+export function rotateProxyLogIfLarge(maxBytes = 5 * 1024 * 1024): void {
+  const file = proxyLogFile();
+  try {
+    if (existsSync(file) && statSync(file).size > maxBytes) {
+      renameSync(file, `${file}.1`);
+    }
+  } catch {
+    // best-effort; a rotation failure must not block startup
+  }
 }
 
 export function readProxyState(): ProxyState | null {
