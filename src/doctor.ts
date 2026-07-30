@@ -11,6 +11,9 @@ import { loadPolicy, PolicyError } from "./policy.js";
 import { compareSemver } from "./semver.js";
 import { resolveProvider, type ProviderSelection } from "./providers/index.js";
 import { authHeaderForUrl, DEFAULT_REGISTRY, loadNpmrc } from "./npmrc.js";
+import { liveProxyState } from "./proxy-daemon.js";
+import { ProxyVerdictCache } from "./proxy-cache.js";
+import { tlsMaterialExists } from "./proxy-tls.js";
 import type { Signals } from "./types.js";
 import { fetchWithTimeout, readResponseJson } from "./network.js";
 import { DEFAULT_RESOURCE_LIMITS } from "./resource-limits.js";
@@ -419,6 +422,29 @@ export const DOCTOR_CHECKS: DoctorCheck[] = [
             message: "CI environment detected — prompts and `targate approve` are disabled",
           }
         : { status: "info", message: "not running in CI" };
+    },
+  },
+  {
+    id: "proxy",
+    label: "Registry proxy",
+    async run(ctx) {
+      const state = liveProxyState();
+      const registry = loadNpmrc(ctx.cwd, ctx.env).entries.registry?.replace(/\/+$/, "");
+      if (!state) {
+        return registry
+          ? { status: "info", message: `not running; this project's registry=${registry}` }
+          : { status: "info", message: "not running (start it with `targate proxy setup`)" };
+      }
+      const url = `${state.scheme}://${state.host}:${state.port}`;
+      const verdicts = new ProxyVerdictCache().size;
+      const tls = state.scheme === "https" && tlsMaterialExists() ? ", CA present" : "";
+      if (!registry) {
+        return { status: "warn", message: `running on ${url}, ${verdicts} verdicts cached${tls} — but this project's .npmrc does not point at it (run \`targate proxy setup\` here)` };
+      }
+      if (registry !== url) {
+        return { status: "warn", message: `running on ${url}, but this project's registry=${registry} points elsewhere` };
+      }
+      return { status: "pass", message: `running on ${url}; this project routes through it; ${verdicts} verdicts cached${tls}` };
     },
   },
 ];
