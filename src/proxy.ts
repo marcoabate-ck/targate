@@ -3,6 +3,7 @@ import https from "node:https";
 import { Buffer } from "node:buffer";
 import { buildPackageSignals } from "./pipeline.js";
 import { ProxyVerdictCache, sha512Sri } from "./proxy-cache.js";
+import { uplinkFor, type ProxyUplink } from "./proxy-uplinks.js";
 import { evaluateRules } from "./rules.js";
 import type { Decision } from "./types.js";
 
@@ -35,6 +36,8 @@ export interface ProxyOptions {
   host?: string;
   /** Upstream registry origin (default registry.npmjs.org). */
   upstream?: string;
+  /** Per-scope private-registry routes (phase 3). The client's auth is relayed. */
+  uplinks?: ProxyUplink[];
   /** Project root the analysis pipeline reads .npmrc / the ledger from. */
   cwd?: string;
   /** When set, the proxy serves HTTPS with this key/cert instead of HTTP. */
@@ -82,11 +85,17 @@ export function parseRegistryPath(rawUrl: string): { name: string; tarballVersio
   return { name };
 }
 
-function fetchUpstream(target: string, accept: string): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
+function fetchUpstream(
+  target: string,
+  accept: string,
+  auth?: string,
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
   return new Promise((resolve, reject) => {
     const u = new URL(target);
     const mod = u.protocol === "https:" ? https : http;
-    const req = mod.request(u, { method: "GET", headers: { accept, "accept-encoding": "identity", "user-agent": "targate-proxy" } }, (res) => {
+    const headers: Record<string, string> = { accept, "accept-encoding": "identity", "user-agent": "targate-proxy" };
+    if (auth) headers.authorization = auth;
+    const req = mod.request(u, { method: "GET", headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c) => chunks.push(c as Buffer));
       res.on("end", () => resolve({ status: res.statusCode ?? 502, headers: res.headers, body: Buffer.concat(chunks) }));
@@ -101,8 +110,9 @@ async function decide(
   version: string,
   cwd: string | undefined,
   prefetchedTarball: Buffer,
+  registryOverride?: { url: string; source: "scope"; auth?: string },
 ): Promise<{ decision: Decision; summary: string; analyzedDigest: string }> {
-  const { signals } = await buildPackageSignals(name, version, { cwd, prefetchedTarball });
+  const { signals } = await buildPackageSignals(name, version, { cwd, prefetchedTarball, registryOverride });
   const verdict = evaluateRules(signals);
   return { decision: verdict.decision, summary: verdict.summary, analyzedDigest: signals.artifact.digest };
 }
@@ -113,8 +123,17 @@ async function decide(
  */
 export function createProxyServer(options: ProxyOptions): ProxyHandle {
   const upstream = (options.upstream ?? DEFAULT_UPSTREAM).replace(/\/+$/, "");
+  const uplinks = options.uplinks ?? [];
+  const scheme = options.tls ? "https" : "http";
+  const proxyOrigin = `${scheme}://${options.host ?? "127.0.0.1"}:${options.port}`;
   const cache = new ProxyVerdictCache();
   const emit = (event: ProxyEvent): void => options.onEvent?.(event);
+
+  /** Route a package to its upstream: a matching private-scope uplink, else the default. */
+  function targetFor(name: string): { origin: string; isPrivate: boolean } {
+    const uplink = uplinkFor(name, uplinks);
+    return uplink ? { origin: uplink.upstream, isPrivate: true } : { origin: upstream, isPrivate: false };
+  }
 
   const onRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
     void handleRequest(req, res).catch((error) => {
@@ -130,14 +149,16 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
     : http.createServer(onRequest);
 
   async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : undefined;
     const parsed = parseRegistryPath(req.url ?? "");
     if (!parsed || req.method !== "GET") {
       // pass anything we do not vet straight through (e.g. self-update checks)
-      const up = await fetchUpstream(`${upstream}${req.url ?? "/"}`, String(req.headers.accept ?? "application/json"));
+      const up = await fetchUpstream(`${upstream}${req.url ?? "/"}`, String(req.headers.accept ?? "application/json"), auth);
       res.writeHead(up.status, { "content-type": String(up.headers["content-type"] ?? "application/octet-stream") });
       res.end(up.body);
       return;
     }
+    const target = targetFor(parsed.name);
 
     // ---- tarball: fetch the exact bytes we will serve, vet, then serve or refuse ----
     if (parsed.tarballVersion) {
@@ -145,7 +166,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       const key = `${name}@${version}`;
       const started = Date.now();
 
-      const tar = await fetchUpstream(`${upstream}${req.url}`, "application/octet-stream");
+      const tar = await fetchUpstream(`${target.origin}${req.url}`, "application/octet-stream", auth);
       if (tar.status >= 400) {
         // let the client see the upstream's own error (404 for a bad version, etc.)
         res.writeHead(tar.status, { "content-type": String(tar.headers["content-type"] ?? "application/json") });
@@ -160,8 +181,16 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       const cached = record !== undefined;
       if (!record) {
         // Analyze the exact bytes we are about to serve — no second download,
-        // and the verdict is structurally bound to the served artifact.
-        const verdict = await decide(name, version, options.cwd, tar.body);
+        // and the verdict is structurally bound to the served artifact. For a
+        // private scope, the metadata is fetched from the scope's upstream with
+        // the relayed credential (the daemon has no .npmrc mapping for it).
+        const verdict = await decide(
+          name,
+          version,
+          options.cwd,
+          tar.body,
+          target.isPrivate ? { url: target.origin, source: "scope", auth } : undefined,
+        );
         let { decision, summary } = verdict;
         // Invariant guard: the analyzed digest must equal the served bytes'
         // digest (same bytes). If somehow not, fail closed.
@@ -185,11 +214,18 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       return;
     }
 
-    // ---- packument: pass through UNMODIFIED (canonical dist.tarball, see N1) ----
+    // ---- packument ----
     emit({ kind: "packument", name: parsed.name });
-    const pack = await fetchUpstream(`${upstream}${req.url}`, String(req.headers.accept ?? "application/json"));
+    const pack = await fetchUpstream(`${target.origin}${req.url}`, String(req.headers.accept ?? "application/json"), auth);
+    let body = pack.body;
+    if (target.isPrivate) {
+      // Private scope: rewrite dist.tarball from the private registry origin to
+      // this proxy so the tarball fetch comes back for vetting. (Public scopes
+      // are left canonical — replace-registry-host routes them; see N1.)
+      body = Buffer.from(pack.body.toString("utf8").split(target.origin).join(proxyOrigin), "utf8");
+    }
     res.writeHead(pack.status, { "content-type": String(pack.headers["content-type"] ?? "application/json") });
-    res.end(pack.body);
+    res.end(body);
   }
 
   return { server, cache };

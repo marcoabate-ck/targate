@@ -1,4 +1,4 @@
-import { authHeaderForUrl, DEFAULT_REGISTRY, getNpmrc, resolveRegistry } from "./npmrc.js";
+import { authHeaderForUrl, DEFAULT_REGISTRY, getNpmrc, resolveRegistry, type RegistryResolution } from "./npmrc.js";
 import type { PublicArtifactEvidence } from "./quarantine.js";
 import { highestSemver } from "./semver.js";
 import type { PackageMetadata, RegistryReputation } from "./types.js";
@@ -84,12 +84,21 @@ export async function fetchPackageMetadata(
   name: string,
   requestedVersion?: string,
   limits?: ResourceLimits,
+  /**
+   * Explicit registry + auth, bypassing .npmrc resolution. The registry proxy
+   * uses this to fetch a private-scope packument from the scope's real upstream
+   * with the client's relayed credential, since the daemon has no .npmrc mapping
+   * for that scope.
+   */
+  override?: { url: string; source: RegistryResolution["source"]; auth?: string },
 ): Promise<PackageMetadata> {
   // Private-registry support: the packument comes from whichever registry
   // .npmrc maps this package to (per-scope rule > global override > npmjs),
   // authenticated with npm's own nerf-darted credentials when configured.
-  const registry = resolveRegistry(name, getNpmrc());
-  const auth = authHeaderForUrl(`${registry.url}/`, getNpmrc());
+  const registry: RegistryResolution = override
+    ? { url: override.url.replace(/\/+$/, ""), source: override.source }
+    : resolveRegistry(name, getNpmrc());
+  const auth = override ? override.auth : authHeaderForUrl(`${registry.url}/`, getNpmrc());
   const budget = networkBudget(limits);
   const res = await fetchWithTimeout(`${registry.url}/${encodeURIComponent(name).replace("%40", "@")}`, {
     headers: { accept: "application/json", ...(auth ? { authorization: auth } : {}) },

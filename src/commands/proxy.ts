@@ -11,6 +11,7 @@ import {
   writeProxyState,
 } from "../proxy-daemon.js";
 import { ProxyVerdictCache } from "../proxy-cache.js";
+import { readProxyUplinks } from "../proxy-uplinks.js";
 import { ensureTlsMaterial, loadTlsMaterial, removeTlsMaterial } from "../proxy-tls.js";
 import { dim, green, red, yellow } from "../report.js";
 
@@ -81,6 +82,7 @@ async function runForeground(port: number, options: ProxyOptions): Promise<numbe
     port,
     host: options.host,
     upstream: options.upstream,
+    uplinks: readProxyUplinks(),
     tls,
     cwd: proxyStateDir(),
     onEvent: printEvent,

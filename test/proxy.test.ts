@@ -2,8 +2,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeFileSync } from "node:fs";
 import { parseRegistryPath } from "../src/proxy.js";
 import { ProxyVerdictCache, sha512Sri } from "../src/proxy-cache.js";
+import { readProxyUplinks, scopeOf, uplinkFor } from "../src/proxy-uplinks.js";
 import { removeNpmrcBlock } from "../src/commands/proxy.js";
 
 const BEGIN = "# >>> targate proxy (managed — `targate proxy teardown` removes this)";
@@ -117,5 +119,44 @@ describe("ProxyVerdictCache", () => {
     const reloaded = new ProxyVerdictCache(file);
     expect(reloaded.get("sha512-BBB")?.decision).toBe("block");
     expect(reloaded.size).toBe(1);
+  });
+});
+
+describe("proxy uplinks", () => {
+  it("extracts the scope of a package name", () => {
+    expect(scopeOf("@acme/pkg")).toBe("@acme");
+    expect(scopeOf("@acme")).toBe("@acme");
+    expect(scopeOf("lodash")).toBeUndefined();
+  });
+
+  it("matches a package to its scope uplink", () => {
+    const uplinks = [{ scope: "@acme", upstream: "https://npm.acme.example" }];
+    expect(uplinkFor("@acme/pkg", uplinks)?.upstream).toBe("https://npm.acme.example");
+    expect(uplinkFor("@other/pkg", uplinks)).toBeUndefined();
+    expect(uplinkFor("lodash", uplinks)).toBeUndefined();
+  });
+
+  it("reads, filters, and normalizes the uplinks file", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "targate-uplinks-"));
+    const file = path.join(dir, "uplinks.json");
+    try {
+      writeFileSync(
+        file,
+        JSON.stringify([
+          { scope: "@acme", upstream: "https://npm.acme.example/" }, // trailing slash normalized
+          { scope: "no-at", upstream: "https://x" }, // dropped: scope lacks @
+          { scope: "@bad" }, // dropped: no upstream
+          "garbage", // dropped: not an object
+        ]),
+      );
+      const uplinks = readProxyUplinks(file);
+      expect(uplinks).toEqual([{ scope: "@acme", upstream: "https://npm.acme.example" }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns an empty list when the file is absent", () => {
+    expect(readProxyUplinks(path.join(tmpdir(), "targate-no-such-uplinks.json"))).toEqual([]);
   });
 });

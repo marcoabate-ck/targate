@@ -13,9 +13,10 @@ is still checked — without a shell wrapper and without depending on lifecycle
 scripts (so `--ignore-scripts` cannot switch it off).
 
 > **Status: experimental.** Flags and output may change in a minor release. It
-> currently vets **public** packages (the default registry); private/scoped
-> registries are a follow-up. The full design, including the trade-offs, is in
-> [docs/design/proxy.md](design/proxy.md).
+> vets **public** packages out of the box; private/scoped registries are
+> supported via manually configured [uplinks](#private-scopes) (the automatic
+> `.npmrc` migration is still a follow-up). The full design, including the
+> trade-offs, is in [docs/design/proxy.md](design/proxy.md).
 
 ## Quick start
 
@@ -85,11 +86,35 @@ locally generated CA. Trust it once, one of two ways:
   Windows `certutil`, Debian `update-ca-certificates`) to trust the CA machine-
   wide. This is a privileged, one-time step; run it yourself.
 
+## Private scopes
+
+A scoped private registry is vetted through the proxy by declaring an **uplink**
+in `~/.targate/proxy-uplinks.json` and pointing the scope at the proxy in your
+`.npmrc`:
+
+```json
+[{ "scope": "@acme", "upstream": "https://npm.acme.example" }]
+```
+
+```ini
+# .npmrc (in addition to the setup block)
+@acme:registry=https://127.0.0.1:4873
+//127.0.0.1:4873/:_authToken=${ACME_TOKEN}
+```
+
+The proxy routes `@acme/*` to its real upstream, **relaying your token
+pass-through** (it stores the upstream URL, never the credential), rewrites the
+private packument's `dist.tarball` so the tarball comes back through the proxy for
+vetting, and runs the same analysis as for public packages — including the
+same-version-mutation ledger and content scanning, the byte-level defenses that
+matter for a compromised internal package (external databases cannot know private
+names). A scoped package with **no** uplink resolves as public and gets the full
+public analysis, so a dependency-confusion attempt surfaces rather than sliding
+through. Automatic population of the uplinks from your existing `.npmrc` (via
+`setup`) is still a follow-up; for now the file is written by hand.
+
 ## Limitations
 
-- **Public packages only, for now.** The default registry is proxied; scoped
-  private registries route straight to their own registry and are not yet vetted
-  through the proxy.
 - **The package manager's own cache sits in front of the proxy.** A package
   already in `~/.npm/_cacache` (or yarn/pnpm/bun's store) is served locally and
   never reaches the proxy. When adopting the proxy in an existing project, run
