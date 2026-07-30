@@ -1,5 +1,8 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import path from "node:path";
 import { startProxy, type ProxyEvent } from "../proxy.js";
 import {
@@ -9,11 +12,20 @@ import {
   proxyStateDir,
   proxyStateFile,
   writeProxyState,
+  type ProxyState,
 } from "../proxy-daemon.js";
 import { authHeaderForUrl, DEFAULT_REGISTRY, loadNpmrc } from "../npmrc.js";
 import { ProxyVerdictCache } from "../proxy-cache.js";
 import { readProxyUplinks, removeProxyUplinks, writeProxyUplinks, type ProxyUplink } from "../proxy-uplinks.js";
-import { ensureTlsMaterial, loadTlsMaterial, removeTlsMaterial } from "../proxy-tls.js";
+import {
+  caInstallCommand,
+  caUninstallCommand,
+  ensureTlsMaterial,
+  loadTlsMaterial,
+  removeTlsMaterial,
+  tlsMaterialPaths,
+  type TrustCommand,
+} from "../proxy-tls.js";
 import { dim, green, red, yellow } from "../report.js";
 
 const DEFAULT_PORT = 4873;
@@ -28,6 +40,8 @@ export interface ProxyOptions {
   foreground?: boolean;
   /** Serve HTTPS with a locally generated CA/cert. */
   tls?: boolean;
+  /** Print what would happen without changing anything (cert install/uninstall). */
+  dryRun?: boolean;
 }
 
 function resolvePort(raw: string | undefined): number | null {
@@ -53,6 +67,9 @@ function printEvent(event: ProxyEvent): void {
       console.log(`${tag} ${event.name}@${event.version}${detail}  ${dim(event.reason ?? "")}`);
       break;
     }
+    case "pending":
+      console.log(yellow(`HOLD  ${event.name}@${event.version} needs approval — \`targate proxy approve ${event.name}@${event.version}\` (or deny)`));
+      break;
     case "error":
       console.error(yellow(`proxy: ${event.detail}`));
       break;
@@ -79,12 +96,14 @@ async function runForeground(port: number, options: ProxyOptions): Promise<numbe
   // daemon from a neutral directory to avoid the proxy fetching from itself.
   mkdirSync(proxyStateDir(), { recursive: true });
   process.chdir(proxyStateDir());
+  const controlToken = randomUUID();
   const handle = await startProxy({
     port,
     host: options.host,
     upstream: options.upstream,
     uplinks: readProxyUplinks(),
     tls,
+    controlToken,
     cwd: proxyStateDir(),
     onEvent: printEvent,
   });
@@ -96,6 +115,7 @@ async function runForeground(port: number, options: ProxyOptions): Promise<numbe
     host: options.host ?? "127.0.0.1",
     upstream: options.upstream ?? "https://registry.npmjs.org",
     scheme: tls ? "https" : "http",
+    controlToken,
     startedAt: Date.now(),
   });
   return await new Promise<number>((resolve) => {
@@ -241,14 +261,8 @@ export function removeNpmrcBlock(content: string): string {
 
 function caTrustHint(caPath: string, host: string, port: number): void {
   console.log(dim("  Trust the CA once so the client accepts the proxy's TLS:"));
+  console.log(dim(`    • system trust:    targate proxy cert install`));
   console.log(dim(`    • CI / one shell:  export NODE_EXTRA_CA_CERTS=${caPath}`));
-  if (process.platform === "darwin") {
-    console.log(dim(`    • macOS keychain:  security add-trusted-cert -k ~/Library/Keychains/login.keychain-db ${caPath}`));
-  } else if (process.platform === "win32") {
-    console.log(dim(`    • Windows:         certutil -addstore -user Root ${caPath}`));
-  } else {
-    console.log(dim(`    • Linux (Debian):  sudo cp ${caPath} /usr/local/share/ca-certificates/targate-ca.crt && sudo update-ca-certificates`));
-  }
   console.log(dim(`    (registry: https://${host}:${port})`));
 }
 
@@ -298,7 +312,28 @@ async function teardownProxy(): Promise<number> {
   return 0;
 }
 
-function certCommand(action: string | undefined): number {
+function runTrust(plan: TrustCommand, verb: string, dryRun: boolean): number {
+  if (dryRun) {
+    console.log(dim(`would run: ${plan.manual}`));
+    return 0;
+  }
+  if (plan.sudo) {
+    // Needs root and is distro-specific — print it for the user to run.
+    console.log(yellow(`This step needs root. Run:\n  ${plan.manual}`));
+    return 0;
+  }
+  try {
+    execFileSync(plan.command, plan.args, { stdio: ["ignore", "ignore", "inherit"] });
+    console.log(green(`CA ${verb} in the system trust store.`));
+    return 0;
+  } catch (error) {
+    console.error(red(`Could not ${verb} the CA automatically (${error instanceof Error ? error.message : String(error)}). Run manually:`));
+    console.error(`  ${plan.manual}`);
+    return 1;
+  }
+}
+
+function certCommand(action: string | undefined, options: ProxyOptions): number {
   const { caPath } = ensureTlsMaterial();
   switch (action) {
     case undefined:
@@ -308,14 +343,114 @@ function certCommand(action: string | undefined): number {
     case "export":
       console.log(`export NODE_EXTRA_CA_CERTS=${caPath}`);
       return 0;
+    case "install":
+      return runTrust(caInstallCommand(caPath), "trusted", options.dryRun ?? false);
+    case "uninstall":
+      return runTrust(caUninstallCommand(caPath), "untrusted", options.dryRun ?? false);
     default:
-      console.error(red(`Unknown cert action: ${action}. Use: targate proxy cert [path|export]`));
+      console.error(red(`Unknown cert action: ${action}. Use: targate proxy cert [path|export|install|uninstall]`));
       return 1;
   }
 }
 
+/** Call the running daemon's local control API. */
+function controlRequest(
+  state: ProxyState,
+  method: "GET" | "POST",
+  pathname: string,
+  body?: unknown,
+): Promise<{ status: number; json: unknown }> {
+  return new Promise((resolve, reject) => {
+    const mod = state.scheme === "https" ? https : http;
+    const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
+    const req = mod.request(
+      {
+        host: state.host,
+        port: state.port,
+        method,
+        path: pathname,
+        headers: {
+          "x-targate-control": state.controlToken ?? "",
+          ...(payload ? { "content-type": "application/json", "content-length": payload.length } : {}),
+        },
+        // loopback to our own daemon — the control token, not TLS identity, authenticates
+        ...(state.scheme === "https" ? { rejectUnauthorized: false } : {}),
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c) => chunks.push(c as Buffer));
+        res.on("end", () => {
+          try {
+            resolve({ status: res.statusCode ?? 0, json: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") });
+          } catch {
+            resolve({ status: res.statusCode ?? 0, json: {} });
+          }
+        });
+      },
+    );
+    req.on("error", reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+/** Split "name@version" (handles scoped @scope/name@version). Exported for tests. */
+export function parseSpec(spec: string | undefined): { name: string; version: string } | null {
+  if (!spec) return null;
+  const at = spec.lastIndexOf("@");
+  if (at <= 0) return null; // need a version, and a leading @ alone is not enough
+  return { name: spec.slice(0, at), version: spec.slice(at + 1) };
+}
+
+async function approvalsCommand(): Promise<number> {
+  const state = liveProxyState();
+  if (!state) {
+    console.log(dim("targate proxy is not running."));
+    return 0;
+  }
+  const { status, json } = await controlRequest(state, "GET", "/-/targate/pending");
+  if (status !== 200) {
+    console.error(red(`control API error (${status})`));
+    return 1;
+  }
+  const pending = (json as { pending?: Array<{ name: string; version: string }> }).pending ?? [];
+  if (pending.length === 0) {
+    console.log(dim("No packages are awaiting approval."));
+    return 0;
+  }
+  console.log(`${pending.length} awaiting approval:`);
+  for (const p of pending) console.log(`  ${p.name}@${p.version}`);
+  console.log(dim("Approve with `targate proxy approve <pkg>@<version>` (or deny)."));
+  return 0;
+}
+
+async function decideCommand(spec: string | undefined, decision: "approve" | "deny"): Promise<number> {
+  const parsed = parseSpec(spec);
+  if (!parsed) {
+    console.error(red(`Usage: targate proxy ${decision} <package>@<version>`));
+    return 1;
+  }
+  const state = liveProxyState();
+  if (!state) {
+    console.log(dim("targate proxy is not running."));
+    return 1;
+  }
+  const { status, json } = await controlRequest(state, "POST", "/-/targate/decide", { ...parsed, decision });
+  if (status !== 200) {
+    console.error(red(`control API error (${status})`));
+    return 1;
+  }
+  const resolved = (json as { resolved?: number }).resolved ?? 0;
+  if (resolved === 0) {
+    console.log(yellow(`No held request matched ${parsed.name}@${parsed.version} (already resolved or never pending).`));
+    return 0;
+  }
+  console.log(green(`${decision === "approve" ? "Approved" : "Denied"} ${parsed.name}@${parsed.version} (${resolved} request(s) released).`));
+  return 0;
+}
+
 const USAGE =
-  "Usage: targate proxy <start|stop|status|ensure|setup|teardown|cert> [--port <n>] [--upstream <url>] [--host <addr>] [--tls]";
+  "Usage: targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny> [--port <n>] [--upstream <url>] [--host <addr>] [--tls]";
 
 /** `targate proxy <subcommand> [action]` — lifecycle + setup for the registry proxy. */
 export async function proxyCommand(positionals: string[], options: ProxyOptions): Promise<number> {
@@ -340,7 +475,13 @@ export async function proxyCommand(positionals: string[], options: ProxyOptions)
     case "teardown":
       return teardownProxy();
     case "cert":
-      return certCommand(action);
+      return certCommand(action, options);
+    case "approvals":
+      return approvalsCommand();
+    case "approve":
+      return decideCommand(action, "approve");
+    case "deny":
+      return decideCommand(action, "deny");
     default:
       console.error(red(USAGE));
       if (subcommand) console.error(red(`Unknown proxy subcommand: ${subcommand}`));

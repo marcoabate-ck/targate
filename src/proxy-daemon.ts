@@ -15,6 +15,8 @@ export interface ProxyState {
   upstream: string;
   /** "http" or "https" — the proxy serves TLS after `setup`. */
   scheme: "http" | "https";
+  /** Shared secret for the local control API (approve/deny). */
+  controlToken?: string;
   /** epoch ms; passed in by the caller (Date is intentionally injected). */
   startedAt: number;
 }
@@ -43,6 +45,7 @@ export function readProxyState(): ProxyState | null {
         host: parsed.host ?? "127.0.0.1",
         upstream: parsed.upstream ?? "https://registry.npmjs.org",
         scheme: parsed.scheme === "https" ? "https" : "http",
+        controlToken: typeof parsed.controlToken === "string" ? parsed.controlToken : undefined,
         startedAt: parsed.startedAt ?? 0,
       };
     }
@@ -54,7 +57,8 @@ export function readProxyState(): ProxyState | null {
 
 export function writeProxyState(state: ProxyState): void {
   mkdirSync(proxyStateDir(), { recursive: true });
-  writeFileSync(proxyStateFile(), `${JSON.stringify(state, null, 2)}\n`);
+  // Holds the control-API token — restrict to the owner.
+  writeFileSync(proxyStateFile(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
 }
 
 export function clearProxyState(): void {

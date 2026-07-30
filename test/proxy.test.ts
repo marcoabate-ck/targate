@@ -6,7 +6,9 @@ import { writeFileSync } from "node:fs";
 import { parseRegistryPath } from "../src/proxy.js";
 import { ProxyVerdictCache, sha512Sri } from "../src/proxy-cache.js";
 import { readProxyUplinks, scopeOf, uplinkFor } from "../src/proxy-uplinks.js";
-import { migrateScopes, removeNpmrcBlock } from "../src/commands/proxy.js";
+import { PendingApprovals } from "../src/proxy-approvals.js";
+import { CA_COMMON_NAME, caInstallCommand, caUninstallCommand } from "../src/proxy-tls.js";
+import { migrateScopes, parseSpec, removeNpmrcBlock } from "../src/commands/proxy.js";
 
 const BEGIN = "# >>> targate proxy (managed — `targate proxy teardown` removes this)";
 const END = "# <<< targate proxy";
@@ -158,6 +160,65 @@ describe("proxy uplinks", () => {
 
   it("returns an empty list when the file is absent", () => {
     expect(readProxyUplinks(path.join(tmpdir(), "targate-no-such-uplinks.json"))).toEqual([]);
+  });
+});
+
+describe("CA trust commands", () => {
+  it("builds an install command that references the CA path", () => {
+    const cmd = caInstallCommand("/tmp/ca.pem");
+    expect(cmd.command.length).toBeGreaterThan(0);
+    expect(cmd.manual).toContain("/tmp/ca.pem");
+    expect(typeof cmd.sudo).toBe("boolean");
+  });
+
+  it("builds an uninstall command that targets the CA by common name", () => {
+    const cmd = caUninstallCommand("/tmp/ca.pem");
+    expect(cmd.manual).toContain(CA_COMMON_NAME);
+  });
+});
+
+describe("parseSpec", () => {
+  it("splits name@version, including scoped names", () => {
+    expect(parseSpec("lodash@4.17.21")).toEqual({ name: "lodash", version: "4.17.21" });
+    expect(parseSpec("@scope/pkg@1.0.0")).toEqual({ name: "@scope/pkg", version: "1.0.0" });
+  });
+  it("rejects specs without a version", () => {
+    expect(parseSpec("lodash")).toBeNull();
+    expect(parseSpec("@scope/pkg")).toBeNull();
+    expect(parseSpec(undefined)).toBeNull();
+  });
+});
+
+describe("PendingApprovals", () => {
+  it("resolves a hold when a matching decision arrives", async () => {
+    const p = new PendingApprovals();
+    const held = p.register("digest1", "core-js", "3.36.0", 1000);
+    expect(p.size).toBe(1);
+    expect(p.list()).toEqual([{ name: "core-js", version: "3.36.0", since: 1000 }]);
+    expect(p.decide("core-js", "3.36.0", "approve")).toBe(1);
+    await expect(held).resolves.toBe("approve");
+    expect(p.size).toBe(0);
+  });
+
+  it("times out a hold that is never decided", async () => {
+    const p = new PendingApprovals(16, 25);
+    await expect(p.register("d", "x", "1.0.0", 0)).resolves.toBe("timeout");
+  });
+
+  it("reports capacity at the concurrency cap", () => {
+    const p = new PendingApprovals(1, 60_000);
+    void p.register("d1", "a", "1.0.0", 0);
+    expect(p.atCapacity).toBe(true);
+    expect(p.decide("a", "1.0.0", "deny")).toBe(1);
+  });
+
+  it("deduplicates concurrent holds for the same digest onto one decision", async () => {
+    const p = new PendingApprovals();
+    const a = p.register("same", "x", "1.0.0", 0);
+    const b = p.register("same", "x", "1.0.0", 0);
+    expect(p.decide("x", "1.0.0", "approve")).toBe(1);
+    await expect(a).resolves.toBe("approve");
+    await expect(b).resolves.toBe("approve");
   });
 });
 

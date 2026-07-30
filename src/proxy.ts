@@ -2,6 +2,7 @@ import http from "node:http";
 import https from "node:https";
 import { Buffer } from "node:buffer";
 import { buildPackageSignals } from "./pipeline.js";
+import { PendingApprovals } from "./proxy-approvals.js";
 import { ProxyVerdictCache, sha512Sri } from "./proxy-cache.js";
 import { uplinkFor, type ProxyUplink } from "./proxy-uplinks.js";
 import { evaluateRules } from "./rules.js";
@@ -42,6 +43,8 @@ export interface ProxyOptions {
   cwd?: string;
   /** When set, the proxy serves HTTPS with this key/cert instead of HTTP. */
   tls?: { key: Buffer | string; cert: Buffer | string };
+  /** Shared secret gating the control API (`/-/targate/*`). Without it, control is disabled. */
+  controlToken?: string;
   /** Called once per decision and lifecycle event for the CLI to print. */
   onEvent?: (event: ProxyEvent) => void;
 }
@@ -49,6 +52,7 @@ export interface ProxyOptions {
 export type ProxyEvent =
   | { kind: "listening"; url: string; upstream: string }
   | { kind: "packument"; name: string }
+  | { kind: "pending"; name: string; version: string }
   | { kind: "decision"; name: string; version: string; decision: Decision; cached: boolean; ms: number; reason?: string }
   | { kind: "error"; detail: string };
 
@@ -56,6 +60,8 @@ export interface ProxyHandle {
   server: http.Server;
   /** digest -> verdict. Persistent; exposed for `proxy status` / tests. */
   cache: ProxyVerdictCache;
+  /** In-flight approval holds; exposed for tests. */
+  pending: PendingApprovals;
 }
 
 /** Split a registry request path into a package name and, for tarballs, a version. */
@@ -127,6 +133,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
   const scheme = options.tls ? "https" : "http";
   const proxyOrigin = `${scheme}://${options.host ?? "127.0.0.1"}:${options.port}`;
   const cache = new ProxyVerdictCache();
+  const pending = new PendingApprovals();
   const emit = (event: ProxyEvent): void => options.onEvent?.(event);
 
   /** Route a package to its upstream: a matching private-scope uplink, else the default. */
@@ -150,7 +157,47 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
     ? https.createServer({ key: options.tls.key, cert: options.tls.cert }, onRequest)
     : http.createServer(onRequest);
 
+  /** Local control API used by `targate proxy approvals|approve|deny`. */
+  async function handleControl(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const json = (status: number, body: unknown): void => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
+    if (!options.controlToken || req.headers["x-targate-control"] !== options.controlToken) {
+      json(403, { error: "forbidden" });
+      return;
+    }
+    const url = new URL(req.url ?? "/", proxyOrigin);
+    if (req.method === "GET" && url.pathname === "/-/targate/pending") {
+      json(200, { pending: pending.list() });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/-/targate/decide") {
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(c as Buffer);
+      let payload: { name?: string; version?: string; decision?: string };
+      try {
+        payload = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+      } catch {
+        json(400, { error: "invalid JSON" });
+        return;
+      }
+      const { name, version, decision } = payload;
+      if (!name || !version || (decision !== "approve" && decision !== "deny")) {
+        json(400, { error: "name, version, and decision (approve|deny) required" });
+        return;
+      }
+      json(200, { resolved: pending.decide(name, version, decision) });
+      return;
+    }
+    json(404, { error: "not found" });
+  }
+
   async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if ((req.url ?? "").startsWith("/-/targate/")) {
+      await handleControl(req, res);
+      return;
+    }
     const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : undefined;
     const parsed = parseRegistryPath(req.url ?? "");
     if (!parsed || req.method !== "GET") {
@@ -203,8 +250,32 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
           decision = "block";
           summary = `served tarball digest ${digest} does not match the analyzed artifact ${verdict.analyzedDigest}`;
         }
+        // require_approval → hold the connection for an out-of-band human
+        // decision (targate proxy approve|deny). Timeout/queue-full fail closed.
+        let persist = true;
+        if (decision === "require_approval") {
+          if (pending.atCapacity) {
+            decision = "block";
+            summary = `approval queue full — retry the install: ${summary}`;
+            persist = false;
+          } else {
+            emit({ kind: "pending", name, version });
+            const outcome = await pending.register(digest, name, version, Date.now());
+            if (outcome === "approve") {
+              decision = "allow";
+              summary = `human-approved — ${summary}`;
+            } else if (outcome === "deny") {
+              decision = "block";
+              summary = `human-denied — ${summary}`;
+            } else {
+              decision = "block";
+              summary = `approval timed out — ${summary}`;
+              persist = false;
+            }
+          }
+        }
         record = { name, version, decision, summary, at: Date.now() };
-        cache.set(digest, record);
+        if (persist) cache.set(digest, record);
       }
       const ms = Date.now() - started;
       emit({ kind: "decision", name, version, decision: record.decision, cached, ms, reason: record.summary });
@@ -233,7 +304,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
     res.end(body);
   }
 
-  return { server, cache };
+  return { server, cache, pending };
 }
 
 /** Create, listen, and resolve once the proxy is accepting connections. */

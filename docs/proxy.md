@@ -70,6 +70,9 @@ commit it.** `teardown` removes the block again.
 | `targate proxy start` \| `stop` \| `status` | Manage the daemon directly. `--foreground` runs it in the current process (CI / debugging). |
 | `targate proxy ensure` | Start the daemon only if it is not already running. |
 | `targate proxy cert path` \| `export` | Print the CA path, or a ready-to-source `export NODE_EXTRA_CA_CERTS=…` line. |
+| `targate proxy cert install` \| `uninstall` | Trust / untrust the CA in the system store (`--dry-run` to preview). |
+| `targate proxy approvals` | List packages currently held awaiting approval. |
+| `targate proxy approve` \| `deny` `<pkg>@<version>` | Release a held `require_approval` request — serve it, or refuse it. |
 
 State and logs live under `~/.targate/` (`proxy.json`, `proxy.log`,
 `proxy-verdicts.json`, `proxy-tls/`). `targate doctor` reports whether the proxy
@@ -82,9 +85,11 @@ locally generated CA. Trust it once, one of two ways:
 
 - **CI / a single shell** — `export NODE_EXTRA_CA_CERTS="$(targate proxy cert path)"`.
   Nothing touches the system trust store; ideal for ephemeral environments.
-- **System trust store** — `setup` prints the per-OS command (macOS `security`,
-  Windows `certutil`, Debian `update-ca-certificates`) to trust the CA machine-
-  wide. This is a privileged, one-time step; run it yourself.
+- **System trust store** — `targate proxy cert install` trusts the CA machine-
+  wide: on macOS it adds it to the login keychain and on Windows to the per-user
+  `Root` store (no admin); on Linux it prints the `sudo update-ca-certificates`
+  step for you to run (root + distro-specific). `--dry-run` previews the exact
+  command; `targate proxy cert uninstall` reverses it.
 
 ## Private scopes
 
@@ -117,8 +122,11 @@ migrate cleanly. `teardown` removes the uplinks file along with the rest.
   already in `~/.npm/_cacache` (or yarn/pnpm/bun's store) is served locally and
   never reaches the proxy. When adopting the proxy in an existing project, run
   `npm cache clean --force` for a clean floor.
-- **No interactive approval yet.** A `require_approval` verdict is treated as a
-  block (fail-closed) in this phase; an out-of-band approval flow is planned.
+- **Approval holds the install.** A `require_approval` verdict holds the client's
+  request open (npm waits up to its `fetch-timeout`) while you decide out of band
+  with `targate proxy approve|deny`; if no decision arrives before the hold cap
+  (or the approval queue is full), it fails closed. Approved artifacts are then
+  cached, so a later install of the same bytes does not prompt again.
 - **Per-package verdicts.** The proxy sees one tarball at a time and has no
   whole-tree view; use `targate install --deep` for a tree-aware, holistic gate.
 

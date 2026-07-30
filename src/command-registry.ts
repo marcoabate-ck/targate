@@ -348,14 +348,14 @@ const commands: CommandDefinition[] = [
   },
   {
     name: "proxy",
-    usage: "targate proxy <start|stop|status|ensure|setup|teardown|cert>",
+    usage: "targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny>",
     summary: "Run a registry proxy that vets every package before install (experimental).",
-    options: [O.port, O.upstream, O.host, O.foreground, O.tls],
-    examples: ["targate proxy setup", "targate proxy status", "targate proxy teardown"],
+    options: [O.port, O.upstream, O.host, O.foreground, O.tls, O.dryRun],
+    examples: ["targate proxy setup", "targate proxy status", "targate proxy approve lodash@4.17.21"],
     experimental: true,
     handler: async ({ values: v, positionals }) => {
       if (positionals.length < 1 || positionals.length > 2) {
-        console.error(red("Usage: targate proxy <start|stop|status|ensure|setup|teardown|cert> [--port <n>] [--upstream <url>] [--host <addr>] [--tls]"));
+        console.error(red("Usage: targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny> [--port <n>] [--upstream <url>] [--host <addr>] [--tls]"));
         return 1;
       }
       return proxyCommand(positionals, {
@@ -364,6 +364,7 @@ const commands: CommandDefinition[] = [
         host: stringValue(v, "host"),
         foreground: booleanValue(v, "foreground"),
         tls: booleanValue(v, "tls"),
+        dryRun: booleanValue(v, "dry-run"),
       });
     },
   },

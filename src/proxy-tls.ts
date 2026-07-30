@@ -1,8 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
+import { homedir } from "node:os";
 import path from "node:path";
 import { proxyStateDir } from "./proxy-daemon.js";
+
+/** The CA's certificate common name — used to remove it from a trust store by name. */
+export const CA_COMMON_NAME = "targate local CA";
 
 /**
  * Local TLS material for the registry proxy. npm only sends registry auth over
@@ -117,4 +121,55 @@ export function loadTlsMaterial(): { key: Buffer; cert: Buffer } | null {
 /** Remove all generated TLS material (used by teardown). */
 export function removeTlsMaterial(): void {
   rmSync(tlsDir(), { recursive: true, force: true });
+}
+
+/**
+ * A trust-store command for the current platform. `sudo` marks the ones that
+ * need root (Linux) — those are printed for the user to run rather than executed,
+ * since auto-elevating is surprising and distro-specific. macOS (login keychain)
+ * and Windows (per-user Root store) do not need root and can be run directly.
+ */
+export interface TrustCommand {
+  command: string;
+  args: string[];
+  sudo: boolean;
+  /** Copy-pasteable form for --dry-run and failure messages. */
+  manual: string;
+}
+
+function manualForm(command: string, args: string[], sudo: boolean): string {
+  const quote = (a: string): string => (/\s/.test(a) ? `"${a}"` : a);
+  return `${sudo ? "sudo " : ""}${command} ${args.map(quote).join(" ")}`;
+}
+
+function trustCommand(command: string, args: string[], sudo: boolean): TrustCommand {
+  return { command, args, sudo, manual: manualForm(command, args, sudo) };
+}
+
+/** Command that trusts the local CA in the current platform's trust store. */
+export function caInstallCommand(caPath = tlsMaterialPaths().caPath): TrustCommand {
+  if (process.platform === "darwin") {
+    const keychain = path.join(homedir(), "Library", "Keychains", "login.keychain-db");
+    return trustCommand("security", ["add-trusted-cert", "-r", "trustRoot", "-k", keychain, caPath], false);
+  }
+  if (process.platform === "win32") {
+    return trustCommand("certutil", ["-addstore", "-user", "Root", caPath], false);
+  }
+  // Linux (Debian/Ubuntu family); needs root, so it is printed, not auto-run.
+  return trustCommand(
+    "sh",
+    ["-c", `cp ${caPath} /usr/local/share/ca-certificates/targate-local-ca.crt && update-ca-certificates`],
+    true,
+  );
+}
+
+/** Command that removes the local CA from the current platform's trust store. */
+export function caUninstallCommand(caPath = tlsMaterialPaths().caPath): TrustCommand {
+  if (process.platform === "darwin") {
+    return trustCommand("security", ["delete-certificate", "-c", CA_COMMON_NAME], false);
+  }
+  if (process.platform === "win32") {
+    return trustCommand("certutil", ["-delstore", "-user", "Root", CA_COMMON_NAME], false);
+  }
+  return trustCommand("sh", ["-c", "rm -f /usr/local/share/ca-certificates/targate-local-ca.crt && update-ca-certificates --fresh"], true);
 }
