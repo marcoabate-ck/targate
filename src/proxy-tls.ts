@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -70,7 +70,7 @@ export function ensureTlsMaterial(host?: string): TlsMaterial {
   if (tlsMaterialExists()) return paths;
 
   const dir = tlsDir();
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
 
   // 1) self-signed CA
   openssl([
@@ -108,6 +108,15 @@ export function ensureTlsMaterial(host?: string): TlsMaterial {
 
   // cleanup transient files
   for (const f of [csrPath, extPath, path.join(dir, "ca.srl")]) rmSync(f, { force: true });
+  // Private keys must not be world/group-readable — a readable CA key lets any
+  // local user mint certs trusted by this proxy (MITM).
+  for (const key of [paths.caKeyPath, paths.certKeyPath]) {
+    try {
+      chmodSync(key, 0o600);
+    } catch {
+      // best-effort (e.g. Windows ACLs)
+    }
+  }
   return paths;
 }
 

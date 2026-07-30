@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import { insecureRegistryHostAllowed } from "../src/network.js";
-import { isNpmClient, parseRegistryPath, Semaphore } from "../src/proxy.js";
+import { isLoopbackRemote, isNpmClient, parseRegistryPath, safeUpstreamUrl, Semaphore } from "../src/proxy.js";
 import { ProxyVerdictCache, sha512Sri, type VerdictRecord } from "../src/proxy-cache.js";
 import { readProxyUplinks, scopeOf, uplinkFor } from "../src/proxy-uplinks.js";
 import { PendingApprovals } from "../src/proxy-approvals.js";
@@ -151,6 +151,28 @@ describe("insecureRegistryHostAllowed", () => {
     expect(insecureRegistryHostAllowed("127.0.0.1")).toBe(true);
     expect(insecureRegistryHostAllowed("verdaccio.local")).toBe(true);
     expect(insecureRegistryHostAllowed("evil.example")).toBe(false);
+  });
+});
+
+describe("safeUpstreamUrl", () => {
+  const npmjs = "https://registry.npmjs.org";
+  it("keeps a normal request path on the intended origin", () => {
+    expect(safeUpstreamUrl(npmjs, "/is-odd")).toBe("https://registry.npmjs.org/is-odd");
+    expect(safeUpstreamUrl(npmjs, "/is-odd/-/is-odd-3.0.1.tgz")).toBe("https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz");
+  });
+  it("refuses a request-target that would leave the origin (SSRF via path)", () => {
+    expect(() => safeUpstreamUrl(npmjs, "http://evil.example/x")).toThrow(/cross-origin/);
+    expect(() => safeUpstreamUrl(npmjs, "//evil.example/x")).toThrow(/cross-origin/);
+  });
+});
+
+describe("isLoopbackRemote", () => {
+  it("accepts loopback addresses only", () => {
+    expect(isLoopbackRemote("127.0.0.1")).toBe(true);
+    expect(isLoopbackRemote("::1")).toBe(true);
+    expect(isLoopbackRemote("::ffff:127.0.0.1")).toBe(true);
+    expect(isLoopbackRemote("10.0.0.5")).toBe(false);
+    expect(isLoopbackRemote(undefined)).toBe(false);
   });
 });
 

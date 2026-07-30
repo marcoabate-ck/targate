@@ -1,6 +1,7 @@
 import http from "node:http";
 import https from "node:https";
 import { Buffer } from "node:buffer";
+import { timingSafeEqual } from "node:crypto";
 import { buildPackageSignals } from "./pipeline.js";
 import { DEFAULT_RESOURCE_LIMITS } from "./resource-limits.js";
 import { PendingApprovals } from "./proxy-approvals.js";
@@ -107,6 +108,35 @@ export interface ProxyHandle {
  */
 export function isNpmClient(userAgent: string | undefined): boolean {
   return /^\s*npm\//i.test(userAgent ?? "");
+}
+
+/** Constant-time string equality (avoids timing oracles on the control token). */
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
+/** True when a socket's remote address is loopback — control API is loopback-only. */
+export function isLoopbackRemote(address: string | undefined): boolean {
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
+/**
+ * Build the upstream URL for a request path, refusing anything that would leave
+ * the intended registry's origin. The request-target is client-controlled, so a
+ * naive `origin + reqUrl` concat could be steered to another host (absolute or
+ * protocol-relative request-targets); resolving against the origin and asserting
+ * the origin is unchanged closes that.
+ */
+export function safeUpstreamUrl(origin: string, reqUrl: string): string {
+  const base = new URL(origin);
+  const resolved = new URL(reqUrl, base);
+  if (resolved.origin !== base.origin) {
+    throw new Error(`refusing cross-origin upstream request: ${resolved.origin} != ${base.origin}`);
+  }
+  return resolved.toString();
 }
 
 /** Split a registry request path into a package name and, for tarballs, a version. */
@@ -221,7 +251,14 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     };
-    if (!options.controlToken || req.headers["x-targate-control"] !== options.controlToken) {
+    // Control (approve/deny) is loopback-only, even if the proxy binds a wider
+    // interface — a network peer must never be able to release a held package.
+    if (!isLoopbackRemote(req.socket.remoteAddress ?? undefined)) {
+      json(403, { error: "control API is loopback-only" });
+      return;
+    }
+    const header = req.headers["x-targate-control"];
+    if (!options.controlToken || typeof header !== "string" || !safeEqual(header, options.controlToken)) {
       json(403, { error: "forbidden" });
       return;
     }
@@ -232,7 +269,15 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
     }
     if (req.method === "POST" && url.pathname === "/-/targate/decide") {
       const chunks: Buffer[] = [];
-      for await (const c of req) chunks.push(c as Buffer);
+      let size = 0;
+      for await (const c of req) {
+        size += (c as Buffer).length;
+        if (size > 64 * 1024) {
+          json(413, { error: "control request body too large" });
+          return;
+        }
+        chunks.push(c as Buffer);
+      }
       let payload: { name?: string; version?: string; decision?: string };
       try {
         payload = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
@@ -260,7 +305,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
     const parsed = parseRegistryPath(req.url ?? "");
     if (!parsed || req.method !== "GET") {
       // pass anything we do not vet straight through (e.g. self-update checks)
-      const up = await fetchUpstream(`${upstream}${req.url ?? "/"}`, String(req.headers.accept ?? "application/json"), auth, {
+      const up = await fetchUpstream(safeUpstreamUrl(upstream, req.url ?? "/"), String(req.headers.accept ?? "application/json"), auth, {
         timeoutMs: UPSTREAM_TIMEOUT_MS,
         maxBytes: MAX_PACKUMENT_BYTES,
       });
@@ -291,7 +336,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
         }
       };
       try {
-      const tar = await fetchUpstream(`${target.origin}${req.url}`, "application/octet-stream", upstreamAuth, {
+      const tar = await fetchUpstream(safeUpstreamUrl(target.origin, req.url ?? "/"), "application/octet-stream", upstreamAuth, {
         timeoutMs: UPSTREAM_TIMEOUT_MS,
         maxBytes: MAX_TARBALL_BYTES,
       });
@@ -372,7 +417,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
 
     // ---- packument ----
     emit({ kind: "packument", name: parsed.name });
-    const pack = await fetchUpstream(`${target.origin}${req.url}`, String(req.headers.accept ?? "application/json"), upstreamAuth, {
+    const pack = await fetchUpstream(safeUpstreamUrl(target.origin, req.url ?? "/"), String(req.headers.accept ?? "application/json"), upstreamAuth, {
       timeoutMs: UPSTREAM_TIMEOUT_MS,
       maxBytes: MAX_PACKUMENT_BYTES,
     });
