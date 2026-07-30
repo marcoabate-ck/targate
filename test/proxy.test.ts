@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
+import { insecureRegistryHostAllowed } from "../src/network.js";
 import { isNpmClient, parseRegistryPath, Semaphore } from "../src/proxy.js";
 import { ProxyVerdictCache, sha512Sri, type VerdictRecord } from "../src/proxy-cache.js";
 import { readProxyUplinks, scopeOf, uplinkFor } from "../src/proxy-uplinks.js";
@@ -132,6 +133,24 @@ describe("ProxyVerdictCache", () => {
     expect(cache.size).toBe(2);
     expect(cache.get("d1")).toBeUndefined();
     expect(cache.get("d3")?.name).toBe("c");
+  });
+});
+
+describe("insecureRegistryHostAllowed", () => {
+  const saved = process.env.TARGATE_INSECURE_REGISTRY_HOSTS;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.TARGATE_INSECURE_REGISTRY_HOSTS;
+    else process.env.TARGATE_INSECURE_REGISTRY_HOSTS = saved;
+  });
+  it("is off unless the env var is set", () => {
+    delete process.env.TARGATE_INSECURE_REGISTRY_HOSTS;
+    expect(insecureRegistryHostAllowed("127.0.0.1")).toBe(false);
+  });
+  it("allows only listed hosts, case-insensitively", () => {
+    process.env.TARGATE_INSECURE_REGISTRY_HOSTS = "127.0.0.1, Verdaccio.local";
+    expect(insecureRegistryHostAllowed("127.0.0.1")).toBe(true);
+    expect(insecureRegistryHostAllowed("verdaccio.local")).toBe(true);
+    expect(insecureRegistryHostAllowed("evil.example")).toBe(false);
   });
 });
 

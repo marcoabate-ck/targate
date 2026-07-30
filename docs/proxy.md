@@ -142,3 +142,24 @@ migrate cleanly. `teardown` removes the uplinks file along with the rest.
 
 See [docs/design/proxy.md](design/proxy.md) for the reasoning behind each of
 these and the plan to close them.
+
+## Verifying the proxy
+
+Two end-to-end checks cover the parts that need a real environment:
+
+- **TLS + system trust, per OS** — [`scripts/e2e-proxy-cert.mts`](../scripts/e2e-proxy-cert.mts):
+  `setup` → trust the CA → HTTPS install *without* `NODE_EXTRA_CA_CERTS` →
+  untrust. Run it locally with `node --import tsx scripts/e2e-proxy-cert.mts`, or
+  via the manual `proxy cert e2e` GitHub Actions workflow which runs it on macOS,
+  Windows, and Linux.
+- **A real private registry** — [`scripts/e2e-proxy-github-packages.mts`](../scripts/e2e-proxy-github-packages.mts)
+  installs a private package from GitHub Packages through the proxy. Set
+  `GITHUB_TOKEN` (with `read:packages`) and `GH_PKG_SPEC=@scope/pkg@version`, then
+  run the script; it asserts the package both installs and shows up in the proxy
+  log (i.e. it was vetted, not fetched around the proxy).
+
+For a **local** private registry (e.g. Verdaccio, or any registry on
+localhost/a private IP), the SSRF guard normally refuses non-public hosts. Set
+`TARGATE_INSECURE_REGISTRY_HOSTS=localhost,127.0.0.1` (comma-separated hostnames)
+to allow them — **test/dev only**; it disables the https + private-network checks
+for those hosts and must never be set in production.
