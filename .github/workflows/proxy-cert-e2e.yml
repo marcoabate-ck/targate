@@ -39,3 +39,6 @@ jobs:
 
       - name: proxy TLS + system-trust e2e
         run: node --import tsx scripts/e2e-proxy-cert.mts
+        env:
+          # CI is non-interactive — exercise the real system-store install too.
+          TARGATE_TEST_SYSTEM_TRUST: "1"

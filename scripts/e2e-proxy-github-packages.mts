@@ -17,11 +17,14 @@
  */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
 const REPO = process.cwd();
-const CLI = ["--import", "tsx", path.join(REPO, "src", "cli.ts")];
+// Absolute tsx path so the daemon (spawned from a temp project) can load it.
+const TSX = createRequire(import.meta.url).resolve("tsx");
+const CLI = ["--import", TSX, path.join(REPO, "src", "cli.ts")];
 const PORT = 4874;
 
 const token = process.env.GITHUB_TOKEN;

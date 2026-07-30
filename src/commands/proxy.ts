@@ -267,9 +267,11 @@ export function removeNpmrcBlock(content: string): string {
 }
 
 function caTrustHint(caPath: string, host: string, port: number): void {
-  console.log(dim("  Trust the CA once so the client accepts the proxy's TLS:"));
-  console.log(dim(`    • system trust:    targate proxy cert install`));
-  console.log(dim(`    • CI / one shell:  export NODE_EXTRA_CA_CERTS=${caPath}`));
+  console.log(dim("  Trust the CA so the client accepts the proxy's TLS:"));
+  // npm/pnpm/yarn (Node) do NOT read the OS keychain before Node 22.15, so this
+  // env var is the reliable path for the package managers — present it first.
+  console.log(dim(`    • required for npm/pnpm/yarn:  export NODE_EXTRA_CA_CERTS=${caPath}`));
+  console.log(dim(`    • system store (browsers/curl; Node ≥22.15 --use-system-ca):  targate proxy cert install`));
   console.log(dim(`    (registry: https://${host}:${port})`));
 }
 

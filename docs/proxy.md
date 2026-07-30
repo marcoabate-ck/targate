@@ -91,15 +91,21 @@ is running and whether the current project routes through it.
 ## Trusting the CA
 
 npm only sends registry credentials over HTTPS, so the proxy serves TLS with a
-locally generated CA. Trust it once, one of two ways:
+locally generated CA. Trust it:
 
-- **CI / a single shell** — `export NODE_EXTRA_CA_CERTS="$(targate proxy cert path)"`.
-  Nothing touches the system trust store; ideal for ephemeral environments.
-- **System trust store** — `targate proxy cert install` trusts the CA machine-
-  wide: on macOS it adds it to the login keychain and on Windows to the per-user
-  `Root` store (no admin); on Linux it prints the `sudo update-ca-certificates`
-  step for you to run (root + distro-specific). `--dry-run` previews the exact
-  command; `targate proxy cert uninstall` reverses it.
+- **Required for the package managers — `NODE_EXTRA_CA_CERTS`.** npm, pnpm, and
+  yarn run on Node, and **Node does not read the OS trust store by default**
+  (only Node ≥ 22.15 with `--use-system-ca`). So the reliable, cross-platform way
+  to make them accept the proxy is the env var:
+  `export NODE_EXTRA_CA_CERTS="$(targate proxy cert path)"`. Put it in your shell
+  profile or CI env.
+- **System trust store — `targate proxy cert install`** (optional). Adds the CA
+  to the OS store: macOS login keychain, Windows per-user `Root` (no admin), or
+  the printed `sudo update-ca-certificates` on Linux. This is what browsers,
+  `curl`, and Node ≥ 22.15 (`--use-system-ca`) read — but on its own it does
+  **not** make default-Node npm/pnpm/yarn trust the proxy; pair it with
+  `--use-system-ca` or use `NODE_EXTRA_CA_CERTS`. `--dry-run` previews;
+  `targate proxy cert uninstall` reverses it.
 
 ## Private scopes
 
