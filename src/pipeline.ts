@@ -90,6 +90,8 @@ export interface AnalyzePackageOptions {
   lockedArtifact?: LockedPackageArtifact;
   /** Whether lockedArtifact came from a pre-existing reviewed lockfile. */
   lockfileTrusted?: boolean;
+  /** Pre-fetched tarball bytes to analyze instead of downloading (registry proxy). */
+  prefetchedTarball?: Buffer;
   /** Already-fetched exact metadata, used when a staged plan must be built first. */
   metadata?: PackageMetadata;
   /** Project root for the artifact ledger. */
@@ -389,6 +391,7 @@ export async function buildPackageSignals(
     | "policy"
     | "lockedArtifact"
     | "lockfileTrusted"
+    | "prefetchedTarball"
     | "metadata"
     | "cwd"
     | "codeAudit"
@@ -505,6 +508,7 @@ export async function buildPackageSignals(
       historicalIntegrity: historicalIntegrityPromise,
       publicArtifact: publicArtifactPromise,
       resourceLimits: resourcePolicy,
+      prefetchedBytes: opts.prefetchedTarball,
     });
   } catch (err) {
     if (!(err instanceof ResourceLimitError)) {

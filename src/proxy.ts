@@ -100,8 +100,9 @@ async function decide(
   name: string,
   version: string,
   cwd: string | undefined,
+  prefetchedTarball: Buffer,
 ): Promise<{ decision: Decision; summary: string; analyzedDigest: string }> {
-  const { signals } = await buildPackageSignals(name, version, { cwd });
+  const { signals } = await buildPackageSignals(name, version, { cwd, prefetchedTarball });
   const verdict = evaluateRules(signals);
   return { decision: verdict.decision, summary: verdict.summary, analyzedDigest: signals.artifact.digest };
 }
@@ -158,10 +159,12 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       let record = cache.get(digest);
       const cached = record !== undefined;
       if (!record) {
-        const verdict = await decide(name, version, options.cwd);
+        // Analyze the exact bytes we are about to serve — no second download,
+        // and the verdict is structurally bound to the served artifact.
+        const verdict = await decide(name, version, options.cwd, tar.body);
         let { decision, summary } = verdict;
-        // TOCTOU guard: the analysis fetched its own copy of the tarball; if the
-        // bytes we are about to serve differ from what was vetted, refuse.
+        // Invariant guard: the analyzed digest must equal the served bytes'
+        // digest (same bytes). If somehow not, fail closed.
         if (verdict.analyzedDigest && verdict.analyzedDigest !== digest) {
           decision = "block";
           summary = `served tarball digest ${digest} does not match the analyzed artifact ${verdict.analyzedDigest}`;
