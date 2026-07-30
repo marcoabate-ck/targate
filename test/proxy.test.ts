@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
-import { parseRegistryPath, Semaphore } from "../src/proxy.js";
+import { isNpmClient, parseRegistryPath, Semaphore } from "../src/proxy.js";
 import { ProxyVerdictCache, sha512Sri, type VerdictRecord } from "../src/proxy-cache.js";
 import { readProxyUplinks, scopeOf, uplinkFor } from "../src/proxy-uplinks.js";
 import { PendingApprovals } from "../src/proxy-approvals.js";
@@ -132,6 +132,23 @@ describe("ProxyVerdictCache", () => {
     expect(cache.size).toBe(2);
     expect(cache.get("d1")).toBeUndefined();
     expect(cache.get("d3")?.name).toBe("c");
+  });
+});
+
+describe("isNpmClient", () => {
+  // npm rewrites the tarball host itself (replace-registry-host); pnpm/yarn/bun
+  // do not, so they must be classified as non-npm to get the dist.tarball rewrite.
+  it("matches only npm's own user-agent", () => {
+    expect(isNpmClient("npm/10.9.2 node/v22.13.0 darwin arm64 workspaces/false")).toBe(true);
+  });
+  it("does not misclassify pnpm/yarn (which embed npm/? later in their UA)", () => {
+    expect(isNpmClient("pnpm/11.1.2 npm/? node/v22.13.0 darwin arm64")).toBe(false);
+    expect(isNpmClient("yarn/1.22.22 npm/? node/v22.13.0")).toBe(false);
+  });
+  it("treats bun and unknown/absent clients as non-npm (safe: they get the rewrite)", () => {
+    expect(isNpmClient("Bun/1.3.9")).toBe(false);
+    expect(isNpmClient(undefined)).toBe(false);
+    expect(isNpmClient("")).toBe(false);
   });
 });
 

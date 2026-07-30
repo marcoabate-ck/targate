@@ -93,6 +93,22 @@ export interface ProxyHandle {
   pending: PendingApprovals;
 }
 
+/**
+ * True when the client is npm. Only npm rewrites a tarball's host to the
+ * configured registry (`replace-registry-host`), so for npm we can leave
+ * `dist.tarball` canonical and keep the lockfile portable. Every other manager
+ * (bun, pnpm, yarn, …) fetches `dist.tarball` verbatim, so we must rewrite it to
+ * the proxy or the tarball fetch would skip vetting.
+ *
+ * Match npm's UA precisely: it *starts* with `npm/` (e.g. `npm/10.9.2 node/…`).
+ * pnpm and yarn embed `npm/?` later in their UA (`pnpm/11 npm/? …`,
+ * `yarn/1 npm/? …`), so a loose `npm/` match would misclassify them as npm and
+ * skip the rewrite they need — anchor to the start.
+ */
+export function isNpmClient(userAgent: string | undefined): boolean {
+  return /^\s*npm\//i.test(userAgent ?? "");
+}
+
 /** Split a registry request path into a package name and, for tarballs, a version. */
 export function parseRegistryPath(rawUrl: string): { name: string; tarballVersion?: string } | null {
   let pathname: string;
@@ -360,13 +376,14 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       timeoutMs: UPSTREAM_TIMEOUT_MS,
       maxBytes: MAX_PACKUMENT_BYTES,
     });
-    let body = pack.body;
-    if (target.isPrivate) {
-      // Private scope: rewrite dist.tarball from the private registry origin to
-      // this proxy so the tarball fetch comes back for vetting. (Public scopes
-      // are left canonical — replace-registry-host routes them; see N1.)
-      body = Buffer.from(pack.body.toString("utf8").split(target.origin).join(proxyOrigin), "utf8");
-    }
+    // Rewrite dist.tarball to this proxy so the tarball fetch comes back for
+    // vetting — always for a private scope, and for every non-npm client (only
+    // npm rewrites the host itself via replace-registry-host, so npm keeps the
+    // canonical URL and a portable lockfile; see N1 and §5.8).
+    const rewriteTarball = target.isPrivate || !isNpmClient(req.headers["user-agent"]);
+    const body = rewriteTarball
+      ? Buffer.from(pack.body.toString("utf8").split(target.origin).join(proxyOrigin), "utf8")
+      : pack.body;
     res.writeHead(pack.status, { "content-type": String(pack.headers["content-type"] ?? "application/json") });
     res.end(body);
   }

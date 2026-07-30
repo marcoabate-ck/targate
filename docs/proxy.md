@@ -5,18 +5,19 @@ targate proxy setup
 ```
 
 The proxy is a transparent enforcement point: instead of remembering to run
-`targate add`, you point **npm**'s registry at a local proxy, and every
-`npm install` / `npm ci` is vetted before a tarball's bytes ever reach your
-machine. It closes the gap left by CLI-only gating — a raw `npm install`, a
-script, or a CI job that never calls `targate` is still checked — without a
-shell wrapper and without depending on lifecycle scripts (so `--ignore-scripts`
-cannot switch it off).
+`targate add`, you point your package manager's registry at a local proxy, and
+every install is vetted before a tarball's bytes ever reach your machine. It
+closes the gap left by CLI-only gating — a raw `npm install`, a script, or a CI
+job that never calls `targate` is still checked — without a shell wrapper and
+without depending on lifecycle scripts (so `--ignore-scripts` cannot switch it
+off).
 
-> **npm only, for now.** Verified with npm ≥ 9. Other package managers speak the
-> same registry protocol, but pointing them at the proxy is not yet verified:
-> **bun was observed to bypass** a configured localhost registry in testing, and
-> pnpm's content store made routing inconclusive. Treat non-npm clients as
-> unsupported until verified.
+> **Works with npm, pnpm, yarn, and bun** (all verified to route through the
+> proxy and be blocked on a bad package). Only npm rewrites a tarball's host to
+> the configured registry itself, so the proxy leaves npm's `dist.tarball`
+> canonical (keeping the lockfile portable) and rewrites it to the proxy for the
+> other managers — transparently, by detecting the client. Each manager's own
+> content cache still sits in front of the proxy (see [Limitations](#limitations)).
 
 > **Status: experimental.** Flags and output may change in a minor release. It
 > vets **public** packages out of the box; private/scoped registries are
@@ -47,12 +48,15 @@ commit it.** `teardown` removes the block again.
 
 ## How it works
 
-- **Packument requests pass through unmodified.** The proxy does *not* rewrite
-  `dist.tarball`; npm's `replace-registry-host=npmjs` (the default on npm ≥ 9)
-  routes the tarball fetch through the proxy while your lockfile keeps canonical
-  `registry.npmjs.org` URLs — so a lockfile authored behind the proxy stays
-  portable for teammates and CI that do not run it. Do **not** set
-  `replace-registry-host=never`; that bypasses the proxy.
+- **The tarball fetch is routed per client.** For **npm**, the packument passes
+  through unmodified: npm's `replace-registry-host=npmjs` (the default on npm ≥ 9)
+  routes the tarball through the proxy while the lockfile keeps canonical
+  `registry.npmjs.org` URLs, so a lockfile authored behind the proxy stays
+  portable for teammates and CI that do not run it (do **not** set
+  `replace-registry-host=never` — that bypasses the proxy). **pnpm, yarn, and
+  bun** don't rewrite the host themselves, so the proxy rewrites `dist.tarball`
+  to itself for those clients (detected by user-agent) — their tarball still
+  comes back for vetting.
 - **Every tarball is vetted before it is served.** The proxy fetches the exact
   bytes it is about to serve, runs the same deterministic analysis as
   `targate add` (lifecycle scripts, tarball contents, native surface, OSV /
