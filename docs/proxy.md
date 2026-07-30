@@ -158,7 +158,12 @@ Two end-to-end checks cover the parts that need a real environment:
   untrust. Run it locally with `node --import tsx scripts/e2e-proxy-cert.mts`, or
   via the manual `proxy cert e2e` GitHub Actions workflow which runs it on macOS,
   Windows, and Linux.
-- **A real private registry** — [`scripts/e2e-proxy-github-packages.mts`](../scripts/e2e-proxy-github-packages.mts)
+- **A real private registry, no credentials** — [`scripts/e2e-proxy-verdaccio.sh`](../scripts/e2e-proxy-verdaccio.sh)
+  spins up a real Verdaccio with an auth-required scope, publishes a package to
+  it, and installs that package through the proxy — asserting it was routed,
+  the credential was relayed to Verdaccio, approved, and installed. Needs only
+  `npx` (no external token). `bash scripts/e2e-proxy-verdaccio.sh`.
+- **A hosted private registry** — [`scripts/e2e-proxy-github-packages.mts`](../scripts/e2e-proxy-github-packages.mts)
   installs a private package from GitHub Packages through the proxy. Set
   `GITHUB_TOKEN` (with `read:packages`) and `GH_PKG_SPEC=@scope/pkg@version`, then
   run the script; it asserts the package both installs and shows up in the proxy
