@@ -130,9 +130,11 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
   const emit = (event: ProxyEvent): void => options.onEvent?.(event);
 
   /** Route a package to its upstream: a matching private-scope uplink, else the default. */
-  function targetFor(name: string): { origin: string; isPrivate: boolean } {
+  function targetFor(name: string): { origin: string; isPrivate: boolean; auth?: string } {
     const uplink = uplinkFor(name, uplinks);
-    return uplink ? { origin: uplink.upstream, isPrivate: true } : { origin: upstream, isPrivate: false };
+    return uplink
+      ? { origin: uplink.upstream, isPrivate: true, auth: uplink.auth }
+      : { origin: upstream, isPrivate: false };
   }
 
   const onRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
@@ -159,6 +161,9 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       return;
     }
     const target = targetFor(parsed.name);
+    // Prefer the uplink's stored credential (captured at setup); otherwise relay
+    // the client's own Authorization header pass-through.
+    const upstreamAuth = target.auth ?? auth;
 
     // ---- tarball: fetch the exact bytes we will serve, vet, then serve or refuse ----
     if (parsed.tarballVersion) {
@@ -166,7 +171,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       const key = `${name}@${version}`;
       const started = Date.now();
 
-      const tar = await fetchUpstream(`${target.origin}${req.url}`, "application/octet-stream", auth);
+      const tar = await fetchUpstream(`${target.origin}${req.url}`, "application/octet-stream", upstreamAuth);
       if (tar.status >= 400) {
         // let the client see the upstream's own error (404 for a bad version, etc.)
         res.writeHead(tar.status, { "content-type": String(tar.headers["content-type"] ?? "application/json") });
@@ -189,7 +194,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
           version,
           options.cwd,
           tar.body,
-          target.isPrivate ? { url: target.origin, source: "scope", auth } : undefined,
+          target.isPrivate ? { url: target.origin, source: "scope", auth: upstreamAuth } : undefined,
         );
         let { decision, summary } = verdict;
         // Invariant guard: the analyzed digest must equal the served bytes'
@@ -216,7 +221,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
 
     // ---- packument ----
     emit({ kind: "packument", name: parsed.name });
-    const pack = await fetchUpstream(`${target.origin}${req.url}`, String(req.headers.accept ?? "application/json"), auth);
+    const pack = await fetchUpstream(`${target.origin}${req.url}`, String(req.headers.accept ?? "application/json"), upstreamAuth);
     let body = pack.body;
     if (target.isPrivate) {
       // Private scope: rewrite dist.tarball from the private registry origin to

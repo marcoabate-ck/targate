@@ -6,7 +6,7 @@ import { writeFileSync } from "node:fs";
 import { parseRegistryPath } from "../src/proxy.js";
 import { ProxyVerdictCache, sha512Sri } from "../src/proxy-cache.js";
 import { readProxyUplinks, scopeOf, uplinkFor } from "../src/proxy-uplinks.js";
-import { removeNpmrcBlock } from "../src/commands/proxy.js";
+import { migrateScopes, removeNpmrcBlock } from "../src/commands/proxy.js";
 
 const BEGIN = "# >>> targate proxy (managed — `targate proxy teardown` removes this)";
 const END = "# <<< targate proxy";
@@ -158,5 +158,29 @@ describe("proxy uplinks", () => {
 
   it("returns an empty list when the file is absent", () => {
     expect(readProxyUplinks(path.join(tmpdir(), "targate-no-such-uplinks.json"))).toEqual([]);
+  });
+});
+
+describe("migrateScopes", () => {
+  it("turns private per-scope registries into uplinks with captured auth, skipping npmjs/local", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "targate-migrate-"));
+    try {
+      writeFileSync(
+        path.join(dir, ".npmrc"),
+        [
+          "@acme:registry=https://npm.acme.example/",
+          "//npm.acme.example/:_authToken=SECRET",
+          "@pub:registry=https://registry.npmjs.org/", // skipped: npmjs
+          "@local:registry=http://127.0.0.1:9999/", // skipped: loopback
+        ].join("\n"),
+      );
+      const uplinks = migrateScopes(dir, "https://127.0.0.1:4873");
+      const acme = uplinks.find((u) => u.scope === "@acme");
+      expect(acme).toEqual({ scope: "@acme", upstream: "https://npm.acme.example", auth: "Bearer SECRET" });
+      expect(uplinks.find((u) => u.scope === "@pub")).toBeUndefined();
+      expect(uplinks.find((u) => u.scope === "@local")).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

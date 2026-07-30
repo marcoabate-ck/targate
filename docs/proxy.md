@@ -88,30 +88,28 @@ locally generated CA. Trust it once, one of two ways:
 
 ## Private scopes
 
-A scoped private registry is vetted through the proxy by declaring an **uplink**
-in `~/.targate/proxy-uplinks.json` and pointing the scope at the proxy in your
-`.npmrc`:
+`targate proxy setup` reads your existing `.npmrc`, and for every private
+per-scope registry (`@acme:registry=https://npm.acme.example`) it:
 
-```json
-[{ "scope": "@acme", "upstream": "https://npm.acme.example" }]
-```
+- writes an **uplink** to `~/.targate/proxy-uplinks.json` capturing the scope's
+  real upstream **and its credential** (the same token already in your `.npmrc`),
+  written `0600`;
+- rewrites that scope in the managed `.npmrc` block to point at the proxy, so
+  `@acme/*` now flows through it.
 
-```ini
-# .npmrc (in addition to the setup block)
-@acme:registry=https://127.0.0.1:4873
-//127.0.0.1:4873/:_authToken=${ACME_TOKEN}
-```
+At request time the proxy routes `@acme/*` to its real upstream and authenticates
+with the captured credential (it never stores anything the client did not already
+have; if no credential was captured it relays the client's header pass-through).
+It rewrites the private packument's `dist.tarball` so the tarball comes back
+through the proxy for vetting, and runs the same analysis as for public packages
+— including the same-version-mutation ledger and content scanning, the byte-level
+defenses that matter for a compromised internal package (external databases
+cannot know private names). A scoped package with **no** uplink resolves as public
+and gets the full public analysis, so a dependency-confusion attempt surfaces
+rather than sliding through.
 
-The proxy routes `@acme/*` to its real upstream, **relaying your token
-pass-through** (it stores the upstream URL, never the credential), rewrites the
-private packument's `dist.tarball` so the tarball comes back through the proxy for
-vetting, and runs the same analysis as for public packages — including the
-same-version-mutation ledger and content scanning, the byte-level defenses that
-matter for a compromised internal package (external databases cannot know private
-names). A scoped package with **no** uplink resolves as public and gets the full
-public analysis, so a dependency-confusion attempt surfaces rather than sliding
-through. Automatic population of the uplinks from your existing `.npmrc` (via
-`setup`) is still a follow-up; for now the file is written by hand.
+Registries whose scopes share one token (one Artifactory serving several scopes)
+migrate cleanly. `teardown` removes the uplinks file along with the rest.
 
 ## Limitations
 

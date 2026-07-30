@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { proxyStateDir } from "./proxy-daemon.js";
 
@@ -14,6 +14,13 @@ export interface ProxyUplink {
   scope: string;
   /** Real registry origin that serves this scope, e.g. "https://npm.acme.example". */
   upstream: string;
+  /**
+   * Authorization header value used to authenticate to the upstream (e.g.
+   * "Bearer …"), captured from the original .npmrc at setup time. When absent,
+   * the proxy relays the client's own Authorization header pass-through.
+   * This file therefore holds credentials — written 0600, never logged.
+   */
+  auth?: string;
 }
 
 export function proxyUplinksFile(): string {
@@ -34,10 +41,25 @@ export function readProxyUplinks(file = proxyUplinksFile()): ProxyUplink[] {
           (u as ProxyUplink).scope.startsWith("@") &&
           typeof (u as ProxyUplink).upstream === "string",
       )
-      .map((u) => ({ scope: u.scope, upstream: u.upstream.replace(/\/+$/, "") }));
+      .map((u) => ({
+        scope: u.scope,
+        upstream: u.upstream.replace(/\/+$/, ""),
+        ...(typeof u.auth === "string" ? { auth: u.auth } : {}),
+      }));
   } catch {
     return [];
   }
+}
+
+/** Write the uplinks file 0600 (it may contain credentials). */
+export function writeProxyUplinks(uplinks: ProxyUplink[], file = proxyUplinksFile()): void {
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(uplinks, null, 2)}\n`, { mode: 0o600 });
+}
+
+/** Remove the uplinks file (teardown). */
+export function removeProxyUplinks(file = proxyUplinksFile()): void {
+  rmSync(file, { force: true });
 }
 
 /** The scope of a (possibly scoped) package name, or undefined if unscoped. */

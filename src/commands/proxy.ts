@@ -10,8 +10,9 @@ import {
   proxyStateFile,
   writeProxyState,
 } from "../proxy-daemon.js";
+import { authHeaderForUrl, DEFAULT_REGISTRY, loadNpmrc } from "../npmrc.js";
 import { ProxyVerdictCache } from "../proxy-cache.js";
-import { readProxyUplinks } from "../proxy-uplinks.js";
+import { readProxyUplinks, removeProxyUplinks, writeProxyUplinks, type ProxyUplink } from "../proxy-uplinks.js";
 import { ensureTlsMaterial, loadTlsMaterial, removeTlsMaterial } from "../proxy-tls.js";
 import { dim, green, red, yellow } from "../report.js";
 
@@ -187,13 +188,46 @@ function statusDaemon(): number {
 }
 
 /** Insert or replace the managed block in the project .npmrc. */
-function writeNpmrcBlock(cwd: string, registryUrl: string): string {
+function writeNpmrcBlock(cwd: string, registryUrl: string, scopes: string[] = []): string {
   const file = path.join(cwd, ".npmrc");
-  const block = [NPMRC_BEGIN, `registry=${registryUrl}`, "replace-registry-host=npmjs", NPMRC_END, ""].join("\n");
+  const lines = [NPMRC_BEGIN, `registry=${registryUrl}`, "replace-registry-host=npmjs"];
+  // Route each migrated private scope through the proxy too (the proxy holds the
+  // real upstream + credential, so no per-scope token is needed here).
+  for (const scope of scopes) lines.push(`${scope}:registry=${registryUrl}`);
+  lines.push(NPMRC_END, "");
+  const block = lines.join("\n");
   const existing = existsSync(file) ? readFileSync(file, "utf8") : "";
   const stripped = removeNpmrcBlock(existing);
   writeFileSync(file, stripped ? `${stripped.replace(/\n*$/, "\n")}${block}` : block);
   return file;
+}
+
+/**
+ * Read the project .npmrc and turn its private per-scope registries into proxy
+ * uplinks: `@acme:registry=https://real` becomes an uplink to that registry with
+ * the scope's credential captured pass-forward. npmjs, the proxy itself, and
+ * loopback/local hosts are skipped.
+ */
+export function migrateScopes(cwd: string, proxyOrigin: string): ProxyUplink[] {
+  const config = loadNpmrc(cwd);
+  const uplinks: ProxyUplink[] = [];
+  for (const [key, value] of Object.entries(config.entries)) {
+    if (!key.startsWith("@") || !key.endsWith(":registry")) continue;
+    const upstream = value.replace(/\/+$/, "");
+    let host = "";
+    try {
+      host = new URL(upstream).hostname;
+    } catch {
+      continue;
+    }
+    const isNpmjs = upstream === DEFAULT_REGISTRY;
+    const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1" || proxyOrigin.includes(host);
+    if (isNpmjs || isLocal) continue;
+    const scope = key.slice(0, -":registry".length);
+    const auth = authHeaderForUrl(`${upstream}/`, config);
+    uplinks.push({ scope, upstream, ...(auth ? { auth } : {}) });
+  }
+  return uplinks;
 }
 
 /** Remove the managed block, returning the remaining .npmrc text. Exported for tests. */
@@ -230,12 +264,21 @@ async function setupProxy(port: number, options: ProxyOptions): Promise<number> 
     return 1;
   }
 
+  const registryUrl = `https://${host}:${port}`;
+  // Capture private per-scope registries + credentials BEFORE the daemon starts
+  // (it reads the uplinks at boot) and before we rewrite the .npmrc.
+  const uplinks = migrateScopes(cwd, registryUrl);
+  writeProxyUplinks(uplinks);
+
   const code = await startDaemon(port, { ...options, tls: true });
   if (code !== 0) return code;
 
-  const registryUrl = `https://${host}:${port}`;
-  const npmrc = writeNpmrcBlock(cwd, registryUrl);
+  const npmrc = writeNpmrcBlock(cwd, registryUrl, uplinks.map((u) => u.scope));
   console.log(green(`Configured ${npmrc} to use the proxy.`));
+  if (uplinks.length > 0) {
+    console.log(green(`Routed ${uplinks.length} private scope(s) through the proxy: ${uplinks.map((u) => u.scope).join(", ")}`));
+    console.log(dim("  their credentials were copied into ~/.targate/proxy-uplinks.json (0600) — the proxy authenticates upstream."));
+  }
   console.log(yellow("  Note: this .npmrc points at a local proxy — add it to .gitignore; do not commit it."));
   caTrustHint(caPath, host, port);
   return 0;
@@ -249,8 +292,9 @@ async function teardownProxy(): Promise<number> {
     writeFileSync(file, cleaned);
     console.log(green(`Removed the targate block from ${file}.`));
   }
+  removeProxyUplinks();
   removeTlsMaterial();
-  console.log(green("Removed local TLS material."));
+  console.log(green("Removed local TLS material and uplinks."));
   return 0;
 }
 
