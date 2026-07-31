@@ -90,6 +90,11 @@ export interface AnalyzePackageOptions {
   lockedArtifact?: LockedPackageArtifact;
   /** Whether lockedArtifact came from a pre-existing reviewed lockfile. */
   lockfileTrusted?: boolean;
+  /** Pre-fetched tarball bytes to analyze instead of downloading (registry proxy). */
+  prefetchedTarball?: Buffer;
+  /** Explicit registry + relayed auth for the metadata fetch, bypassing .npmrc
+   *  resolution (registry proxy, private scopes). */
+  registryOverride?: { url: string; source: "scope" | "global" | "default"; auth?: string };
   /** Already-fetched exact metadata, used when a staged plan must be built first. */
   metadata?: PackageMetadata;
   /** Project root for the artifact ledger. */
@@ -389,6 +394,8 @@ export async function buildPackageSignals(
     | "policy"
     | "lockedArtifact"
     | "lockfileTrusted"
+    | "prefetchedTarball"
+    | "registryOverride"
     | "metadata"
     | "cwd"
     | "codeAudit"
@@ -399,7 +406,7 @@ export async function buildPackageSignals(
   const limits = resolveResourceLimits(resourcePolicy);
   const metadata =
     opts.metadata ??
-    (await fetchPackageMetadata(name, version, resourcePolicy));
+    (await fetchPackageMetadata(name, version, resourcePolicy, opts.registryOverride));
   opts.onStage?.("metadata", `${metadata.name}@${metadata.version}`);
 
   // Policy internalScopes: this package's NAME is private. Every lookup that
@@ -505,6 +512,7 @@ export async function buildPackageSignals(
       historicalIntegrity: historicalIntegrityPromise,
       publicArtifact: publicArtifactPromise,
       resourceLimits: resourcePolicy,
+      prefetchedBytes: opts.prefetchedTarball,
     });
   } catch (err) {
     if (!(err instanceof ResourceLimitError)) {

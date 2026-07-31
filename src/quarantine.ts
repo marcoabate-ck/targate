@@ -51,6 +51,13 @@ export interface QuarantineOptions {
   /** May resolve concurrently with the tarball download. */
   publicArtifact?: PublicArtifactEvidence | Promise<PublicArtifactEvidence>;
   resourceLimits?: ResourceLimits;
+  /**
+   * Pre-fetched tarball bytes. When set, quarantine analyzes these exact bytes
+   * instead of downloading `tarballUrl` — the registry proxy passes the bytes it
+   * already fetched (and will serve), so the verdict is bound to the served
+   * artifact with no second download and no fetch-vs-serve divergence.
+   */
+  prefetchedBytes?: Buffer;
 }
 
 type ResolvedQuarantineOptions = Omit<
@@ -242,40 +249,49 @@ export async function quarantineTarball(
   // Private registries: reuse the registry's nerf-darted .npmrc credentials
   // when the tarball URL matches one (npm does the same). Public tarballs
   // resolve no header and the request stays anonymous.
-  const auth = authHeaderForUrl(tarballUrl, getNpmrc());
   const limits = resolveResourceLimits(options.resourceLimits);
-  let res: Response;
-  try {
-    // Guarded: validates the initial URL AND every redirect hop against the
-    // SSRF host guard, and drops the credential on a cross-origin hop.
-    res = await fetchArtifactGuarded(
-      tarballUrl,
-      auth ? { headers: { authorization: auth } } : {},
-      { timeoutMs: limits.networkTimeoutMs, maxResponseBytes: limits.maxTarballBytes },
-      `${options.packageName}@${options.version} tarball URL`,
-    );
-  } catch (err) {
-    await rm(root, { recursive: true, force: true });
-    throw err;
-  }
-  if (!res.ok) {
-    await rm(root, { recursive: true, force: true });
-    throw new Error(
-      `Failed to download tarball (${res.status}): ${tarballUrl}` +
-        (res.status === 401 || res.status === 403
-          ? " — check the .npmrc credentials for this registry"
-          : ""),
-    );
-  }
   let bytes: Buffer;
-  try {
-    bytes = await readResponseBuffer(res, limits.maxTarballBytes, "package tarball");
-  } catch (err) {
-    await rm(root, { recursive: true, force: true });
-    if (err instanceof ResourceLimitError && err.kind === "response-size") {
-      throw new ResourceLimitError("tarball-size", err.message);
+  if (options.prefetchedBytes) {
+    // The proxy already fetched (and will serve) these exact bytes.
+    if (options.prefetchedBytes.length > limits.maxTarballBytes) {
+      await rm(root, { recursive: true, force: true });
+      throw new ResourceLimitError("tarball-size", `tarball exceeds ${limits.maxTarballBytes} bytes`);
     }
-    throw err;
+    bytes = options.prefetchedBytes;
+  } else {
+    const auth = authHeaderForUrl(tarballUrl, getNpmrc());
+    let res: Response;
+    try {
+      // Guarded: validates the initial URL AND every redirect hop against the
+      // SSRF host guard, and drops the credential on a cross-origin hop.
+      res = await fetchArtifactGuarded(
+        tarballUrl,
+        auth ? { headers: { authorization: auth } } : {},
+        { timeoutMs: limits.networkTimeoutMs, maxResponseBytes: limits.maxTarballBytes },
+        `${options.packageName}@${options.version} tarball URL`,
+      );
+    } catch (err) {
+      await rm(root, { recursive: true, force: true });
+      throw err;
+    }
+    if (!res.ok) {
+      await rm(root, { recursive: true, force: true });
+      throw new Error(
+        `Failed to download tarball (${res.status}): ${tarballUrl}` +
+          (res.status === 401 || res.status === 403
+            ? " — check the .npmrc credentials for this registry"
+            : ""),
+      );
+    }
+    try {
+      bytes = await readResponseBuffer(res, limits.maxTarballBytes, "package tarball");
+    } catch (err) {
+      await rm(root, { recursive: true, force: true });
+      if (err instanceof ResourceLimitError && err.kind === "response-size") {
+        throw new ResourceLimitError("tarball-size", err.message);
+      }
+      throw err;
+    }
   }
 
   const [historicalIntegrity, publicArtifact] = await evidencePromise;
