@@ -2,7 +2,14 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildInstallCommand, detectPackageManager, gateInstall } from "../src/installer.js";
+import {
+  buildInstallCommand,
+  cacheCleanCommand,
+  detectInstallClient,
+  detectPackageManager,
+  gateInstall,
+  lockfilePortableBehindProxy,
+} from "../src/installer.js";
 
 let dir: string;
 
@@ -35,6 +42,61 @@ describe("detectPackageManager", () => {
   });
 });
 
+describe("detectInstallClient", () => {
+  it("detects bun from bun.lockb or bun.lock", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
+    await writeFile(path.join(dir, "bun.lockb"), "");
+    expect(detectInstallClient(dir)).toBe("bun");
+    await rm(path.join(dir, "bun.lockb"));
+    await writeFile(path.join(dir, "bun.lock"), "");
+    expect(detectInstallClient(dir)).toBe("bun");
+  });
+
+  it("treats a bare yarn.lock as yarn-classic", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
+    await writeFile(path.join(dir, "yarn.lock"), "");
+    expect(detectInstallClient(dir)).toBe("yarn-classic");
+  });
+
+  it("detects yarn-berry via .yarnrc.yml", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
+    await writeFile(path.join(dir, "yarn.lock"), "");
+    await writeFile(path.join(dir, ".yarnrc.yml"), "nodeLinker: node-modules\n");
+    expect(detectInstallClient(dir)).toBe("yarn-berry");
+  });
+
+  it("detects yarn-berry via packageManager yarn@>=2", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
+    await writeFile(path.join(dir, "yarn.lock"), "");
+    await writeFile(path.join(dir, "package.json"), JSON.stringify({ packageManager: "yarn@4.1.0" }));
+    expect(detectInstallClient(dir)).toBe("yarn-berry");
+    // yarn@1.x stays classic
+    await writeFile(path.join(dir, "package.json"), JSON.stringify({ packageManager: "yarn@1.22.22" }));
+    expect(detectInstallClient(dir)).toBe("yarn-classic");
+  });
+
+  it("detects pnpm and npm, defaults to pnpm", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "targate-test-"));
+    await writeFile(path.join(dir, "pnpm-lock.yaml"), "");
+    expect(detectInstallClient(dir)).toBe("pnpm");
+    await rm(path.join(dir, "pnpm-lock.yaml"));
+    await writeFile(path.join(dir, "package-lock.json"), "{}");
+    expect(detectInstallClient(dir)).toBe("npm");
+    await rm(path.join(dir, "package-lock.json"));
+    expect(detectInstallClient(dir)).toBe("pnpm");
+  });
+});
+
+describe("lockfilePortableBehindProxy", () => {
+  it("is true for npm/pnpm/yarn-berry, false for yarn-classic/bun", () => {
+    expect(lockfilePortableBehindProxy("npm")).toBe(true);
+    expect(lockfilePortableBehindProxy("pnpm")).toBe(true);
+    expect(lockfilePortableBehindProxy("yarn-berry")).toBe(true);
+    expect(lockfilePortableBehindProxy("yarn-classic")).toBe(false);
+    expect(lockfilePortableBehindProxy("bun")).toBe(false);
+  });
+});
+
 describe("buildInstallCommand", () => {
   it("builds normal and ignore-scripts variants", () => {
     expect(buildInstallCommand("pnpm", "left-pad@1.3.0")).toEqual([
@@ -45,6 +107,14 @@ describe("buildInstallCommand", () => {
     expect(
       buildInstallCommand("npm", "left-pad", { ignoreScripts: true }),
     ).toEqual(["npm", "install", "left-pad", "--ignore-scripts"]);
+  });
+});
+
+describe("cacheCleanCommand", () => {
+  it("maps each package manager to its cache-clearing command", () => {
+    expect(cacheCleanCommand("npm")).toBe("npm cache clean --force");
+    expect(cacheCleanCommand("yarn")).toBe("yarn cache clean");
+    expect(cacheCleanCommand("pnpm")).toBe("pnpm store prune");
   });
 });
 

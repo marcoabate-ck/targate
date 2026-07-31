@@ -24,6 +24,7 @@ Detailed specifications for [`targate`](../README.md). Start with the root READM
 - [Dependency graph](dependency-graph.md) — `targate graph`: the tree as an interactive risk graph (filters, workspaces, CI artifacts, `--why`).
 - [Transitive dependencies & full-tree install](transitive-and-install.md) — `--deep` and `targate install`.
 - [Sandboxed trial install](sandbox.md) — `targate sandbox` in a disposable Docker container.
+- [Registry proxy](proxy.md) — `targate proxy`: a transparent enforcement point that vets every install.
 - [CI integration](ci.md) — `targate ci` for pull requests.
 - [Monitoring risk over time](team-workflow.md#monitoring-risk-over-time--targate-monitor) — `targate monitor` and the risk baseline.
 - [Trust history & signed approvals](team-workflow.md#trust-history--targate-history) — `targate history`, SSH-signed approvals, `requireSignedApprovals`.

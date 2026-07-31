@@ -1,4 +1,5 @@
 import { isInstallTimeScript } from "./analyze/scripts.js";
+import { worstAdvisorySeverity } from "./osv.js";
 import {
   DECISION_SEVERITY,
   type Decision,
@@ -253,8 +254,10 @@ export function evaluateRules(signals: Signals): RiskAssessment {
     reasons.push("No repository metadata on npm.");
   }
   if (signals.advisories.length > 0) {
+    const worst = worstAdvisorySeverity(signals.advisories);
+    const label = worst && worst !== "unknown" ? ` (highest: ${worst.toUpperCase()})` : "";
     reasons.push(
-      `Known vulnerability advisories: ${signals.advisories.map((a) => a.id).join(", ")}.`,
+      `Known vulnerability advisories${label}: ${signals.advisories.map((a) => a.id).join(", ")}.`,
     );
   }
   if (signals.dependencyCount > 20) {
@@ -276,6 +279,22 @@ export function evaluateRules(signals: Signals): RiskAssessment {
   }
 
   if (reasons.length > 0) {
+    // Default posture: a KNOWN CRITICAL vulnerability is not silently
+    // auto-installed. It stops for a human (require_approval) — not a hard block
+    // (a CVE is often unavoidable or irrelevant, so block stays a policy choice).
+    // Team policy can still raise this to block, or gate lower severities.
+    const criticalVuln = worstAdvisorySeverity(signals.advisories) === "critical";
+    if (criticalVuln) {
+      return {
+        risk: "high",
+        decision: "require_approval",
+        summary: `${signals.package} has a known CRITICAL vulnerability advisory — review before installing.`,
+        reasons,
+        recommendedAction:
+          "A human should confirm the critical advisory is acceptable (or pin a fixed version) before installing.",
+        source: "rules",
+      };
+    }
     return {
       risk: "medium",
       decision: "allow_with_warnings",

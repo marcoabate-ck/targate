@@ -99,6 +99,7 @@ export function isPrivateHost(hostname: string): boolean {
  * assertSafeArtifactUrl and skip the lookup.
  */
 export async function assertHostResolvesPublic(hostname: string, label = "artifact URL"): Promise<void> {
+  if (insecureRegistryHostAllowed(hostname)) return; // test/dev opt-out
   if (isIP(hostname)) return; // literal — assertSafeArtifactUrl already checked it
   let addrs: { address: string }[];
   try {
@@ -113,6 +114,32 @@ export async function assertHostResolvesPublic(hostname: string, label = "artifa
   }
 }
 
+let warnedInsecureHosts = false;
+
+/**
+ * Hosts explicitly allowed to bypass the https + private-network SSRF checks,
+ * from `TARGATE_INSECURE_REGISTRY_HOSTS` (comma-separated hostnames). This is a
+ * **test/dev-only** escape hatch for pointing the registry proxy at a local
+ * registry (e.g. Verdaccio on localhost, or a private-IP container) — never set
+ * it in production; it disables SSRF protection for the listed hosts.
+ */
+export function insecureRegistryHostAllowed(hostname: string): boolean {
+  const raw = process.env.TARGATE_INSECURE_REGISTRY_HOSTS;
+  if (!raw) return false;
+  const allowed = raw
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  if (!allowed.includes(hostname.toLowerCase())) return false;
+  if (!warnedInsecureHosts) {
+    warnedInsecureHosts = true;
+    process.stderr.write(
+      `WARNING: TARGATE_INSECURE_REGISTRY_HOSTS is set — SSRF/https checks are disabled for: ${allowed.join(", ")}. Test/dev only.\n`,
+    );
+  }
+  return true;
+}
+
 export function assertSafeArtifactUrl(url: string, label = "artifact URL"): void {
   let parsed: URL;
   try {
@@ -120,6 +147,7 @@ export function assertSafeArtifactUrl(url: string, label = "artifact URL"): void
   } catch {
     throw new Error(`${label} is not a valid URL: ${url}`);
   }
+  if (insecureRegistryHostAllowed(parsed.hostname)) return;
   if (parsed.protocol !== "https:") {
     throw new Error(`${label} must use https, got ${parsed.protocol}//: ${url}`);
   }
@@ -129,6 +157,34 @@ export function assertSafeArtifactUrl(url: string, label = "artifact URL"): void
 }
 
 /** Shared timeout wrapper. The signal remains attached while the body streams. */
+/**
+ * Retry a network operation that fails with a **transient** timeout
+ * (`ResourceLimitError` kind `network-timeout`, thrown by `fetchWithTimeout` and
+ * the streaming readers). Any other error — 404, auth failure, a real limit —
+ * propagates immediately, so this never masks a deterministic failure nor
+ * weakens fail-closed behavior: if every attempt still times out, the last
+ * timeout is thrown and the caller degrades to UNKNOWN as before. `delayMs` is
+ * injectable so tests run without real waits.
+ */
+export async function retryOnNetworkTimeout<T>(
+  fn: () => Promise<T>,
+  attempts = 3,
+  delayMs: (attempt: number) => number = (attempt) => 200 * attempt,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      const transient = err instanceof ResourceLimitError && err.kind === "network-timeout";
+      if (!transient || attempt === attempts) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delayMs(attempt)));
+    }
+  }
+  throw lastError;
+}
+
 export async function fetchWithTimeout(
   input: string | URL,
   init: RequestInit = {},

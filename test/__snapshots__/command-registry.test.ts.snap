@@ -226,6 +226,7 @@ Usage:
   targate sandbox <package>[@version]             Trial-install a package in a disposable Docker container.
   targate ci [init]                               Gate dependency changes against a Git ref or scaffold CI.
   targate policy init                             Scaffold a declarative team policy from a preset.
+  targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny> Run a registry proxy that vets every package before install.
   targate doctor                                  Diagnose the local security and provider environment.
   targate diff <pkg>@<v1> [<pkg>[@<v2>]]          Compare package versions and rate the upgrade risk.
   targate monitor                                 Re-check trusted packages and report increased risk. [experimental]
@@ -265,6 +266,11 @@ Options:
   --base-ref <ref>             Git ref to compare against (default: origin/main).
   --format <format>            Select the output or scaffold format.
   --preset <name>              Policy preset: default, strict, react-native, ci, or ai-agent.
+  --port <n>                   Registry proxy port (default: 4873).
+  --upstream <url>             Upstream registry origin (default: https://registry.npmjs.org).
+  --host <addr>                Interface to bind the proxy to (default: 127.0.0.1).
+  --foreground                 Run the proxy in this process instead of a background daemon.
+  --tls                        Serve HTTPS with a locally generated CA/certificate.
   --ping                       Send a real provider completion during diagnostics.
   --fail-on <level>            Exit 2 at low, medium, or high diff risk (default: high).
   --all                        Include the complete lockfile dependency tree.
@@ -402,6 +408,27 @@ Options:
 Examples:
   targate policy init
   targate policy init --preset ai-agent"
+`;
+
+exports[`declarative command registry > keeps global and per-command help under snapshots > proxy help 1`] = `
+"Run a registry proxy that vets every package before install.
+
+Usage:
+  targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny>
+
+Options:
+  --port <n>                   Registry proxy port (default: 4873).
+  --upstream <url>             Upstream registry origin (default: https://registry.npmjs.org).
+  --host <addr>                Interface to bind the proxy to (default: 127.0.0.1).
+  --foreground                 Run the proxy in this process instead of a background daemon.
+  --tls                        Serve HTTPS with a locally generated CA/certificate.
+  --dry-run                    Analyze and report only; never prompt or install.
+  --help                       Show help for this command.
+
+Examples:
+  targate proxy setup
+  targate proxy status
+  targate proxy approve lodash@4.17.21"
 `;
 
 exports[`declarative command registry > keeps global and per-command help under snapshots > recommend help 1`] = `

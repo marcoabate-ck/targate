@@ -12,6 +12,7 @@ import { graphCommand } from "./commands/graph.js";
 import { historyCommand } from "./commands/history.js";
 import { installCommand } from "./commands/install.js";
 import { monitorCommand } from "./commands/monitor.js";
+import { proxyCommand } from "./commands/proxy.js";
 import { recommendCommand } from "./commands/recommend.js";
 import { sandboxCommand } from "./commands/sandbox.js";
 import type { JsonCommand } from "./json-output.js";
@@ -107,6 +108,11 @@ export const OPTION_DEFINITIONS = {
   only: option("only", "string", "filters", "Keep graph nodes matching comma-separated risk filters."),
   why: option("why", "string", "package", "Print every risk-annotated dependency chain to a package."),
   open: option("open", "boolean", undefined, "Open a written HTML or SVG graph in the browser."),
+  port: option("port", "string", "n", "Registry proxy port (default: 4873)."),
+  upstream: option("upstream", "string", "url", "Upstream registry origin (default: https://registry.npmjs.org)."),
+  host: option("host", "string", "addr", "Interface to bind the proxy to (default: 127.0.0.1)."),
+  foreground: option("foreground", "boolean", undefined, "Run the proxy in this process instead of a background daemon."),
+  tls: option("tls", "boolean", undefined, "Serve HTTPS with a locally generated CA/certificate."),
 } as const satisfies Record<string, OptionDefinition>;
 
 const O = OPTION_DEFINITIONS;
@@ -338,6 +344,27 @@ const commands: CommandDefinition[] = [
         console.log(yellow("A targate.policy.* file already exists — nothing written."));
       }
       return 0;
+    },
+  },
+  {
+    name: "proxy",
+    usage: "targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny>",
+    summary: "Run a registry proxy that vets every package before install.",
+    options: [O.port, O.upstream, O.host, O.foreground, O.tls, O.dryRun],
+    examples: ["targate proxy setup", "targate proxy status", "targate proxy approve lodash@4.17.21"],
+    handler: async ({ values: v, positionals }) => {
+      if (positionals.length < 1 || positionals.length > 2) {
+        console.error(red("Usage: targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny> [--port <n>] [--upstream <url>] [--host <addr>] [--tls]"));
+        return 1;
+      }
+      return proxyCommand(positionals, {
+        port: stringValue(v, "port"),
+        upstream: stringValue(v, "upstream"),
+        host: stringValue(v, "host"),
+        foreground: booleanValue(v, "foreground"),
+        tls: booleanValue(v, "tls"),
+        dryRun: booleanValue(v, "dry-run"),
+      });
     },
   },
   {

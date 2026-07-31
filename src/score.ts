@@ -1,6 +1,21 @@
 import { isInstallTimeScript } from "./analyze/scripts.js";
+import { MAX_SUSPICIOUS_FILES } from "./analyze/content.js";
 import { isHardBlock } from "./rules.js";
-import type { Signals } from "./types.js";
+import type { AdvisorySeverity, Signals } from "./types.js";
+
+/**
+ * Points deducted per advisory, weighted by severity (capped at the category
+ * max by the floor in `Category.result`). `unknown` keeps the historical flat
+ * weight so an advisory with no gradable severity is neither ignored nor
+ * over-penalized.
+ */
+const ADVISORY_DEDUCTION: Record<AdvisorySeverity, number> = {
+  critical: 20,
+  high: 12,
+  moderate: 6,
+  low: 3,
+  unknown: 8,
+};
 
 /**
  * Security Score — a 0–100 aggregation of the deterministic signals, with a
@@ -80,7 +95,8 @@ export function computeSecurityScore(signals: Signals): SecurityScore {
     vulnerabilities.deduct(MAX.vulnerabilities, "known malicious-package record (OSV/OpenSSF)");
   } else {
     for (const advisory of signals.advisories) {
-      vulnerabilities.deduct(8, `advisory: ${advisory.id}`);
+      const severity = advisory.severity ?? "unknown";
+      vulnerabilities.deduct(ADVISORY_DEDUCTION[severity], `advisory ${advisory.id} (${severity})`);
     }
     if (signals.osvUnavailable) {
       vulnerabilities.deduct(10, "OSV lookup unavailable — vulnerability status unknown");
@@ -131,7 +147,8 @@ export function computeSecurityScore(signals: Signals): SecurityScore {
   if (signals.content.hasMinifiedCode) content.deduct(2, "minified/obfuscated code");
   const suspicious = signals.content.suspiciousFiles.length;
   if (suspicious > 0) {
-    content.deduct(Math.min(6, suspicious * 2), `${suspicious} suspicious file(s)`);
+    const shown = suspicious >= MAX_SUSPICIOUS_FILES ? `${MAX_SUSPICIOUS_FILES}+` : `${suspicious}`;
+    content.deduct(Math.min(6, suspicious * 2), `${shown} suspicious file(s)`);
   }
 
   // 4. Maturity — 10

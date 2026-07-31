@@ -60,6 +60,7 @@ describe("policy packs", () => {
     expect(agent.requireApprovalForLifecycleScripts).toBe(true);
     expect(agent.requireApprovalForNativeCode).toBe(true);
     expect(agent.blockRecentlyPublishedPackages).toBe(true);
+    expect(agent.requireApprovalForAdvisorySeverity).toBe("high");
   });
 
   it("initPolicy writes a preset that round-trips through the YAML parser", async () => {

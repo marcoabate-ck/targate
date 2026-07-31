@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -73,6 +73,36 @@ function localMarkdownTargets(markdown: string): string[] {
     targets.push(decodeURIComponent(target.split("#")[0]));
   }
   return targets;
+}
+
+function replaceGeneratedBlock(source: string, start: string, end: string, content: string): string {
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end);
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    throw new Error(`generated block markers ${start} … ${end} not found`);
+  }
+  return `${source.slice(0, startIndex)}${generatedBlock(start, content, end)}${source.slice(endIndex + end.length)}`;
+}
+
+/**
+ * Regenerate the command tables embedded in README.md and docs/cli-reference.md
+ * from the command registry — the write counterpart of {@link checkDocumentation}.
+ * Run after changing the command registry so the docs check stays green.
+ */
+export async function writeGeneratedDocs(root: string): Promise<void> {
+  const readmeFile = path.join(root, "README.md");
+  const readme = await readFile(readmeFile, "utf8");
+  await writeFile(
+    readmeFile,
+    replaceGeneratedBlock(readme, README_COMMANDS_START, README_COMMANDS_END, renderReadmeCommandTable()),
+  );
+
+  const cliReferenceFile = path.join(root, "docs", "cli-reference.md");
+  const cliReference = await readFile(cliReferenceFile, "utf8");
+  await writeFile(
+    cliReferenceFile,
+    replaceGeneratedBlock(cliReference, CLI_REFERENCE_START, CLI_REFERENCE_END, renderCliReference()),
+  );
 }
 
 export async function checkDocumentation(root: string): Promise<string[]> {

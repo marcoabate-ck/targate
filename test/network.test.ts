@@ -4,7 +4,9 @@ import {
   assertSafeArtifactUrl,
   fetchArtifactGuarded,
   isPrivateHost,
+  retryOnNetworkTimeout,
 } from "../src/network.js";
+import { ResourceLimitError } from "../src/resource-limits.js";
 
 vi.mock("node:dns/promises", () => ({
   lookup: vi.fn(async (host: string) =>
@@ -209,5 +211,75 @@ describe("fetchArtifactGuarded", () => {
       fetchArtifactGuarded("http://a.example.com/pkg.tgz", {}, budget),
     ).rejects.toThrow(/https/);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("retryOnNetworkTimeout", () => {
+  const timeout = () => new ResourceLimitError("network-timeout", "timed out");
+  const noDelay = () => 0;
+
+  it("retries a transient timeout and returns the eventual success", async () => {
+    let calls = 0;
+    const result = await retryOnNetworkTimeout(
+      async () => {
+        calls++;
+        if (calls < 3) throw timeout();
+        return "ok";
+      },
+      3,
+      noDelay,
+    );
+    expect(result).toBe("ok");
+    expect(calls).toBe(3);
+  });
+
+  it("throws the timeout after exhausting attempts", async () => {
+    let calls = 0;
+    await expect(
+      retryOnNetworkTimeout(async () => {
+        calls++;
+        throw timeout();
+      }, 3, noDelay),
+    ).rejects.toBeInstanceOf(ResourceLimitError);
+    expect(calls).toBe(3);
+  });
+
+  it("does NOT retry a non-timeout error (fails fast on a deterministic failure)", async () => {
+    let calls = 0;
+    await expect(
+      retryOnNetworkTimeout(async () => {
+        calls++;
+        throw new Error("404 not found");
+      }, 3, noDelay),
+    ).rejects.toThrow("404 not found");
+    expect(calls).toBe(1);
+  });
+
+  it("does not retry a non-network ResourceLimitError kind", async () => {
+    let calls = 0;
+    await expect(
+      retryOnNetworkTimeout(async () => {
+        calls++;
+        throw new ResourceLimitError("max-file-bytes", "too big");
+      }, 3, noDelay),
+    ).rejects.toBeInstanceOf(ResourceLimitError);
+    expect(calls).toBe(1);
+  });
+
+  it("applies the default backoff between attempts when no delay function is given", async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const pending = retryOnNetworkTimeout(async () => {
+        calls++;
+        if (calls < 2) throw new ResourceLimitError("network-timeout", "timed out");
+        return "ok";
+      }); // default delayMs (200ms * attempt)
+      await vi.advanceTimersByTimeAsync(200);
+      await expect(pending).resolves.toBe("ok");
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

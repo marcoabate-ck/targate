@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clean } from "../src/report/colors.js";
-import { renderReport } from "../src/report/assessment.js";
+import { renderReport, renderSignalLines } from "../src/report/assessment.js";
 import { makeMetadata, makeSignals } from "./helpers.js";
 import type { RiskAssessment } from "../src/types.js";
 
@@ -174,5 +174,42 @@ describe("renderReport last-updated line", () => {
     expect(renderReport(metadata, signals, assess)).not.toMatch(
       /first release/,
     );
+  });
+});
+
+describe("renderSignalLines — static findings visibility", () => {
+  function withFindings(n: number): ReturnType<typeof makeSignals> {
+    const signals = makeSignals();
+    signals.content = {
+      ...signals.content,
+      suspiciousFiles: Array.from({ length: n }, (_, i) => `dist/f${i}.js: reads process.env`),
+    };
+    return signals;
+  }
+
+  it("caps the inline list at 8 and points to `targate explain --last` for the rest", () => {
+    const out = renderSignalLines(withFindings(11)).join("\n");
+    expect(out).toContain("static findings:");
+    expect(out).toContain("… and 3 more — run `targate explain --last` to see all"); // 11 - 8
+    expect((out.match(/^ {4}- /gm) ?? []).length).toBe(8);
+  });
+
+  it("shows every finding and no hint when findingLimit is Infinity (explain view)", () => {
+    const out = renderSignalLines(withFindings(11), { findingLimit: Infinity }).join("\n");
+    expect(out).not.toContain("more — run");
+    expect((out.match(/^ {4}- /gm) ?? []).length).toBe(11);
+  });
+
+  it("adds no hint when the findings fit under the cap", () => {
+    const out = renderSignalLines(withFindings(3)).join("\n");
+    expect(out).toContain("static findings:");
+    expect(out).not.toContain("more — run");
+  });
+
+  it("names the worst advisory severity on the advisory line", () => {
+    const signals = makeSignals({
+      advisories: [{ id: "GHSA-1", severity: "moderate" }, { id: "GHSA-2", severity: "high" }],
+    });
+    expect(renderSignalLines(signals).join("\n")).toContain("vulnerability advisories (highest: HIGH):");
   });
 });

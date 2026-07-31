@@ -53,8 +53,6 @@ Preview a package without installing anything with `--dry-run`, or record a comm
 
 `targate` ships three ways — all install the same CLI.
 
-> **Note:** only the **npm** method works today. The install script and the direct binary downloads go live with the **first tagged release** — until then their commands below are shown for reference and will 404.
-
 **npm** — every platform, needs Node ≥ 22.13:
 
 ```bash
@@ -119,6 +117,7 @@ targate resolves the package from npm, extracts the tarball into quarantine (scr
 | `targate sandbox <package>[@version]` | Trial-install a package in a disposable Docker container. |
 | `targate ci [init]` | Gate dependency changes against a Git ref or scaffold CI. |
 | `targate policy init` | Scaffold a declarative team policy from a preset. |
+| `targate proxy <start\|stop\|status\|ensure\|setup\|teardown\|cert\|approvals\|approve\|deny>` | Run a registry proxy that vets every package before install. |
 | `targate doctor` | Diagnose the local security and provider environment. |
 | `targate diff <pkg>@<v1> [<pkg>[@<v2>]]` | Compare package versions and rate the upgrade risk. |
 | `targate monitor` | Re-check trusted packages and report increased risk. |

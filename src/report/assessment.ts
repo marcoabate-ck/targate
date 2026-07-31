@@ -7,6 +7,10 @@ import type {
 } from "../types.js";
 import { bold, clean, cyan, dim, green, red, yellow } from "./colors.js";
 import { renderScoreLines } from "./score.js";
+import { worstAdvisorySeverity } from "../osv.js";
+
+/** Default number of static findings shown inline before truncating to a hint. */
+const DEFAULT_FINDING_LIMIT = 8;
 
 export const DECISION_LABEL: Record<Decision, string> = {
   allow: "ALLOW",
@@ -132,8 +136,12 @@ export function renderReport(
   return lines.join("\n");
 }
 
-/** The deterministic checklist shared by assessment and explanation views. */
-export function renderSignalLines(signals: Signals): string[] {
+/**
+ * The deterministic checklist shared by assessment and explanation views.
+ * `limit` caps the inline static-findings list: the compact report shows a few
+ * with a hint to see the rest, while `explain` passes `Infinity` to list them all.
+ */
+export function renderSignalLines(signals: Signals, opts: { findingLimit?: number } = {}): string[] {
   const lines: string[] = [];
   for (const reason of signals.analysisDegraded ?? []) {
     lines.push("  " + yellow(`⚠ analysis incomplete — UNKNOWN: ${reason}`));
@@ -238,18 +246,26 @@ export function renderSignalLines(signals: Signals): string[] {
   for (const note of signals.rnHardening.compatNotes)
     lines.push("  " + cyan(`ℹ ${clean(note)}`));
   if (signals.advisories.length > 0) {
+    const worst = worstAdvisorySeverity(signals.advisories);
+    const label = worst && worst !== "unknown" ? ` (highest: ${worst.toUpperCase()})` : "";
     lines.push(
       "  " +
         yellow(
-          `⚠ vulnerability advisories: ${clean(signals.advisories.map((advisory) => advisory.id).join(", "))}`,
+          `⚠ vulnerability advisories${label}: ${clean(signals.advisories.map((advisory) => advisory.id).join(", "))}`,
         ),
     );
   }
   lines.push(...renderReputationLines(signals.reputation, signals.package));
-  if (signals.content.suspiciousFiles.length > 0) {
+  const findings = signals.content.suspiciousFiles;
+  if (findings.length > 0) {
+    const limit = opts.findingLimit ?? DEFAULT_FINDING_LIMIT;
     lines.push("  " + dim("static findings:"));
-    for (const finding of signals.content.suspiciousFiles.slice(0, 8)) {
+    for (const finding of findings.slice(0, limit)) {
       lines.push("    " + dim(`- ${clean(finding)}`));
+    }
+    const hidden = findings.length - Math.min(limit, findings.length);
+    if (hidden > 0) {
+      lines.push("    " + dim(`… and ${hidden} more — run \`targate explain --last\` to see all`));
     }
   }
   return lines;

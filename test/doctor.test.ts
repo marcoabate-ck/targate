@@ -170,6 +170,19 @@ describe("individual checks", () => {
     expect(r.status).toBe("pass");
   });
 
+  it("proxy-cache-bypass is not applicable when the project does not route through the proxy", async () => {
+    // Clean temp project: no .npmrc pointing at a proxy → nothing to bypass.
+    const r = await check("proxy-cache-bypass").run(makeCtx());
+    expect(r.status).toBe("info");
+    expect(r.message).toContain("does not route installs through the proxy");
+  });
+
+  it("proxy-lockfile-portability is not applicable when not routing through the proxy", async () => {
+    const r = await check("proxy-lockfile-portability").run(makeCtx());
+    expect(r.status).toBe("info");
+    expect(r.message).toContain("does not route installs through the proxy");
+  });
+
   it("ci-mode reports CI when the env var is set", async () => {
     process.env.CI = "true";
     const r = await check("ci-mode").run(makeCtx());

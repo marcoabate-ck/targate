@@ -11,9 +11,41 @@ The published version is set from the release tag by the release pipeline
 (`.github/workflows/release.yml`); the `version` field in `package.json` is not
 bumped by hand.
 
-## [Unreleased]
+## [0.10.0] - 2026-07-31
 
 ### Added
+
+- **Known-vulnerability severity in the trust process** — OSV advisories now
+  carry a severity (`low`/`moderate`/`high`/`critical`/`unknown`, from the GHSA
+  label or a CVSS score). The security score deducts **proportionally** to
+  severity instead of a flat amount, and the verdict reason names the worst
+  severity. By default a known **critical** vulnerability now stops for human
+  review (`require_approval`) instead of auto-installing with a warning — it is
+  not a hard block, since a CVE is often unavoidable, so block stays a policy
+  choice. Lower severities still `allow_with_warnings` by default. Two opt-in
+  policy knobs gate the rest — `dependencyPolicy.requireApprovalForAdvisorySeverity`
+  and `blockForAdvisorySeverity` (block wins if both match) — and the `ai-agent`
+  preset stops the agent on a **high**+ known vulnerability. When a team gates
+  advisories, an advisory OSV could not grade (`unknown` severity) fails safe to
+  `require_approval` rather than slipping through. `--json` gains an optional
+  `severity` on each advisory (backward-compatible). The report also names the worst advisory severity
+  inline, and the "static findings" list now shows a count-reconciled preview
+  (`… and N more`) that points to `targate explain --last`, which lists every
+  flagged file and why; a capped count renders as `N+`.
+
+- **Registry proxy** — `targate proxy` (`setup` / `teardown` / `start` / `stop` /
+  `status` / `ensure` / `cert` / `approvals` / `approve` / `deny`): a transparent,
+  package-manager-agnostic enforcement point. Point your registry at a local
+  HTTPS proxy and every install is vetted with the full deterministic pipeline
+  before a tarball's bytes reach the machine — a raw `npm install`, a script, or
+  a CI job that never calls `targate add` is still gated, with no wrapper and no
+  lifecycle-script dependency. npm, pnpm, yarn, and bun all route through it. It
+  analyzes the exact bytes it will serve (integrity-keyed verdict cache: analyzed
+  once, ever), auto-migrates private/scoped registries from `.npmrc` and relays
+  the credential upstream, holds `require_approval` packages for an out-of-band
+  `targate proxy approve|deny` over a loopback-only token-gated control API, and
+  automates local-CA trust (`cert install`). Bind is loopback-only by default. See
+  [docs/proxy.md](docs/proxy.md). Requires `openssl` for certificate generation.
 
 - **AI source-code audit** — opt-in `--audit-code` (on `add` / `approve` /
   `install`), a dedicated `targate audit <pkg>`, and a policy `codeAudit` scope
@@ -50,6 +82,12 @@ bumped by hand.
 
 ### Changed
 
+- **Transient npm-metadata timeouts are retried before degrading.** A one-off
+  registry timeout used to degrade a package to UNKNOWN (`require_approval`) —
+  flaky on a large lockfile in CI. The metadata fetch now retries a
+  network-timeout a few times (deterministic errors like 404/auth still fail
+  fast); if every attempt times out it degrades to UNKNOWN as before, so the
+  fail-closed guarantee is unchanged.
 - **Lifecycle-script severity now follows when the hook runs.** Only install-time
   hooks (`preinstall`/`install`/`postinstall`) execute when a consumer installs
   the published registry tarball. Pack/publish-time hooks (`prepare`/`prepack`/
@@ -128,6 +166,12 @@ init` supports `--format yaml|json`. A leftover legacy executable file is ignore
   the docs no longer list those methods). npm, the install script, and direct
   binary downloads remain. Re-enable later with
   `gh variable set PUBLISH_BREW_WINGET --body true`.
+- **Dispatchable `Tag release` workflow** — cut a release from the Actions tab
+  with no local git: it derives the version from the top CHANGELOG heading (or an
+  explicit input), validates it, and creates + pushes the `vX.Y.Z` tag, which
+  triggers the existing release pipeline. Requires a `RELEASE_TOKEN` secret
+  (fine-grained PAT / App token with `contents: write`) so the tag push triggers
+  downstream workflows — the default `GITHUB_TOKEN` would not.
 
 ## [0.1.0]
 

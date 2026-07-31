@@ -89,6 +89,7 @@ These analyze and report but never install and never record anything — use the
 - **Do not disable analysis** (\`--no-ai\` only changes the reasoning layer; it does not weaken the deterministic security floor — but there is no flag that turns the gate off, and you should not try to find one).
 - **Do not weaken the policy.** targate config is declarative only (\`.yaml\`/\`.yml\`/\`.json\`, parsed never executed — there is no code-execution path to enable). Don't relax \`targate.policy.*\`, add \`allowKnownPackages\` entries, or set \`dependencyPolicy.trustBehaviorFingerprint\` on the user's behalf to make a package pass — policy is a human/team decision.
 - **Do not choose targate's AI provider.** Run \`targate\` with no \`--provider\` flag: it auto-detects a configured model from the environment, or falls back to its built-in deterministic rules engine. It works fully offline.
+- **Do not disable an active registry proxy.** If the project's \`.npmrc\` routes installs through a targate proxy (\`targate proxy status\` confirms it), do not tear it down (\`targate proxy teardown\`), repoint \`registry=\` elsewhere, or set \`replace-registry-host=never\` to slip an install past it — that removes a transparent gate a human put in place. A proxy block surfaces as an install failure; report it, don't route around it.
 
 ## In CI
 
@@ -100,7 +101,9 @@ targate ci --fail-on-osv-error
 
 ## Hardening a repo for agent installs
 
-If the user asks to set up or tighten dependency policy for a repo where agents install packages, suggest \`targate policy init --preset ai-agent\` — a ready-made policy pack that stops the agent on anything needing human judgment (young packages, native code, lifecycle scripts, missing repos). Only scaffold it when the user asks; policy is a team decision.
+If the user asks to set up or tighten dependency policy for a repo where agents install packages, suggest \`targate policy init --preset ai-agent\` — a ready-made policy pack that stops the agent on anything needing human judgment (young packages, native code, lifecycle scripts, missing repos, known high/critical vulnerabilities). Only scaffold it when the user asks; policy is a team decision.
+
+For machine-wide, package-manager-agnostic enforcement — every install vetted before its bytes touch the machine, including a raw \`npm install\` / \`pnpm add\` / \`yarn add\` / \`bun add\` run outside \`targate add\` — the user can run \`targate proxy setup\` once. It points the project's \`.npmrc\` at a local vetting proxy that every package manager routes through transparently. Suggest it only when the user asks to enforce installs broadly (it writes local files and trusts a local CA — a human decision), and never disable it afterward (see the guardrail above).
 `;
 
 const POINTER =
