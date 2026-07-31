@@ -11,6 +11,8 @@ Every command shares one philosophy: **inspect before you execute**. Installatio
 | `targate approve <package>[@version]` | Record a committable human approval without installing. |
 | `targate install` | Vet the complete dependency tree, then gate a full install. |
 | `targate sandbox <package>[@version]` | Trial-install a package in a disposable Docker container. |
+| `targate proxy <setup\|teardown\|exec\|…>` | Run a local registry proxy that vets every install (see [Registry proxy](/docs/proxy/)). |
+| `targate audit <package>[@version]` | AI source-code audit of a package's risky source (escalation-only). |
 | `targate ci [init]` | Gate dependency changes against a Git ref, or scaffold CI. |
 | `targate policy init` | Scaffold a declarative team policy from a preset. |
 | `targate doctor` | Diagnose the local security and provider environment. |
