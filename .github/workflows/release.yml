@@ -265,10 +265,12 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       # npm Trusted Publishing (OIDC) needs npm >= 11.5.1; Node 22 ships npm 10.
-      # With no NODE_AUTH_TOKEN and `id-token: write`, npm authenticates to the
-      # registry via OIDC against the trusted publisher configured for this
-      # package on npmjs.com (repo + workflow), so no long-lived token is stored.
-      - run: npm install -g npm@latest
+      # Pin to npm 11 (NOT @latest): npm 12 requires Node >= 22.22 (this job runs
+      # 22.x) and changed `npm pack --json` to an object shape. With no
+      # NODE_AUTH_TOKEN and `id-token: write`, npm authenticates to the registry
+      # via OIDC against the trusted publisher configured for this package on
+      # npmjs.com (repo + workflow), so no long-lived token is stored.
+      - run: npm install -g npm@11
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build

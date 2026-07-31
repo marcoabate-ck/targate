@@ -37,8 +37,15 @@ function packedFiles(): string[] {
       cwd: root,
       encoding: "utf8",
     });
-    const parsed = JSON.parse(stdout) as Array<{ files?: PackEntry[] }>;
-    const files = parsed[0]?.files ?? [];
+    // `npm pack --json` output shape differs by npm major: npm <=11 returns an
+    // array `[{ files }]`; npm >=12 returns an object keyed by package name
+    // `{ "<pkg>": { files } }`. Accept both so an npm upgrade cannot silently
+    // empty the file list (which would misreport the bin as missing).
+    const parsed = JSON.parse(stdout) as unknown;
+    const entries = (Array.isArray(parsed) ? parsed : Object.values(parsed as Record<string, unknown>)) as Array<{
+      files?: PackEntry[];
+    }>;
+    const files = entries[0]?.files ?? [];
     // Normalize to POSIX so the allowlist matches on Windows too.
     return files.map((f) => f.path.split(path.sep).join("/"));
   } finally {
