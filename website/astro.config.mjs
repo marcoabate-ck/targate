@@ -62,6 +62,7 @@ export default defineConfig({
           ],
         },
         { label: "CLI commands", link: "/docs/cli/" },
+        { label: "Registry proxy", link: "/docs/proxy/" },
         { label: "Scenarios", link: "/docs/scenarios/" },
         { label: "FAQ", link: "/docs/faq/" },
         typeDocSidebarGroup,
