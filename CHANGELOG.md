@@ -34,17 +34,22 @@ bumped by hand.
   flagged file and why; a capped count renders as `N+`.
 
 - **Registry proxy** — `targate proxy` (`setup` / `teardown` / `start` / `stop` /
-  `status` / `ensure` / `cert` / `approvals` / `approve` / `deny`): a transparent,
-  package-manager-agnostic enforcement point. Point your registry at a local
-  HTTPS proxy and every install is vetted with the full deterministic pipeline
-  before a tarball's bytes reach the machine — a raw `npm install`, a script, or
-  a CI job that never calls `targate add` is still gated, with no wrapper and no
-  lifecycle-script dependency. npm, pnpm, yarn, and bun all route through it. It
-  analyzes the exact bytes it will serve (integrity-keyed verdict cache: analyzed
-  once, ever), auto-migrates private/scoped registries from `.npmrc` and relays
-  the credential upstream, holds `require_approval` packages for an out-of-band
+  `status` / `ensure` / `exec` / `cert` / `approvals` / `approve` / `deny`): an
+  enforcement point that needs no per-install command. Every install is vetted
+  with the full deterministic pipeline before a tarball's bytes reach the machine
+  — a raw `npm install`, a script, or a CI job that never calls `targate add` is
+  still gated, with no wrapper and no lifecycle-script dependency. **Supported on
+  npm, pnpm, and yarn-berry** (their lockfile is byte-identical with or without
+  the proxy); **yarn-classic and bun are refused** by `setup` because they would
+  bake the proxy URL into the lockfile. Routing is via **environment variables**
+  — `setup` writes a machine-local, sourceable `~/.targate/proxy.env` and **never
+  edits the project `.npmrc`**. Private scopes are captured from `.npmrc`
+  (credential relayed upstream) and gated with `targate proxy exec -- <cmd>`,
+  which applies the per-scope override a sourced env cannot express. It analyzes
+  the exact bytes it will serve (integrity-keyed verdict cache: analyzed once,
+  ever), holds `require_approval` packages for an out-of-band
   `targate proxy approve|deny` over a loopback-only token-gated control API, and
-  automates local-CA trust (`cert install`). Bind is loopback-only by default. See
+  automates local-CA trust. Bind is loopback-only by default. See
   [docs/proxy.md](docs/proxy.md). Requires `openssl` for certificate generation.
 
 - **AI source-code audit** — opt-in `--audit-code` (on `add` / `approve` /

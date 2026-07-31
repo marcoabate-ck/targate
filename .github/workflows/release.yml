@@ -264,6 +264,12 @@ jobs:
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
 
+      # npm Trusted Publishing (OIDC) needs npm >= 11.5.1; Node 22 ships npm 10.
+      # With no NODE_AUTH_TOKEN and `id-token: write`, npm authenticates to the
+      # registry via OIDC against the trusted publisher configured for this
+      # package on npmjs.com (repo + workflow), so no long-lived token is stored.
+      - run: npm install -g npm@latest
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
@@ -276,9 +282,9 @@ jobs:
       # npm rejects `--provenance` while the repo is private. During the private
       # soft-launch we publish WITHOUT it; the moment the repo is made public the
       # flag re-activates automatically — nothing else to change here.
+      # No NODE_AUTH_TOKEN: authentication is via OIDC (Trusted Publishing).
       - name: Publish to npm (provenance auto-enabled once the repo is public)
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           REPO_PRIVATE: ${{ github.event.repository.private }}
         run: |
           if [ "$REPO_PRIVATE" = "false" ]; then

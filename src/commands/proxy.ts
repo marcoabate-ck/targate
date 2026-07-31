@@ -25,6 +25,7 @@ import {
 import { authHeaderForUrl, DEFAULT_REGISTRY, loadNpmrc } from "../npmrc.js";
 import { ProxyVerdictCache } from "../proxy-cache.js";
 import { readProxyUplinks, removeProxyUplinks, writeProxyUplinks, type ProxyUplink } from "../proxy-uplinks.js";
+import { execEnv, removeProxyEnvFile, writeProxyEnvFile } from "../proxy-env.js";
 import {
   caInstallCommand,
   caUninstallCommand,
@@ -221,21 +222,6 @@ function statusDaemon(): number {
   return 0;
 }
 
-/** Insert or replace the managed block in the project .npmrc. */
-function writeNpmrcBlock(cwd: string, registryUrl: string, scopes: string[] = []): string {
-  const file = path.join(cwd, ".npmrc");
-  const lines = [NPMRC_BEGIN, `registry=${registryUrl}`, "replace-registry-host=npmjs"];
-  // Route each migrated private scope through the proxy too (the proxy holds the
-  // real upstream + credential, so no per-scope token is needed here).
-  for (const scope of scopes) lines.push(`${scope}:registry=${registryUrl}`);
-  lines.push(NPMRC_END, "");
-  const block = lines.join("\n");
-  const existing = existsSync(file) ? readFileSync(file, "utf8") : "";
-  const stripped = removeNpmrcBlock(existing);
-  writeFileSync(file, stripped ? `${stripped.replace(/\n*$/, "\n")}${block}` : block);
-  return file;
-}
-
 /**
  * Read the project .npmrc and turn its private per-scope registries into proxy
  * uplinks: `@acme:registry=https://real` becomes an uplink to that registry with
@@ -273,18 +259,24 @@ export function removeNpmrcBlock(content: string): string {
   return `${content.slice(0, begin)}${content.slice(end)}`.replace(/\n{3,}/g, "\n\n");
 }
 
-function caTrustHint(caPath: string, host: string, port: number): void {
-  console.log(dim("  Trust the CA so the client accepts the proxy's TLS:"));
-  // npm/pnpm/yarn (Node) do NOT read the OS keychain before Node 22.15, so this
-  // env var is the reliable path for the package managers — present it first.
-  console.log(dim(`    • required for npm/pnpm/yarn:  export NODE_EXTRA_CA_CERTS=${caPath}`));
-  console.log(dim(`    • system store (browsers/curl; Node ≥22.15 --use-system-ca):  targate proxy cert install`));
-  console.log(dim(`    (registry: https://${host}:${port})`));
-}
-
 async function setupProxy(port: number, options: ProxyOptions): Promise<number> {
   const host = options.host ?? "127.0.0.1";
   const cwd = process.cwd();
+
+  // yarn-classic and bun bake the absolute fetched (proxy) URL into their
+  // lockfiles, so routing them through the proxy WOULD modify the lockfile.
+  // That is unacceptable, so they are refused rather than silently poisoned.
+  const client = detectInstallClient(cwd);
+  if (!lockfilePortableBehindProxy(client)) {
+    console.error(
+      red(
+        `The registry proxy does not support ${client}: it bakes the proxy URL into ${LOCKFILE_FOR_CLIENT[client]}, which would modify your lockfile. ` +
+          `Use npm, pnpm, or yarn-berry for proxy-gated installs (their lockfiles are unchanged with or without the proxy).`,
+      ),
+    );
+    return 1;
+  }
+
   console.log(dim("Generating local CA + certificate…"));
   let caPath: string;
   try {
@@ -296,48 +288,55 @@ async function setupProxy(port: number, options: ProxyOptions): Promise<number> 
 
   const registryUrl = `https://${host}:${port}`;
   // Capture private per-scope registries + credentials BEFORE the daemon starts
-  // (it reads the uplinks at boot) and before we rewrite the .npmrc.
+  // (it reads the uplinks at boot).
   const uplinks = migrateScopes(cwd, registryUrl);
   writeProxyUplinks(uplinks);
 
   const code = await startDaemon(port, { ...options, tls: true });
   if (code !== 0) return code;
 
-  const npmrc = writeNpmrcBlock(cwd, registryUrl, uplinks.map((u) => u.scope));
-  console.log(green(`Configured ${npmrc} to use the proxy.`));
+  // Routing is via environment, NOT the project .npmrc (which is a committed
+  // file). setup writes a machine-local, sourceable env file instead.
+  const scopes = uplinks.map((u) => u.scope);
+  const envFile = writeProxyEnvFile({ registryUrl, caPath, scopes });
+  console.log(green("Proxy ready. Route installs through it by sourcing the generated env (no project files are touched):"));
+  console.log(`  source ${envFile}`);
+  console.log(dim("  (add that line to your shell profile to make it persistent; the CA is trusted via NODE_EXTRA_CA_CERTS in the same file)"));
+
   if (uplinks.length > 0) {
-    console.log(green(`Routed ${uplinks.length} private scope(s) through the proxy: ${uplinks.map((u) => u.scope).join(", ")}`));
-    console.log(dim("  their credentials were copied into ~/.targate/proxy-uplinks.json (0600) — the proxy authenticates upstream."));
-  }
-  console.log(yellow("  Note: this .npmrc points at a local proxy — add it to .gitignore; do not commit it."));
-  caTrustHint(caPath, host, port);
-  // A package already in the client's cache is served locally and never reaches
-  // the proxy, so it skips vetting. Clearing the cache once on adoption forces
-  // the next install to re-fetch (and re-vet) through the proxy.
-  const clean = cacheCleanCommand(detectPackageManager(cwd));
-  console.log(dim(`  Packages already in your ${detectPackageManager(cwd)} cache skip the proxy — clear it once to re-vet:  ${clean}`));
-  // yarn-classic and bun bake the absolute (proxy) tarball URL into their
-  // lockfiles, so a lockfile authored behind the proxy is not portable.
-  const client = detectInstallClient(cwd);
-  if (!lockfilePortableBehindProxy(client)) {
+    console.log(green(`\nCaptured ${uplinks.length} private scope(s): ${scopes.join(", ")} (credentials stored 0600 in ~/.targate/proxy-uplinks.json).`));
     console.log(
-      yellow(`  Note: ${client} bakes the proxy URL into ${LOCKFILE_FOR_CLIENT[client]} — do not commit a ${LOCKFILE_FOR_CLIENT[client]} authored behind the proxy (author it with npm/pnpm/yarn-berry).`),
+      dim(
+        "  A private scope pinned in a committed .npmrc cannot be re-routed by a sourced env on npm/pnpm (shell limitation). Gate those installs with:",
+      ),
     );
+    console.log(`  targate proxy exec -- <your install command>`);
   }
+
+  // A package already in the client's cache is served locally and never reaches
+  // the proxy. Clearing it once on adoption forces a fresh, vetted fetch.
+  const clean = cacheCleanCommand(detectPackageManager(cwd));
+  console.log(dim(`\n  Packages already in your ${detectPackageManager(cwd)} cache skip the proxy — clear it once to re-vet:  ${clean}`));
   return 0;
 }
 
 async function teardownProxy(): Promise<number> {
   await stopDaemon();
+  removeProxyEnvFile();
+  // Best-effort: strip a managed block left by an older targate that wrote the
+  // project .npmrc (current setup never writes it).
   const file = path.join(process.cwd(), ".npmrc");
   if (existsSync(file)) {
-    const cleaned = removeNpmrcBlock(readFileSync(file, "utf8"));
-    writeFileSync(file, cleaned);
-    console.log(green(`Removed the targate block from ${file}.`));
+    const content = readFileSync(file, "utf8");
+    const cleaned = removeNpmrcBlock(content);
+    if (cleaned !== content) {
+      writeFileSync(file, cleaned);
+      console.log(green(`Removed a legacy targate block from ${file}.`));
+    }
   }
   removeProxyUplinks();
   removeTlsMaterial();
-  console.log(green("Removed local TLS material and uplinks."));
+  console.log(green("Removed the proxy env file, local TLS material, and uplinks."));
   return 0;
 }
 
@@ -487,7 +486,7 @@ export function isLoopbackBindHost(host: string): boolean {
 }
 
 /** Subcommands that open a listening socket (and so must not silently bind wide). */
-const BIND_SUBCOMMANDS = new Set(["start", "ensure", "setup"]);
+const BIND_SUBCOMMANDS = new Set(["start", "ensure", "setup", "exec"]);
 
 /**
  * Guard a non-loopback bind. The proxy has a loopback-only CONTROL API, but its
@@ -519,6 +518,46 @@ function guardBindHost(host: string, env: NodeJS.ProcessEnv): number | null {
   return null;
 }
 
+/**
+ * `targate proxy exec -- <command>` — run a command with the environment that
+ * routes it through the proxy, including the per-scope overrides that a sourced
+ * env file cannot express (`npm_config_@scope:registry`). This is the opt-in way
+ * to gate a private scope pinned in a committed `.npmrc` on npm/pnpm without
+ * touching the project or the lockfile. Requires `--` before the command so its
+ * own flags are not parsed by targate.
+ */
+async function execCommand(rawCommand: string[], port: number, options: ProxyOptions): Promise<number> {
+  if (rawCommand.length === 0) {
+    console.error(red("Usage: targate proxy exec -- <command> [args…]   (e.g. targate proxy exec -- npm install)"));
+    return 1;
+  }
+  if (!liveProxyState()) {
+    const code = await startDaemon(port, { ...options, tls: true });
+    if (code !== 0) return code;
+  }
+  const state = liveProxyState();
+  if (!state) {
+    console.error(red("targate proxy is not running and could not be started."));
+    return 1;
+  }
+  const registryUrl = `${state.scheme}://${state.host}:${state.port}`;
+  const env = execEnv(process.env, {
+    registryUrl,
+    caPath: tlsMaterialPaths().caPath,
+    scopes: readProxyUplinks().map((u) => u.scope),
+  });
+  const [bin, ...rest] = rawCommand;
+  return await new Promise<number>((resolve) => {
+    // No shell — the command + args are passed directly (no injection surface).
+    const child = spawn(bin, rest, { stdio: "inherit", env });
+    child.on("error", (error) => {
+      console.error(red(`Could not run "${bin}": ${error instanceof Error ? error.message : String(error)}`));
+      resolve(1);
+    });
+    child.on("close", (code) => resolve(code ?? 1));
+  });
+}
+
 /** `targate proxy <subcommand> [action]` — lifecycle + setup for the registry proxy. */
 export async function proxyCommand(positionals: string[], options: ProxyOptions): Promise<number> {
   const [subcommand, action] = positionals;
@@ -546,6 +585,8 @@ export async function proxyCommand(positionals: string[], options: ProxyOptions)
       return setupProxy(port, options);
     case "teardown":
       return teardownProxy();
+    case "exec":
+      return execCommand(positionals.slice(1), port, options);
     case "cert":
       return certCommand(action, options);
     case "approvals":

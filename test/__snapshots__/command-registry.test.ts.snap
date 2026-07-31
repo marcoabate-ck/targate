@@ -226,7 +226,7 @@ Usage:
   targate sandbox <package>[@version]             Trial-install a package in a disposable Docker container.
   targate ci [init]                               Gate dependency changes against a Git ref or scaffold CI.
   targate policy init                             Scaffold a declarative team policy from a preset.
-  targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny> Run a registry proxy that vets every package before install.
+  targate proxy <start|stop|status|ensure|setup|teardown|exec|cert|approvals|approve|deny> Run a registry proxy that vets every package before install.
   targate doctor                                  Diagnose the local security and provider environment.
   targate diff <pkg>@<v1> [<pkg>[@<v2>]]          Compare package versions and rate the upgrade risk.
   targate monitor                                 Re-check trusted packages and report increased risk. [experimental]
@@ -414,7 +414,7 @@ exports[`declarative command registry > keeps global and per-command help under 
 "Run a registry proxy that vets every package before install.
 
 Usage:
-  targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny>
+  targate proxy <start|stop|status|ensure|setup|teardown|exec|cert|approvals|approve|deny>
 
 Options:
   --port <n>                   Registry proxy port (default: 4873).
@@ -427,7 +427,7 @@ Options:
 
 Examples:
   targate proxy setup
-  targate proxy status
+  targate proxy exec -- npm install
   targate proxy approve lodash@4.17.21"
 `;
 
