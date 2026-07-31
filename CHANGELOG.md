@@ -11,7 +11,7 @@ The published version is set from the release tag by the release pipeline
 (`.github/workflows/release.yml`); the `version` field in `package.json` is not
 bumped by hand.
 
-## [Unreleased]
+## [0.10.0] - 2026-07-31
 
 ### Added
 
