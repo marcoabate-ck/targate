@@ -55,8 +55,9 @@ commit it.** `teardown` removes the block again.
   portable for teammates and CI that do not run it (do **not** set
   `replace-registry-host=never` — that bypasses the proxy). **pnpm, yarn, and
   bun** don't rewrite the host themselves, so the proxy rewrites `dist.tarball`
-  to itself for those clients (detected by user-agent) — their tarball still
-  comes back for vetting.
+  to a **clean** proxy URL (no query string) for those clients (detected by
+  user-agent) — their tarball still comes back for vetting, and the real upstream
+  URL is resolved from the packument server-side (not baked into the URL).
 - **Every tarball is vetted before it is served.** The proxy fetches the exact
   bytes it is about to serve, runs the same deterministic analysis as
   `targate add` (lifecycle scripts, tarball contents, native surface, OSV /
@@ -145,6 +146,14 @@ migrate cleanly. `teardown` removes the uplinks file along with the rest.
   cached, so a later install of the same bytes does not prompt again.
 - **Per-package verdicts.** The proxy sees one tarball at a time and has no
   whole-tree view; use `targate install --deep` for a tree-aware, holistic gate.
+- **yarn-classic and bun lockfiles authored behind the proxy are not portable.**
+  npm, pnpm, and yarn-berry omit or canonicalize the tarball URL, so a lockfile
+  generated behind the proxy still works for teammates/CI without it. **yarn v1
+  and bun bake the absolute fetched URL** (`http://127.0.0.1:<port>/…`) into their
+  lockfiles, so that lockfile only resolves while the proxy is up on that port.
+  Installs work for all four; only lockfile *authoring* is affected — author and
+  commit lockfiles with npm/pnpm/yarn-berry, or don't commit a yarn-v1/bun
+  lockfile produced behind the proxy.
 
 See [docs/design/proxy.md](design/proxy.md) for the reasoning behind each of
 these and the plan to close them.

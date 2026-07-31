@@ -156,15 +156,20 @@ describe("insecureRegistryHostAllowed", () => {
 
 describe("rewritePackumentTarballs", () => {
   const proxy = "https://127.0.0.1:4873";
-  it("rewrites dist.tarball to a canonical proxy path carrying the original URL (any upstream format)", () => {
-    // GitHub Packages uses a non-/-/ download path — the crux of the real bug.
+  it("rewrites dist.tarball to a CLEAN canonical proxy path and reports the real URL via onEntry", () => {
+    // GitHub Packages uses a non-/-/ download path — the real URL must survive
+    // via the callback (not the URL) so the clean path stays lockfile-portable.
     const orig = "https://npm.pkg.github.com/download/@wts-paradigm/ui/0.8.0/e8a9";
     const doc = { name: "@wts-paradigm/ui", versions: { "0.8.0": { version: "0.8.0", dist: { tarball: orig } } } };
-    const out = JSON.parse(rewritePackumentTarballs(JSON.stringify(doc), proxy)) as typeof doc;
+    const seen: Array<[string, string, string]> = [];
+    const out = JSON.parse(
+      rewritePackumentTarballs(JSON.stringify(doc), proxy, (n, v, u) => seen.push([n, v, u])),
+    ) as typeof doc;
     const rewritten = out.versions["0.8.0"].dist.tarball;
-    expect(rewritten.startsWith(`${proxy}/@wts-paradigm/ui/-/ui-0.8.0.tgz?__u=`)).toBe(true);
-    const u = new URL(rewritten).searchParams.get("__u")!;
-    expect(Buffer.from(u, "base64url").toString("utf8")).toBe(orig);
+    // Clean canonical path, NO query — so pnpm/yarn treat it as registry-derivable.
+    expect(rewritten).toBe(`${proxy}/@wts-paradigm/ui/-/ui-0.8.0.tgz`);
+    expect(new URL(rewritten).search).toBe("");
+    expect(seen).toEqual([["@wts-paradigm/ui", "0.8.0", orig]]);
   });
   it("returns non-JSON unchanged", () => {
     expect(rewritePackumentTarballs("not json", proxy)).toBe("not json");

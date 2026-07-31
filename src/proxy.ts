@@ -21,11 +21,15 @@ import type { Decision } from "./types.js";
  * until it passes.
  *
  * Two design decisions are settled by the PoC (see docs/design/proxy.md):
- *   - The packument is served WITHOUT rewriting `dist.tarball`. Canonical npmjs
- *     URLs plus the client's `replace-registry-host=npmjs` route both fresh
- *     installs and `npm ci` through the proxy while keeping the lockfile
- *     portable. Rewriting would leak `http://localhost:<port>/…` into the
- *     lockfile.
+ *   - `dist.tarball` is rewritten to a CLEAN canonical proxy URL for every
+ *     non-npm client and every private scope, so their tarball fetch comes back
+ *     for vetting. The URL carries no query, so it matches what a package manager
+ *     derives from `registry=<proxy>` — pnpm and yarn berry omit it from the
+ *     lockfile (integrity only), keeping the lockfile portable. npm needs no
+ *     rewrite: `replace-registry-host=npmjs` routes it through the proxy while
+ *     it records the canonical upstream URL. (yarn-classic and bun bake the
+ *     absolute fetched URL into their lockfiles regardless, so a lockfile
+ *     authored behind the proxy is not portable for them — a documented limit.)
  *   - Each `name@version` is analyzed at most once; the verdict is cached
  *     (versions are immutable), turning a ~1s cold analysis into a ~0ms hit.
  */
@@ -41,6 +45,8 @@ const MAX_PACKUMENT_BYTES = DEFAULT_RESOURCE_LIMITS.maxResponseBytes;
 const MAX_TARBALL_BYTES = DEFAULT_RESOURCE_LIMITS.maxTarballBytes;
 /** Cap concurrent tarball fetch+vet operations so buffered bytes stay bounded (≈ cap × MAX_TARBALL_BYTES). */
 const MAX_CONCURRENT_VETS = 6;
+/** Bound the packument-derived tarball-URL memo (name@version -> real URL); cleared wholesale when full. */
+const MAX_TARBALL_MEMO = 50_000;
 
 /** Minimal FIFO semaphore bounding concurrent work. Exported for tests. */
 export class Semaphore {
@@ -141,15 +147,27 @@ export function safeUpstreamUrl(origin: string, reqUrl: string): string {
 }
 
 /**
- * Rewrite every `dist.tarball` in a packument to a canonical proxy path that
- * carries the original tarball URL in a `__u` query param. The canonical path
- * (`/<name>/-/<unscoped>-<version>.tgz`) is what parseRegistryPath understands,
- * while `__u` lets the proxy fetch the real bytes from wherever the upstream put
- * them — GitHub Packages uses `/download/@scope/name/version/<sha>`, not the
- * `/-/` convention, so a plain origin swap misroutes. Returns the original text
- * unchanged if it is not JSON we recognize.
+ * Rewrite every `dist.tarball` in a packument to a CLEAN canonical proxy path
+ * (`/<name>/-/<unscoped>-<version>.tgz`, no query). Two things depend on the URL
+ * staying clean:
+ *   - parseRegistryPath understands the path, so the tarball fetch comes back to
+ *     the proxy for vetting.
+ *   - It matches exactly what a package manager derives from `registry=<proxy>`,
+ *     so pnpm (and yarn berry) treat it as registry-derivable and OMIT it from
+ *     the lockfile — the lockfile records only the integrity, staying portable
+ *     for teammates/CI who point at the real registry. A `__u`-style query would
+ *     make the URL non-derivable and get baked into the lockfile (see N1/§5.8).
+ * The real upstream URL is NOT encoded in the path (GitHub Packages uses
+ * `/download/@scope/name/version/<sha>`, not the `/-/` convention), so callers
+ * pass `onEntry` to capture name@version -> real URL; the proxy memoizes that and
+ * uses it at tarball-fetch time. Returns the input unchanged if it is not a
+ * packument we recognize.
  */
-export function rewritePackumentTarballs(text: string, proxyOrigin: string): string {
+export function rewritePackumentTarballs(
+  text: string,
+  proxyOrigin: string,
+  onEntry?: (name: string, version: string, realTarballUrl: string) => void,
+): string {
   let doc: { name?: string; versions?: Record<string, { version?: string; dist?: { tarball?: string } }> };
   try {
     doc = JSON.parse(text);
@@ -163,8 +181,8 @@ export function rewritePackumentTarballs(text: string, proxyOrigin: string): str
     if (!tarball) continue;
     const version = meta.version ?? ver;
     const unscoped = name.includes("/") ? name.slice(name.lastIndexOf("/") + 1) : name;
-    const encoded = Buffer.from(tarball, "utf8").toString("base64url");
-    meta.dist!.tarball = `${proxyOrigin}/${name}/-/${unscoped}-${version}.tgz?__u=${encoded}`;
+    onEntry?.(name, version, tarball);
+    meta.dist!.tarball = `${proxyOrigin}/${name}/-/${unscoped}-${version}.tgz`;
   }
   return JSON.stringify(doc);
 }
@@ -260,6 +278,51 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
     return uplink
       ? { origin: uplink.upstream, isPrivate: true, auth: uplink.auth }
       : { origin: upstream, isPrivate: false };
+  }
+
+  // Since dist.tarball is rewritten to a clean URL (no `__u`), the real upstream
+  // tarball URL is learned from the packument and memoized here, keyed by
+  // origin + name@version. Populated whenever a packument is served; a tarball
+  // request that misses (e.g. after a daemon restart) re-fetches the packument.
+  const tarballUrlMemo = new Map<string, string>();
+  const memoKey = (origin: string, name: string, version: string): string => `${origin} ${name}@${version}`;
+  function rememberTarballUrl(origin: string, name: string, version: string, realUrl: string): void {
+    // Bound memory: a full memo is cheaper to drop wholesale than to LRU-track;
+    // a re-fetch repopulates on demand.
+    if (tarballUrlMemo.size >= MAX_TARBALL_MEMO) tarballUrlMemo.clear();
+    tarballUrlMemo.set(memoKey(origin, name, version), realUrl);
+  }
+
+  /**
+   * The real upstream tarball URL for name@version: from the memo if the
+   * packument was served this session, else a fresh packument fetch. Validated
+   * to the resolved upstream's origin so a poisoned packument cannot point the
+   * fetch at an internal host (SSRF); redirects are still re-guarded downstream
+   * by fetchArtifactGuarded.
+   */
+  async function resolveTarballUrl(
+    target: { origin: string; auth?: string },
+    name: string,
+    version: string,
+    upstreamAuth: string | undefined,
+    key: string,
+  ): Promise<string> {
+    const origin = new URL(target.origin).origin;
+    let url = tarballUrlMemo.get(memoKey(origin, name, version));
+    if (!url) {
+      const pack = await fetchUpstream(safeUpstreamUrl(target.origin, `/${name}`), "application/json", upstreamAuth, {
+        timeoutMs: UPSTREAM_TIMEOUT_MS,
+        maxBytes: MAX_PACKUMENT_BYTES,
+      });
+      rewritePackumentTarballs(pack.body.toString("utf8"), proxyOrigin, (n, v, real) => rememberTarballUrl(origin, n, v, real));
+      url = tarballUrlMemo.get(memoKey(origin, name, version));
+    }
+    if (!url) throw new Error(`no upstream tarball URL found for ${key}`);
+    const resolved = new URL(url);
+    if (resolved.origin !== origin) {
+      throw new Error(`refusing cross-origin tarball: ${resolved.origin} != ${origin}`);
+    }
+    return resolved.toString();
   }
 
   const onRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
@@ -366,21 +429,15 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
         }
       };
       try {
-      // The rewritten dist.tarball carries the real upstream URL in `__u` (its
-      // path may not follow the /-/ convention, e.g. GitHub Packages). Fetch that
-      // when present — validated to the same origin as the resolved upstream —
-      // otherwise fall back to the path-based URL (npm's canonical /-/ tarball).
-      const encodedUpstream = new URL(req.url ?? "/", proxyOrigin).searchParams.get("__u");
-      let tarballUrl: string;
-      if (encodedUpstream) {
-        const decoded = new URL(Buffer.from(encodedUpstream, "base64url").toString("utf8"));
-        if (decoded.origin !== new URL(target.origin).origin) {
-          throw new Error(`refusing cross-origin tarball: ${decoded.origin} != ${target.origin}`);
-        }
-        tarballUrl = decoded.toString();
-      } else {
-        tarballUrl = safeUpstreamUrl(target.origin, req.url ?? "/");
-      }
+      // Resolve the REAL upstream tarball URL. The rewritten dist.tarball is a
+      // clean /-/ path (no `__u`) so the lockfile stays portable, which means the
+      // path alone does not reveal a non-/-/ location (GitHub Packages uses
+      // `/download/@scope/name/version/<sha>`). Prefer the URL memoized when the
+      // packument was served; on a miss (e.g. daemon restarted between the
+      // packument and the tarball) re-fetch the packument to learn it. In both
+      // cases the resolved URL is validated to the resolved upstream's origin so
+      // a malicious packument cannot redirect the fetch to an internal host.
+      const tarballUrl = await resolveTarballUrl(target, name, version, upstreamAuth, key);
       // Guarded fetch: follows redirects (GitHub Packages 302s to a CDN),
       // re-validates each hop against the SSRF guard, and drops the credential
       // on a cross-origin hop so the upstream token never leaks to a CDN.
@@ -476,14 +533,20 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       timeoutMs: UPSTREAM_TIMEOUT_MS,
       maxBytes: MAX_PACKUMENT_BYTES,
     });
-    // Rewrite dist.tarball to this proxy so the tarball fetch comes back for
-    // vetting — always for a private scope, and for every non-npm client (only
-    // npm rewrites the host itself via replace-registry-host, so npm keeps the
-    // canonical URL and a portable lockfile; see N1 and §5.8).
+    // Rewrite dist.tarball to a clean proxy URL so the tarball fetch comes back
+    // for vetting — always for a private scope, and for every non-npm client
+    // (npm routes it through the proxy itself via replace-registry-host). In
+    // both cases we memoize name@version -> real upstream URL from the same pass,
+    // so the tarball branch can fetch the real bytes without a `__u` query
+    // leaking into the lockfile (see N1 and §5.8). The memo is populated for
+    // every packument (even the non-rewritten npm case) so npm tarball requests
+    // resolve from the memo instead of a redundant re-fetch.
+    const origin = new URL(target.origin).origin;
+    const rewritten = rewritePackumentTarballs(pack.body.toString("utf8"), proxyOrigin, (n, v, real) =>
+      rememberTarballUrl(origin, n, v, real),
+    );
     const rewriteTarball = target.isPrivate || !isNpmClient(req.headers["user-agent"]);
-    const body = rewriteTarball
-      ? Buffer.from(rewritePackumentTarballs(pack.body.toString("utf8"), proxyOrigin), "utf8")
-      : pack.body;
+    const body = rewriteTarball ? Buffer.from(rewritten, "utf8") : pack.body;
     res.writeHead(pack.status, { "content-type": String(pack.headers["content-type"] ?? "application/json") });
     res.end(body);
   }
