@@ -82,6 +82,12 @@ bumped by hand.
 
 ### Changed
 
+- **Transient npm-metadata timeouts are retried before degrading.** A one-off
+  registry timeout used to degrade a package to UNKNOWN (`require_approval`) —
+  flaky on a large lockfile in CI. The metadata fetch now retries a
+  network-timeout a few times (deterministic errors like 404/auth still fail
+  fast); if every attempt times out it degrades to UNKNOWN as before, so the
+  fail-closed guarantee is unchanged.
 - **Lifecycle-script severity now follows when the hook runs.** Only install-time
   hooks (`preinstall`/`install`/`postinstall`) execute when a consumer installs
   the published registry tarball. Pack/publish-time hooks (`prepare`/`prepack`/

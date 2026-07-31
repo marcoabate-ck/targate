@@ -2,7 +2,7 @@ import { authHeaderForUrl, DEFAULT_REGISTRY, getNpmrc, resolveRegistry, type Reg
 import type { PublicArtifactEvidence } from "./quarantine.js";
 import { highestSemver } from "./semver.js";
 import type { PackageMetadata, RegistryReputation } from "./types.js";
-import { assertSafeArtifactUrl, fetchWithTimeout, readResponseJson } from "./network.js";
+import { assertSafeArtifactUrl, fetchWithTimeout, readResponseJson, retryOnNetworkTimeout } from "./network.js";
 import { networkBudget, type ResourceLimits } from "./resource-limits.js";
 
 export class PackageNotFoundError extends Error {
@@ -100,23 +100,30 @@ export async function fetchPackageMetadata(
     : resolveRegistry(name, getNpmrc());
   const auth = override ? override.auth : authHeaderForUrl(`${registry.url}/`, getNpmrc());
   const budget = networkBudget(limits);
-  const res = await fetchWithTimeout(`${registry.url}/${encodeURIComponent(name).replace("%40", "@")}`, {
-    headers: { accept: "application/json", ...(auth ? { authorization: auth } : {}) },
-  }, budget);
-  if (res.status === 404) throw new PackageNotFoundError(name, registry.url);
-  if (res.status === 401 || res.status === 403) {
-    throw new Error(
-      `${registry.url} responded with ${res.status} for ${name} — check the .npmrc credentials for this registry (e.g. //${registry.url.replace(/^https?:\/\//, "")}/:_authToken)`,
-    );
-  }
-  if (!res.ok) {
-    throw new Error(`npm registry responded with ${res.status} for ${name}`);
-  }
-  const doc = await readResponseJson<{
-    "dist-tags"?: Record<string, string>;
-    versions?: Record<string, any>;
-    time?: Record<string, string>;
-  }>(res, budget.maxResponseBytes, "npm registry metadata");
+  const metadataUrl = `${registry.url}/${encodeURIComponent(name).replace("%40", "@")}`;
+  // A transient npm metadata timeout would otherwise degrade the package to
+  // UNKNOWN (require_approval) — flaky in CI over a large lockfile. Retry the
+  // whole fetch+read (the body is single-use) on a network-timeout only; 404 /
+  // auth / other errors still throw on the first attempt.
+  const doc = await retryOnNetworkTimeout(async () => {
+    const res = await fetchWithTimeout(metadataUrl, {
+      headers: { accept: "application/json", ...(auth ? { authorization: auth } : {}) },
+    }, budget);
+    if (res.status === 404) throw new PackageNotFoundError(name, registry.url);
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        `${registry.url} responded with ${res.status} for ${name} — check the .npmrc credentials for this registry (e.g. //${registry.url.replace(/^https?:\/\//, "")}/:_authToken)`,
+      );
+    }
+    if (!res.ok) {
+      throw new Error(`npm registry responded with ${res.status} for ${name}`);
+    }
+    return readResponseJson<{
+      "dist-tags"?: Record<string, string>;
+      versions?: Record<string, any>;
+      time?: Record<string, string>;
+    }>(res, budget.maxResponseBytes, "npm registry metadata");
+  });
 
   // Without an explicit version or a `latest` dist-tag (rare, but registry
   // key order is NOT guaranteed to be publish order), fall back to the

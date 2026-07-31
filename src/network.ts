@@ -157,6 +157,34 @@ export function assertSafeArtifactUrl(url: string, label = "artifact URL"): void
 }
 
 /** Shared timeout wrapper. The signal remains attached while the body streams. */
+/**
+ * Retry a network operation that fails with a **transient** timeout
+ * (`ResourceLimitError` kind `network-timeout`, thrown by `fetchWithTimeout` and
+ * the streaming readers). Any other error — 404, auth failure, a real limit —
+ * propagates immediately, so this never masks a deterministic failure nor
+ * weakens fail-closed behavior: if every attempt still times out, the last
+ * timeout is thrown and the caller degrades to UNKNOWN as before. `delayMs` is
+ * injectable so tests run without real waits.
+ */
+export async function retryOnNetworkTimeout<T>(
+  fn: () => Promise<T>,
+  attempts = 3,
+  delayMs: (attempt: number) => number = (attempt) => 200 * attempt,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      const transient = err instanceof ResourceLimitError && err.kind === "network-timeout";
+      if (!transient || attempt === attempts) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delayMs(attempt)));
+    }
+  }
+  throw lastError;
+}
+
 export async function fetchWithTimeout(
   input: string | URL,
   init: RequestInit = {},
