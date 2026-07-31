@@ -1,0 +1,75 @@
+name: Tag release
+
+# Cut a release from GitHub — no local git. Dispatch this from the Actions tab
+# (pick the `main` branch): it validates the version, creates the `vX.Y.Z` tag on
+# the checked-out commit, and pushes it. The push triggers release.yml
+# (`on: push: tags: ["v*"]`), which runs the full gate + publish.
+#
+# IMPORTANT: the tag is pushed with RELEASE_TOKEN, NOT the default GITHUB_TOKEN.
+# A tag pushed by GITHUB_TOKEN would NOT trigger release.yml (GitHub blocks
+# workflow-from-workflow recursion). RELEASE_TOKEN must be a fine-grained PAT (or
+# GitHub App token) with `contents: read and write` on this repo, stored as a
+# repository secret.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to tag (e.g. 0.10.0). Blank = derive from the top CHANGELOG heading."
+        required: false
+
+# The push is authenticated by RELEASE_TOKEN, so the default token stays read-only.
+permissions:
+  contents: read
+
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # full history + tags so existing-tag detection works
+          token: ${{ secrets.RELEASE_TOKEN }} # so the tag push triggers release.yml
+
+      - id: resolve
+        name: Resolve and validate the version
+        # The dispatch input is read from env, never interpolated into the script
+        # body, so a crafted input cannot inject shell.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          CHANGELOG_VERSION="$(grep -m1 -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md \
+            | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')"
+          VERSION="${INPUT_VERSION:-$CHANGELOG_VERSION}"
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)*$'; then
+            echo "::error::invalid version '$VERSION' (expected semver like 0.10.0)"
+            exit 1
+          fi
+          # If an explicit version was given, it must match the documented one —
+          # otherwise you would tag a version the CHANGELOG does not describe.
+          if [ -n "$INPUT_VERSION" ] && [ "$INPUT_VERSION" != "$CHANGELOG_VERSION" ]; then
+            echo "::error::input version '$INPUT_VERSION' != top CHANGELOG heading '$CHANGELOG_VERSION' — promote the CHANGELOG first"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved release version: $VERSION"
+
+      - name: Create and push the tag
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v$VERSION"
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "refs/tags/$TAG"; then
+            echo "::error::tag $TAG already exists on origin"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "Pushed $TAG — release.yml will now run."
