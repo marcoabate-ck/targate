@@ -5,6 +5,8 @@ import { resolveResourceLimits, type ResolvedResourceLimits } from "../resource-
 import { readIndexedFile, resolveFileIndex, type PackageFileIndex } from "./file-index.js";
 
 export const CODE_EXTENSIONS = new Set([".js", ".cjs", ".mjs", ".ts", ".sh"]);
+/** Max suspicious files kept in the signal (bounds report + score); surfaces show "N+" at the cap. */
+export const MAX_SUSPICIOUS_FILES = 20;
 export interface FileScan {
   relPath: string;
   processEnv: boolean;
@@ -104,7 +106,8 @@ export async function analyzeContent(
     }
   }
 
-  // Keep the report readable
-  findings.suspiciousFiles = findings.suspiciousFiles.slice(0, 20);
+  // Keep the report+score bounded. When the list hits this cap, surfaces render
+  // the count as "MAX+" so a truncated total does not read as an exact one.
+  findings.suspiciousFiles = findings.suspiciousFiles.slice(0, MAX_SUSPICIOUS_FILES);
   return findings;
 }

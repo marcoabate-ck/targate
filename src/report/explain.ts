@@ -57,7 +57,7 @@ export function renderExplanation(
   if (options.approval) {
     lines.push(cyan(`ℹ a committed team approval exists for this exact version (${options.approval.mode}, ${options.approval.approvedAt.slice(0, 10)}${options.approval.approvedBy ? `, by ${options.approval.approvedBy}` : ""})`), "");
   }
-  lines.push(bold("Deterministic findings"), ...renderSignalLines(signals), "");
+  lines.push(bold("Deterministic findings"), ...renderSignalLines(signals, { findingLimit: Infinity }), "");
   const risks = residualRisks(signals);
   if (risks.length > 0) {
     lines.push(bold("Residual risks"));

@@ -1,4 +1,5 @@
 import { isInstallTimeScript } from "./analyze/scripts.js";
+import { MAX_SUSPICIOUS_FILES } from "./analyze/content.js";
 import { isHardBlock } from "./rules.js";
 import type { AdvisorySeverity, Signals } from "./types.js";
 
@@ -146,7 +147,8 @@ export function computeSecurityScore(signals: Signals): SecurityScore {
   if (signals.content.hasMinifiedCode) content.deduct(2, "minified/obfuscated code");
   const suspicious = signals.content.suspiciousFiles.length;
   if (suspicious > 0) {
-    content.deduct(Math.min(6, suspicious * 2), `${suspicious} suspicious file(s)`);
+    const shown = suspicious >= MAX_SUSPICIOUS_FILES ? `${MAX_SUSPICIOUS_FILES}+` : `${suspicious}`;
+    content.deduct(Math.min(6, suspicious * 2), `${shown} suspicious file(s)`);
   }
 
   // 4. Maturity — 10

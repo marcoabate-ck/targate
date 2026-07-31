@@ -25,7 +25,10 @@ bumped by hand.
   preset now stops the agent on a **high**+ known vulnerability. Baseline
   behavior is unchanged (advisories still `allow_with_warnings` unless a policy
   gates them). `--json` gains an optional `severity` on each advisory
-  (backward-compatible).
+  (backward-compatible). The report also names the worst advisory severity
+  inline, and the "static findings" list now shows a count-reconciled preview
+  (`… and N more`) that points to `targate explain --last`, which lists every
+  flagged file and why; a capped count renders as `N+`.
 
 - **Registry proxy** — `targate proxy` (`setup` / `teardown` / `start` / `stop` /
   `status` / `ensure` / `cert` / `approvals` / `approve` / `deny`): a transparent,
