@@ -349,10 +349,9 @@ const commands: CommandDefinition[] = [
   {
     name: "proxy",
     usage: "targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny>",
-    summary: "Run a registry proxy that vets every package before install (experimental).",
+    summary: "Run a registry proxy that vets every package before install.",
     options: [O.port, O.upstream, O.host, O.foreground, O.tls, O.dryRun],
     examples: ["targate proxy setup", "targate proxy status", "targate proxy approve lodash@4.17.21"],
-    experimental: true,
     handler: async ({ values: v, positionals }) => {
       if (positionals.length < 1 || positionals.length > 2) {
         console.error(red("Usage: targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny> [--port <n>] [--upstream <url>] [--host <addr>] [--tls]"));

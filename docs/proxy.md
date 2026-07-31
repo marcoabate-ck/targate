@@ -1,4 +1,4 @@
-# Registry proxy (experimental)
+# Registry proxy
 
 ```bash
 targate proxy setup
@@ -19,11 +19,12 @@ off).
 > other managers — transparently, by detecting the client. Each manager's own
 > content cache still sits in front of the proxy (see [Limitations](#limitations)).
 
-> **Status: experimental.** Flags and output may change in a minor release. It
-> vets **public** packages out of the box; private/scoped registries are
-> supported via manually configured [uplinks](#private-scopes) (the automatic
-> `.npmrc` migration is still a follow-up). The full design, including the
-> trade-offs, is in [docs/design/proxy.md](design/proxy.md).
+> **Scope.** Vets **public** packages out of the box; **private/scoped**
+> registries are auto-migrated from your `.npmrc` on `targate proxy setup`, with
+> the credential relayed upstream (see [private scopes](#private-scopes)). It runs
+> as a **local, single-user** daemon — a network-shared proxy is out of scope (a
+> non-loopback bind is refused unless you opt in). The full design and trade-offs
+> are in [docs/design/proxy.md](design/proxy.md).
 
 ## Quick start
 
