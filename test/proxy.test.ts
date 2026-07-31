@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import { insecureRegistryHostAllowed } from "../src/network.js";
 import { isLoopbackRemote, isNpmClient, parseRegistryPath, rewritePackumentTarballs, safeUpstreamUrl, Semaphore, singleFlight } from "../src/proxy.js";
@@ -9,7 +9,7 @@ import { ProxyVerdictCache, sha512Sri, type VerdictRecord } from "../src/proxy-c
 import { readProxyUplinks, scopeOf, uplinkFor } from "../src/proxy-uplinks.js";
 import { PendingApprovals } from "../src/proxy-approvals.js";
 import { CA_COMMON_NAME, caInstallCommand, caUninstallCommand } from "../src/proxy-tls.js";
-import { migrateScopes, parseSpec, removeNpmrcBlock } from "../src/commands/proxy.js";
+import { isLoopbackBindHost, migrateScopes, parseSpec, proxyCommand, removeNpmrcBlock } from "../src/commands/proxy.js";
 
 const BEGIN = "# >>> targate proxy (managed — `targate proxy teardown` removes this)";
 const END = "# <<< targate proxy";
@@ -229,6 +229,43 @@ describe("Semaphore", () => {
     sem.release();
     await second;
     expect(secondAcquired).toBe(true);
+  });
+});
+
+describe("isLoopbackBindHost", () => {
+  it("accepts loopback hosts only", () => {
+    for (const h of ["127.0.0.1", "::1", "localhost"]) expect(isLoopbackBindHost(h)).toBe(true);
+    for (const h of ["0.0.0.0", "192.168.1.5", "10.0.0.1", "::", "example.com"]) expect(isLoopbackBindHost(h)).toBe(false);
+  });
+});
+
+describe("proxy bind guard", () => {
+  const savedOptIn = process.env.TARGATE_ALLOW_REMOTE_BIND;
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (savedOptIn === undefined) delete process.env.TARGATE_ALLOW_REMOTE_BIND;
+    else process.env.TARGATE_ALLOW_REMOTE_BIND = savedOptIn;
+  });
+
+  it("refuses a non-loopback bind without the opt-in and never starts the server", async () => {
+    delete process.env.TARGATE_ALLOW_REMOTE_BIND;
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    // foreground:true means a passing guard would fall through to runForeground;
+    // the refusal must short-circuit with exit 1 before any listen.
+    const code = await proxyCommand(["start"], { port: "4990", host: "0.0.0.0", foreground: true } as never);
+    expect(code).toBe(1);
+    expect(err.mock.calls.flat().join(" ")).toContain("Refusing to bind 0.0.0.0");
+  });
+
+  it("allows a loopback bind subcommand past the guard (setup fails later, not on the guard)", async () => {
+    // setup with the default loopback host must not be rejected by the guard;
+    // it may still fail for other reasons (openssl/daemon), which is not code 1
+    // from the guard path — we only assert the guard did not print a refusal.
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await proxyCommand(["status"], { port: "4990" } as never); // status never binds
+    expect(err.mock.calls.flat().join(" ")).not.toContain("Refusing to bind");
+    log.mockRestore();
   });
 });
 

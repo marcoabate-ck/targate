@@ -481,6 +481,44 @@ async function decideCommand(spec: string | undefined, decision: "approve" | "de
 const USAGE =
   "Usage: targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny> [--port <n>] [--upstream <url>] [--host <addr>] [--tls]";
 
+/** Bind hosts that keep the proxy reachable only from this machine. */
+export function isLoopbackBindHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "::1" || host === "localhost";
+}
+
+/** Subcommands that open a listening socket (and so must not silently bind wide). */
+const BIND_SUBCOMMANDS = new Set(["start", "ensure", "setup"]);
+
+/**
+ * Guard a non-loopback bind. The proxy has a loopback-only CONTROL API, but its
+ * DATA plane serves packages and relays the stored per-scope registry
+ * credentials upstream — with no inbound authentication. Binding a wide/LAN
+ * interface would let any reachable peer pull the org's private packages through
+ * the relayed credential. Refuse it unless the operator explicitly opts in.
+ * Returns an exit code to return, or null to proceed.
+ */
+function guardBindHost(host: string, env: NodeJS.ProcessEnv): number | null {
+  if (isLoopbackBindHost(host)) return null;
+  if (env.TARGATE_ALLOW_REMOTE_BIND !== "1") {
+    console.error(
+      red(
+        `Refusing to bind ${host}: the proxy serves packages and relays your stored registry ` +
+          `credentials to any peer that can reach it — there is no inbound authentication, so a ` +
+          `network peer could pull your private packages. Bind 127.0.0.1 (the default), or set ` +
+          `TARGATE_ALLOW_REMOTE_BIND=1 to override if you understand the exposure.`,
+      ),
+    );
+    return 1;
+  }
+  console.error(
+    yellow(
+      `WARNING: binding ${host} exposes the proxy — and your relayed registry credentials — to the ` +
+        `network with no inbound auth. Anyone who can reach it could pull your private packages.`,
+    ),
+  );
+  return null;
+}
+
 /** `targate proxy <subcommand> [action]` — lifecycle + setup for the registry proxy. */
 export async function proxyCommand(positionals: string[], options: ProxyOptions): Promise<number> {
   const [subcommand, action] = positionals;
@@ -488,6 +526,11 @@ export async function proxyCommand(positionals: string[], options: ProxyOptions)
   if (port === null) {
     console.error(red(`Invalid --port: ${options.port}. Expected an integer 1–65535.`));
     return 1;
+  }
+
+  if (BIND_SUBCOMMANDS.has(subcommand ?? "")) {
+    const denied = guardBindHost(options.host ?? "127.0.0.1", process.env);
+    if (denied !== null) return denied;
   }
 
   switch (subcommand) {
