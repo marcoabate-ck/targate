@@ -166,6 +166,12 @@ init` supports `--format yaml|json`. A leftover legacy executable file is ignore
   the docs no longer list those methods). npm, the install script, and direct
   binary downloads remain. Re-enable later with
   `gh variable set PUBLISH_BREW_WINGET --body true`.
+- **Dispatchable `Tag release` workflow** — cut a release from the Actions tab
+  with no local git: it derives the version from the top CHANGELOG heading (or an
+  explicit input), validates it, and creates + pushes the `vX.Y.Z` tag, which
+  triggers the existing release pipeline. Requires a `RELEASE_TOKEN` secret
+  (fine-grained PAT / App token with `contents: write`) so the tag push triggers
+  downstream workflows — the default `GITHUB_TOKEN` would not.
 
 ## [0.1.0]
 
