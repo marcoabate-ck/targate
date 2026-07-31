@@ -265,4 +265,21 @@ describe("retryOnNetworkTimeout", () => {
     ).rejects.toBeInstanceOf(ResourceLimitError);
     expect(calls).toBe(1);
   });
+
+  it("applies the default backoff between attempts when no delay function is given", async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const pending = retryOnNetworkTimeout(async () => {
+        calls++;
+        if (calls < 2) throw new ResourceLimitError("network-timeout", "timed out");
+        return "ok";
+      }); // default delayMs (200ms * attempt)
+      await vi.advanceTimersByTimeAsync(200);
+      await expect(pending).resolves.toBe("ok");
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
