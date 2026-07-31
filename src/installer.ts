@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline/promises";
 import type { Decision, PackageManager } from "./types.js";
@@ -9,6 +9,75 @@ export function detectPackageManager(cwd: string = process.cwd()): PackageManage
   if (existsSync(path.join(cwd, "yarn.lock"))) return "yarn";
   if (existsSync(path.join(cwd, "package-lock.json"))) return "npm";
   return "pnpm";
+}
+
+/**
+ * The specific install client, finer-grained than `detectPackageManager`:
+ * distinguishes bun and yarn classic (v1) from yarn berry (v2+). This matters
+ * for registry-proxy lockfile portability — yarn v1 and bun bake the absolute
+ * fetched (proxy) URL into their lockfiles, while npm, pnpm, and yarn berry keep
+ * or derive a portable URL. See `lockfilePortableBehindProxy`.
+ */
+export type InstallClient = "npm" | "pnpm" | "yarn-classic" | "yarn-berry" | "bun";
+
+/** The lockfile a given client writes (for user-facing messages). */
+export const LOCKFILE_FOR_CLIENT: Record<InstallClient, string> = {
+  npm: "package-lock.json",
+  pnpm: "pnpm-lock.yaml",
+  "yarn-classic": "yarn.lock",
+  "yarn-berry": "yarn.lock",
+  bun: "bun.lock",
+};
+
+function isYarnBerry(cwd: string): boolean {
+  // Berry projects carry a .yarnrc.yml and/or a `packageManager: yarn@>=2`.
+  if (existsSync(path.join(cwd, ".yarnrc.yml"))) return true;
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(cwd, "package.json"), "utf8")) as { packageManager?: unknown };
+    const pm = typeof pkg.packageManager === "string" ? pkg.packageManager : "";
+    const major = /^yarn@(\d+)/.exec(pm);
+    if (major && Number(major[1]) >= 2) return true;
+  } catch {
+    // no/invalid package.json — treat as classic
+  }
+  return false;
+}
+
+export function detectInstallClient(cwd: string = process.cwd()): InstallClient {
+  if (existsSync(path.join(cwd, "bun.lockb")) || existsSync(path.join(cwd, "bun.lock"))) return "bun";
+  if (existsSync(path.join(cwd, "pnpm-lock.yaml"))) return "pnpm";
+  if (existsSync(path.join(cwd, "yarn.lock"))) return isYarnBerry(cwd) ? "yarn-berry" : "yarn-classic";
+  if (existsSync(path.join(cwd, "package-lock.json"))) return "npm";
+  return "pnpm";
+}
+
+/**
+ * Whether a lockfile AUTHORED behind the registry proxy stays portable for
+ * teammates/CI that do not run the proxy. npm (replace-registry-host), pnpm, and
+ * yarn berry record a canonical/derivable URL; yarn v1 and bun bake the absolute
+ * proxy URL, so their lockfiles only resolve while the proxy is up on that port.
+ */
+export function lockfilePortableBehindProxy(client: InstallClient): boolean {
+  return client === "npm" || client === "pnpm" || client === "yarn-berry";
+}
+
+/**
+ * Command that clears a package manager's global cache/store. Relevant to the
+ * registry proxy: a package already in the client's cache is served locally and
+ * never reaches the proxy, so it skips vetting. Clearing the cache once on
+ * adoption forces the next install to re-fetch (and re-vet) through the proxy.
+ * (pnpm's store is content-addressable — `prune` drops only unreferenced
+ * content; a full re-vet needs the store dir removed.)
+ */
+export function cacheCleanCommand(pm: PackageManager): string {
+  switch (pm) {
+    case "pnpm":
+      return "pnpm store prune";
+    case "yarn":
+      return "yarn cache clean";
+    case "npm":
+      return "npm cache clean --force";
+  }
 }
 
 export function buildInstallCommand(

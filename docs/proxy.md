@@ -137,8 +137,11 @@ migrate cleanly. `teardown` removes the uplinks file along with the rest.
 
 - **The package manager's own cache sits in front of the proxy.** A package
   already in `~/.npm/_cacache` (or yarn/pnpm/bun's store) is served locally and
-  never reaches the proxy. When adopting the proxy in an existing project, run
-  `npm cache clean --force` for a clean floor.
+  never reaches the proxy. When adopting the proxy in an existing project, clear
+  the cache once for a clean floor (`npm cache clean --force`, `yarn cache clean`,
+  or `pnpm store prune`). `targate proxy setup` prints the right command for your
+  package manager, and `targate doctor` flags a non-empty cache while the proxy is
+  routing the project.
 - **Approval holds the install.** A `require_approval` verdict holds the client's
   request open (npm waits up to its `fetch-timeout`) while you decide out of band
   with `targate proxy approve|deny`; if no decision arrives before the hold cap
@@ -153,7 +156,9 @@ migrate cleanly. `teardown` removes the uplinks file along with the rest.
   lockfiles, so that lockfile only resolves while the proxy is up on that port.
   Installs work for all four; only lockfile *authoring* is affected — author and
   commit lockfiles with npm/pnpm/yarn-berry, or don't commit a yarn-v1/bun
-  lockfile produced behind the proxy.
+  lockfile produced behind the proxy. `targate proxy setup` warns when it detects
+  one of these clients, and `targate doctor` flags it while the proxy routes the
+  project.
 
 See [docs/design/proxy.md](design/proxy.md) for the reasoning behind each of
 these and the plan to close them.

@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import { insecureRegistryHostAllowed } from "../src/network.js";
-import { isLoopbackRemote, isNpmClient, parseRegistryPath, rewritePackumentTarballs, safeUpstreamUrl, Semaphore } from "../src/proxy.js";
+import { isLoopbackRemote, isNpmClient, parseRegistryPath, rewritePackumentTarballs, safeUpstreamUrl, Semaphore, singleFlight } from "../src/proxy.js";
 import { ProxyVerdictCache, sha512Sri, type VerdictRecord } from "../src/proxy-cache.js";
 import { readProxyUplinks, scopeOf, uplinkFor } from "../src/proxy-uplinks.js";
 import { PendingApprovals } from "../src/proxy-approvals.js";
@@ -229,6 +229,66 @@ describe("Semaphore", () => {
     sem.release();
     await second;
     expect(secondAcquired).toBe(true);
+  });
+});
+
+describe("singleFlight", () => {
+  it("runs fn once for concurrent callers on the same key and shares the result", async () => {
+    const map = new Map<string, Promise<number>>();
+    let calls = 0;
+    let release!: (n: number) => void;
+    const fn = (): Promise<number> => {
+      calls++;
+      return new Promise<number>((resolve) => {
+        release = resolve;
+      });
+    };
+    const a = singleFlight(map, "k", fn);
+    const b = singleFlight(map, "k", fn);
+    const c = singleFlight(map, "k", fn);
+    expect(calls).toBe(1); // coalesced onto one invocation
+    expect(map.size).toBe(1);
+    release(42);
+    expect(await Promise.all([a, b, c])).toEqual([42, 42, 42]);
+  });
+
+  it("does not coalesce different keys", async () => {
+    const map = new Map<string, Promise<string>>();
+    let calls = 0;
+    const fn = (v: string) => (): Promise<string> => {
+      calls++;
+      return Promise.resolve(v);
+    };
+    const [x, y] = await Promise.all([singleFlight(map, "a", fn("a")), singleFlight(map, "b", fn("b"))]);
+    expect([x, y]).toEqual(["a", "b"]);
+    expect(calls).toBe(2);
+  });
+
+  it("clears the entry after settle so a later call re-runs fn", async () => {
+    const map = new Map<string, Promise<number>>();
+    let calls = 0;
+    const fn = (): Promise<number> => {
+      calls++;
+      return Promise.resolve(calls);
+    };
+    expect(await singleFlight(map, "k", fn)).toBe(1);
+    expect(map.size).toBe(0); // removed once settled
+    expect(await singleFlight(map, "k", fn)).toBe(2); // fresh run
+  });
+
+  it("propagates rejection to all callers and clears the entry", async () => {
+    const map = new Map<string, Promise<number>>();
+    let calls = 0;
+    const fn = (): Promise<number> => {
+      calls++;
+      return Promise.reject(new Error("boom"));
+    };
+    const a = singleFlight(map, "k", fn);
+    const b = singleFlight(map, "k", fn);
+    expect(calls).toBe(1);
+    await expect(a).rejects.toThrow("boom");
+    await expect(b).rejects.toThrow("boom");
+    expect(map.size).toBe(0); // cleared even on failure, so a retry re-runs
   });
 });
 

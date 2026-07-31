@@ -1,12 +1,18 @@
 import { execFile } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { isCiEnvironment } from "./approvals.js";
-import { detectPackageManager } from "./installer.js";
+import {
+  cacheCleanCommand,
+  detectInstallClient,
+  detectPackageManager,
+  LOCKFILE_FOR_CLIENT,
+  lockfilePortableBehindProxy,
+} from "./installer.js";
 import { loadPolicy, PolicyError } from "./policy.js";
 import { compareSemver } from "./semver.js";
 import { resolveProvider, type ProviderSelection } from "./providers/index.js";
@@ -137,6 +143,41 @@ async function probeWritable(dir: string): Promise<void> {
   const probe = path.join(dir, `.doctor-${randomUUID()}.tmp`);
   await writeFile(probe, "ok");
   await rm(probe, { force: true });
+}
+
+/**
+ * Best-effort resolution of a package manager's global cache/store directory,
+ * asking the tool itself (paths vary by OS and config). Returns null if the
+ * manager is not installed or the path cannot be determined.
+ */
+async function packageManagerCacheDir(
+  pm: "npm" | "pnpm" | "yarn",
+  timeoutMs: number,
+): Promise<string | null> {
+  try {
+    if (pm === "npm") {
+      const { stdout } = await execFileAsync("npm", ["config", "get", "cache"], { timeout: timeoutMs });
+      const base = stdout.trim();
+      return base && base !== "undefined" ? path.join(base, "_cacache") : null;
+    }
+    if (pm === "pnpm") {
+      const { stdout } = await execFileAsync("pnpm", ["store", "path"], { timeout: timeoutMs });
+      return stdout.trim() || null;
+    }
+    const { stdout } = await execFileAsync("yarn", ["cache", "dir"], { timeout: timeoutMs });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** True if the directory exists and holds at least one entry. */
+async function dirHasContent(dir: string): Promise<boolean> {
+  try {
+    return (await readdir(dir)).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 export const DOCTOR_CHECKS: DoctorCheck[] = [
@@ -445,6 +486,56 @@ export const DOCTOR_CHECKS: DoctorCheck[] = [
         return { status: "warn", message: `running on ${url}, but this project's registry=${registry} points elsewhere` };
       }
       return { status: "pass", message: `running on ${url}; this project routes through it; ${verdicts} verdicts cached${tls}` };
+    },
+  },
+  {
+    id: "proxy-cache-bypass",
+    label: "Proxy cache bypass",
+    async run(ctx) {
+      const state = liveProxyState();
+      const registry = loadNpmrc(ctx.cwd, ctx.env).entries.registry?.replace(/\/+$/, "");
+      const routing = state !== null && registry === `${state.scheme}://${state.host}:${state.port}`;
+      const pm = detectPackageManager(ctx.cwd);
+      const clean = cacheCleanCommand(pm);
+      // Only meaningful when installs actually go through the proxy. When they
+      // don't, there is no bypass to warn about.
+      if (!routing) {
+        return { status: "info", message: "not applicable — this project does not route installs through the proxy" };
+      }
+      const dir = await packageManagerCacheDir(pm, ctx.networkTimeoutMs);
+      if (dir && (await dirHasContent(dir))) {
+        return {
+          status: "warn",
+          message: `${pm} caches packages at ${dir}; anything already cached is served before the proxy and skips vetting — run \`${clean}\` once to re-vet on the next install`,
+        };
+      }
+      if (dir) {
+        return { status: "pass", message: `${pm} cache is empty — nothing bypasses the proxy` };
+      }
+      return {
+        status: "info",
+        message: `${pm}'s cache is consulted before the proxy; when adopting on an existing machine, clear it once with \`${clean}\``,
+      };
+    },
+  },
+  {
+    id: "proxy-lockfile-portability",
+    label: "Proxy lockfile portability",
+    async run(ctx) {
+      const state = liveProxyState();
+      const registry = loadNpmrc(ctx.cwd, ctx.env).entries.registry?.replace(/\/+$/, "");
+      const routing = state !== null && registry === `${state.scheme}://${state.host}:${state.port}`;
+      if (!routing) {
+        return { status: "info", message: "not applicable — this project does not route installs through the proxy" };
+      }
+      const client = detectInstallClient(ctx.cwd);
+      if (lockfilePortableBehindProxy(client)) {
+        return { status: "pass", message: `${client} keeps a portable lockfile behind the proxy` };
+      }
+      return {
+        status: "warn",
+        message: `${client} bakes the proxy URL into ${LOCKFILE_FOR_CLIENT[client]} — a lockfile authored behind the proxy is NOT portable; author/commit it with npm, pnpm, or yarn-berry, or do not commit this ${LOCKFILE_FOR_CLIENT[client]}`,
+      };
     },
   },
 ];

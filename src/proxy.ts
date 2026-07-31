@@ -39,6 +39,15 @@ const DEFAULT_UPSTREAM = "https://registry.npmjs.org";
 /** Decisions whose bytes may be served. Everything else is refused (fail-closed). */
 const ALLOWED: ReadonlySet<Decision> = new Set<Decision>(["allow", "allow_with_warnings"]);
 
+/**
+ * Outcome of fetching + vetting one tarball, shared by every request coalesced
+ * onto it. `error` passes an upstream error (e.g. 404) straight through; `vetted`
+ * carries the served bytes and the decision to enforce.
+ */
+type TarballResult =
+  | { kind: "error"; status: number; contentType: string; body: Buffer }
+  | { kind: "vetted"; status: number; contentType: string; body: Buffer; decision: Decision; summary: string };
+
 /** Upstream request timeout and body caps, aligned with the analysis pipeline's limits. */
 const UPSTREAM_TIMEOUT_MS = DEFAULT_RESOURCE_LIMITS.networkTimeoutMs;
 const MAX_PACKUMENT_BYTES = DEFAULT_RESOURCE_LIMITS.maxResponseBytes;
@@ -67,6 +76,22 @@ export class Semaphore {
     if (next) next();
     else this.available++;
   }
+}
+
+/**
+ * Single-flight coalescing: while a promise for `key` is in flight, concurrent
+ * callers share it instead of starting their own. The entry is removed once it
+ * settles (resolve OR reject), so a later call re-runs `fn`. Exported for tests.
+ */
+export function singleFlight<T>(map: Map<string, Promise<T>>, key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = map.get(key);
+  if (existing) return existing;
+  const p = fn().finally(() => {
+    // Only delete our own entry (a re-run after settle may have replaced it).
+    if (map.get(key) === p) map.delete(key);
+  });
+  map.set(key, p);
+  return p;
 }
 
 export interface ProxyOptions {
@@ -286,6 +311,13 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
   // request that misses (e.g. after a daemon restart) re-fetches the packument.
   const tarballUrlMemo = new Map<string, string>();
   const memoKey = (origin: string, name: string, version: string): string => `${origin} ${name}@${version}`;
+  // Coalesce concurrent identical tarball requests onto a single fetch + vet +
+  // approval hold, so a package requested twice at once is downloaded and
+  // analyzed once (bounding peak memory, one approval prompt). Keyed by upstream
+  // origin + name@version + credential: requests carrying a different credential
+  // do NOT share bytes, so a shared proxy can never serve one caller an artifact
+  // it could not itself fetch.
+  const inflightVets = new Map<string, Promise<TarballResult>>();
   function rememberTarballUrl(origin: string, name: string, version: string, realUrl: string): void {
     // Bound memory: a full memo is cheaper to drop wholesale than to LRU-track;
     // a re-fetch repopulates on demand.
@@ -323,6 +355,122 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
       throw new Error(`refusing cross-origin tarball: ${resolved.origin} != ${origin}`);
     }
     return resolved.toString();
+  }
+
+  /**
+   * Fetch the exact bytes for name@version, vet them, and resolve any approval
+   * hold — returning the decision + bytes to serve. Run at most once per
+   * (origin, name@version, credential) at a time via `inflightVets`; every
+   * coalesced request awaits this same result and writes its own HTTP response.
+   */
+  async function fetchAndVet(
+    target: { origin: string; isPrivate: boolean; auth?: string },
+    name: string,
+    version: string,
+    upstreamAuth: string | undefined,
+    key: string,
+  ): Promise<TarballResult> {
+    const started = Date.now();
+    // Bound concurrent fetch+analysis so buffered bytes stay within
+    // MAX_CONCURRENT_VETS × MAX_TARBALL_BYTES. Released before any approval hold
+    // so a queue of held requests cannot starve the gate.
+    await vetGate.acquire();
+    let gateHeld = true;
+    const releaseGate = (): void => {
+      if (gateHeld) {
+        gateHeld = false;
+        vetGate.release();
+      }
+    };
+    try {
+      // Resolve the REAL upstream tarball URL. The rewritten dist.tarball is a
+      // clean /-/ path (no `__u`) so the lockfile stays portable, which means the
+      // path alone does not reveal a non-/-/ location (GitHub Packages uses
+      // `/download/@scope/name/version/<sha>`). Prefer the URL memoized when the
+      // packument was served; on a miss (e.g. daemon restarted between the
+      // packument and the tarball) re-fetch the packument to learn it. In both
+      // cases the resolved URL is validated to the resolved upstream's origin so
+      // a malicious packument cannot redirect the fetch to an internal host.
+      const tarballUrl = await resolveTarballUrl(target, name, version, upstreamAuth, key);
+      // Guarded fetch: follows redirects (GitHub Packages 302s to a CDN),
+      // re-validates each hop against the SSRF guard, and drops the credential
+      // on a cross-origin hop so the upstream token never leaks to a CDN.
+      const tarRes = await fetchArtifactGuarded(
+        tarballUrl,
+        upstreamAuth ? { headers: { authorization: upstreamAuth } } : {},
+        { timeoutMs: UPSTREAM_TIMEOUT_MS, maxResponseBytes: MAX_TARBALL_BYTES },
+        `${key} tarball`,
+      );
+      if (!tarRes.ok) {
+        // let the client see the upstream's own error (404 for a bad version, etc.)
+        return {
+          kind: "error",
+          status: tarRes.status,
+          contentType: tarRes.headers.get("content-type") ?? "application/json",
+          body: Buffer.from(await tarRes.text(), "utf8"),
+        };
+      }
+      const body = await readResponseBuffer(tarRes, MAX_TARBALL_BYTES, "package tarball");
+      const contentType = tarRes.headers.get("content-type") ?? "application/octet-stream";
+      const status = tarRes.status;
+
+      // Key the verdict to the bytes we are about to serve, not to name@version:
+      // a mutated/republished tarball has a different digest and is re-analyzed.
+      const digest = sha512Sri(body);
+      let record = cache.get(digest);
+      const cached = record !== undefined;
+      if (!record) {
+        // Analyze the exact bytes we are about to serve — no second download,
+        // and the verdict is structurally bound to the served artifact. For a
+        // private scope, the metadata is fetched from the scope's upstream with
+        // the relayed credential (the daemon has no .npmrc mapping for it).
+        const verdict = await decide(
+          name,
+          version,
+          options.cwd,
+          body,
+          target.isPrivate ? { url: target.origin, source: "scope", auth: upstreamAuth } : undefined,
+        );
+        let { decision, summary } = verdict;
+        // Invariant guard: the analyzed digest must equal the served bytes'
+        // digest (same bytes). If somehow not, fail closed.
+        if (verdict.analyzedDigest && verdict.analyzedDigest !== digest) {
+          decision = "block";
+          summary = `served tarball digest ${digest} does not match the analyzed artifact ${verdict.analyzedDigest}`;
+        }
+        // require_approval → hold the connection for an out-of-band human
+        // decision (targate proxy approve|deny). Timeout/queue-full fail closed.
+        let persist = true;
+        if (decision === "require_approval") {
+          if (pending.atCapacity) {
+            decision = "block";
+            summary = `approval queue full — retry the install: ${summary}`;
+            persist = false;
+          } else {
+            releaseGate(); // free the analysis slot before the (possibly long) human wait
+            emit({ kind: "pending", name, version });
+            const outcome = await pending.register(digest, name, version, Date.now());
+            if (outcome === "approve") {
+              decision = "allow";
+              summary = `human-approved — ${summary}`;
+            } else if (outcome === "deny") {
+              decision = "block";
+              summary = `human-denied — ${summary}`;
+            } else {
+              decision = "block";
+              summary = `approval timed out — ${summary}`;
+              persist = false;
+            }
+          }
+        }
+        record = { name, version, decision, summary, at: Date.now() };
+        if (persist) cache.set(digest, record);
+      }
+      emit({ kind: "decision", name, version, decision: record.decision, cached, ms: Date.now() - started, reason: record.summary });
+      return { kind: "vetted", status, contentType, body, decision: record.decision, summary: record.summary };
+    } finally {
+      releaseGate();
+    }
   }
 
   const onRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
@@ -415,115 +563,27 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
     if (parsed.tarballVersion) {
       const { name, tarballVersion: version } = parsed as { name: string; tarballVersion: string };
       const key = `${name}@${version}`;
-      const started = Date.now();
 
-      // Bound concurrent fetch+analysis so buffered bytes stay within
-      // MAX_CONCURRENT_VETS × MAX_TARBALL_BYTES. Released before any approval
-      // hold so a queue of held requests cannot starve the gate.
-      await vetGate.acquire();
-      let gateHeld = true;
-      const releaseGate = (): void => {
-        if (gateHeld) {
-          gateHeld = false;
-          vetGate.release();
-        }
-      };
-      try {
-      // Resolve the REAL upstream tarball URL. The rewritten dist.tarball is a
-      // clean /-/ path (no `__u`) so the lockfile stays portable, which means the
-      // path alone does not reveal a non-/-/ location (GitHub Packages uses
-      // `/download/@scope/name/version/<sha>`). Prefer the URL memoized when the
-      // packument was served; on a miss (e.g. daemon restarted between the
-      // packument and the tarball) re-fetch the packument to learn it. In both
-      // cases the resolved URL is validated to the resolved upstream's origin so
-      // a malicious packument cannot redirect the fetch to an internal host.
-      const tarballUrl = await resolveTarballUrl(target, name, version, upstreamAuth, key);
-      // Guarded fetch: follows redirects (GitHub Packages 302s to a CDN),
-      // re-validates each hop against the SSRF guard, and drops the credential
-      // on a cross-origin hop so the upstream token never leaks to a CDN.
-      const tarRes = await fetchArtifactGuarded(
-        tarballUrl,
-        upstreamAuth ? { headers: { authorization: upstreamAuth } } : {},
-        { timeoutMs: UPSTREAM_TIMEOUT_MS, maxResponseBytes: MAX_TARBALL_BYTES },
-        `${key} tarball`,
-      );
-      if (!tarRes.ok) {
-        // let the client see the upstream's own error (404 for a bad version, etc.)
-        res.writeHead(tarRes.status, { "content-type": tarRes.headers.get("content-type") ?? "application/json" });
-        res.end(await tarRes.text());
+      // Coalesce concurrent identical requests: the first starts fetchAndVet,
+      // the rest await the same promise (single download, analysis, and approval
+      // prompt). Keyed by origin + name@version + credential so requests with a
+      // different token never share bytes. Cleared once settled so a later
+      // install re-checks the (cached) verdict fresh.
+      const vetKey = `${new URL(target.origin).origin} ${key} ${upstreamAuth ?? ""}`;
+      const result = await singleFlight(inflightVets, vetKey, () => fetchAndVet(target, name, version, upstreamAuth, key));
+
+      if (result.kind === "error") {
+        res.writeHead(result.status, { "content-type": result.contentType });
+        res.end(result.body);
         return;
       }
-      const tar = {
-        status: tarRes.status,
-        body: await readResponseBuffer(tarRes, MAX_TARBALL_BYTES, "package tarball"),
-        contentType: tarRes.headers.get("content-type") ?? "application/octet-stream",
-      };
-
-      // Key the verdict to the bytes we are about to serve, not to name@version:
-      // a mutated/republished tarball has a different digest and is re-analyzed.
-      const digest = sha512Sri(tar.body);
-      let record = cache.get(digest);
-      const cached = record !== undefined;
-      if (!record) {
-        // Analyze the exact bytes we are about to serve — no second download,
-        // and the verdict is structurally bound to the served artifact. For a
-        // private scope, the metadata is fetched from the scope's upstream with
-        // the relayed credential (the daemon has no .npmrc mapping for it).
-        const verdict = await decide(
-          name,
-          version,
-          options.cwd,
-          tar.body,
-          target.isPrivate ? { url: target.origin, source: "scope", auth: upstreamAuth } : undefined,
-        );
-        let { decision, summary } = verdict;
-        // Invariant guard: the analyzed digest must equal the served bytes'
-        // digest (same bytes). If somehow not, fail closed.
-        if (verdict.analyzedDigest && verdict.analyzedDigest !== digest) {
-          decision = "block";
-          summary = `served tarball digest ${digest} does not match the analyzed artifact ${verdict.analyzedDigest}`;
-        }
-        // require_approval → hold the connection for an out-of-band human
-        // decision (targate proxy approve|deny). Timeout/queue-full fail closed.
-        let persist = true;
-        if (decision === "require_approval") {
-          if (pending.atCapacity) {
-            decision = "block";
-            summary = `approval queue full — retry the install: ${summary}`;
-            persist = false;
-          } else {
-            releaseGate(); // free the analysis slot before the (possibly long) human wait
-            emit({ kind: "pending", name, version });
-            const outcome = await pending.register(digest, name, version, Date.now());
-            if (outcome === "approve") {
-              decision = "allow";
-              summary = `human-approved — ${summary}`;
-            } else if (outcome === "deny") {
-              decision = "block";
-              summary = `human-denied — ${summary}`;
-            } else {
-              decision = "block";
-              summary = `approval timed out — ${summary}`;
-              persist = false;
-            }
-          }
-        }
-        record = { name, version, decision, summary, at: Date.now() };
-        if (persist) cache.set(digest, record);
-      }
-      const ms = Date.now() - started;
-      emit({ kind: "decision", name, version, decision: record.decision, cached, ms, reason: record.summary });
-
-      if (!ALLOWED.has(record.decision)) {
+      if (!ALLOWED.has(result.decision)) {
         res.writeHead(403, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: `targate blocked ${key}: ${record.decision}`, reason: record.summary }));
+        res.end(JSON.stringify({ error: `targate blocked ${key}: ${result.decision}`, reason: result.summary }));
         return;
       }
-      res.writeHead(tar.status, { "content-type": tar.contentType });
-      res.end(tar.body);
-      } finally {
-        releaseGate();
-      }
+      res.writeHead(result.status, { "content-type": result.contentType });
+      res.end(result.body);
       return;
     }
 

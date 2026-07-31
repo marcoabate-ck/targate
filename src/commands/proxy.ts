@@ -15,6 +15,13 @@ import {
   writeProxyState,
   type ProxyState,
 } from "../proxy-daemon.js";
+import {
+  cacheCleanCommand,
+  detectInstallClient,
+  detectPackageManager,
+  LOCKFILE_FOR_CLIENT,
+  lockfilePortableBehindProxy,
+} from "../installer.js";
 import { authHeaderForUrl, DEFAULT_REGISTRY, loadNpmrc } from "../npmrc.js";
 import { ProxyVerdictCache } from "../proxy-cache.js";
 import { readProxyUplinks, removeProxyUplinks, writeProxyUplinks, type ProxyUplink } from "../proxy-uplinks.js";
@@ -304,6 +311,19 @@ async function setupProxy(port: number, options: ProxyOptions): Promise<number> 
   }
   console.log(yellow("  Note: this .npmrc points at a local proxy — add it to .gitignore; do not commit it."));
   caTrustHint(caPath, host, port);
+  // A package already in the client's cache is served locally and never reaches
+  // the proxy, so it skips vetting. Clearing the cache once on adoption forces
+  // the next install to re-fetch (and re-vet) through the proxy.
+  const clean = cacheCleanCommand(detectPackageManager(cwd));
+  console.log(dim(`  Packages already in your ${detectPackageManager(cwd)} cache skip the proxy — clear it once to re-vet:  ${clean}`));
+  // yarn-classic and bun bake the absolute (proxy) tarball URL into their
+  // lockfiles, so a lockfile authored behind the proxy is not portable.
+  const client = detectInstallClient(cwd);
+  if (!lockfilePortableBehindProxy(client)) {
+    console.log(
+      yellow(`  Note: ${client} bakes the proxy URL into ${LOCKFILE_FOR_CLIENT[client]} — do not commit a ${LOCKFILE_FOR_CLIENT[client]} authored behind the proxy (author it with npm/pnpm/yarn-berry).`),
+    );
+  }
   return 0;
 }
 
