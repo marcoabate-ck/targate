@@ -15,7 +15,7 @@
  *
  * Run:  node --import tsx scripts/e2e-proxy-github-packages.mts
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
@@ -64,11 +64,29 @@ if (setup.status !== 0) {
   process.exit(1);
 }
 
-const install = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--cache", path.join(project, ".npmcache"), "--loglevel", "error"], {
+// setup serves HTTPS with the local CA; Node won't trust it via the keychain,
+// so point npm at the CA explicitly for the install.
+const caPath = cli(["cert", "path"]).out.trim().split(/\r?\n/).pop() ?? "";
+const install = spawn("npm", ["install", "--no-audit", "--no-fund", "--cache", path.join(project, ".npmcache"), "--loglevel", "error"], {
   cwd: project,
-  encoding: "utf8",
-  env: process.env,
+  env: { ...process.env, NODE_EXTRA_CA_CERTS: caPath, NPM_CONFIG_FETCH_TIMEOUT: "120000" },
 });
+let npmOut = "";
+install.stdout?.on("data", (d) => (npmOut += d));
+install.stderr?.on("data", (d) => (npmOut += d));
+
+// A private package with no public reputation usually rates require_approval;
+// auto-approve the hold so the run completes non-interactively.
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const installDone = new Promise<number>((resolve) => install.on("close", (code) => resolve(code ?? 1)));
+for (let i = 0; i < 30; i++) {
+  if (cli(["approvals"]).out.includes(`${name}@${version}`)) {
+    cli(["approve", `${name}@${version}`]);
+    break;
+  }
+  if (await Promise.race([installDone.then(() => true), sleep(1000).then(() => false)])) break;
+}
+const installStatus = await installDone;
 const installed = existsSync(path.join(project, "node_modules", ...name.split("/"), "package.json"));
 
 // Confirm the private package actually went THROUGH the proxy (a decision was logged).
@@ -83,9 +101,9 @@ try {
   // best-effort
 }
 
-console.log(`installed=${installed} routedThroughProxy=${routed} npmExit=${install.status}`);
+console.log(`installed=${installed} routedThroughProxy=${routed} npmExit=${installStatus}`);
 if (!installed || !routed) {
-  console.error(`FAIL — installed=${installed}, routed=${routed}. npm output:\n${install.stdout}${install.stderr}`);
+  console.error(`FAIL — installed=${installed}, routed=${routed}. npm output:\n${npmOut}`);
   process.exit(1);
 }
 console.log("PASS: private GitHub Packages install routed through and vetted by the proxy");

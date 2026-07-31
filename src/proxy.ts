@@ -3,6 +3,7 @@ import https from "node:https";
 import { Buffer } from "node:buffer";
 import { timingSafeEqual } from "node:crypto";
 import { buildPackageSignals } from "./pipeline.js";
+import { fetchArtifactGuarded, readResponseBuffer } from "./network.js";
 import { DEFAULT_RESOURCE_LIMITS } from "./resource-limits.js";
 import { PendingApprovals } from "./proxy-approvals.js";
 import { ProxyVerdictCache, sha512Sri } from "./proxy-cache.js";
@@ -137,6 +138,35 @@ export function safeUpstreamUrl(origin: string, reqUrl: string): string {
     throw new Error(`refusing cross-origin upstream request: ${resolved.origin} != ${base.origin}`);
   }
   return resolved.toString();
+}
+
+/**
+ * Rewrite every `dist.tarball` in a packument to a canonical proxy path that
+ * carries the original tarball URL in a `__u` query param. The canonical path
+ * (`/<name>/-/<unscoped>-<version>.tgz`) is what parseRegistryPath understands,
+ * while `__u` lets the proxy fetch the real bytes from wherever the upstream put
+ * them — GitHub Packages uses `/download/@scope/name/version/<sha>`, not the
+ * `/-/` convention, so a plain origin swap misroutes. Returns the original text
+ * unchanged if it is not JSON we recognize.
+ */
+export function rewritePackumentTarballs(text: string, proxyOrigin: string): string {
+  let doc: { name?: string; versions?: Record<string, { version?: string; dist?: { tarball?: string } }> };
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  const name = doc.name;
+  if (!name || !doc.versions) return text;
+  for (const [ver, meta] of Object.entries(doc.versions)) {
+    const tarball = meta?.dist?.tarball;
+    if (!tarball) continue;
+    const version = meta.version ?? ver;
+    const unscoped = name.includes("/") ? name.slice(name.lastIndexOf("/") + 1) : name;
+    const encoded = Buffer.from(tarball, "utf8").toString("base64url");
+    meta.dist!.tarball = `${proxyOrigin}/${name}/-/${unscoped}-${version}.tgz?__u=${encoded}`;
+  }
+  return JSON.stringify(doc);
 }
 
 /** Split a registry request path into a package name and, for tarballs, a version. */
@@ -336,16 +366,41 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
         }
       };
       try {
-      const tar = await fetchUpstream(safeUpstreamUrl(target.origin, req.url ?? "/"), "application/octet-stream", upstreamAuth, {
-        timeoutMs: UPSTREAM_TIMEOUT_MS,
-        maxBytes: MAX_TARBALL_BYTES,
-      });
-      if (tar.status >= 400) {
+      // The rewritten dist.tarball carries the real upstream URL in `__u` (its
+      // path may not follow the /-/ convention, e.g. GitHub Packages). Fetch that
+      // when present — validated to the same origin as the resolved upstream —
+      // otherwise fall back to the path-based URL (npm's canonical /-/ tarball).
+      const encodedUpstream = new URL(req.url ?? "/", proxyOrigin).searchParams.get("__u");
+      let tarballUrl: string;
+      if (encodedUpstream) {
+        const decoded = new URL(Buffer.from(encodedUpstream, "base64url").toString("utf8"));
+        if (decoded.origin !== new URL(target.origin).origin) {
+          throw new Error(`refusing cross-origin tarball: ${decoded.origin} != ${target.origin}`);
+        }
+        tarballUrl = decoded.toString();
+      } else {
+        tarballUrl = safeUpstreamUrl(target.origin, req.url ?? "/");
+      }
+      // Guarded fetch: follows redirects (GitHub Packages 302s to a CDN),
+      // re-validates each hop against the SSRF guard, and drops the credential
+      // on a cross-origin hop so the upstream token never leaks to a CDN.
+      const tarRes = await fetchArtifactGuarded(
+        tarballUrl,
+        upstreamAuth ? { headers: { authorization: upstreamAuth } } : {},
+        { timeoutMs: UPSTREAM_TIMEOUT_MS, maxResponseBytes: MAX_TARBALL_BYTES },
+        `${key} tarball`,
+      );
+      if (!tarRes.ok) {
         // let the client see the upstream's own error (404 for a bad version, etc.)
-        res.writeHead(tar.status, { "content-type": String(tar.headers["content-type"] ?? "application/json") });
-        res.end(tar.body);
+        res.writeHead(tarRes.status, { "content-type": tarRes.headers.get("content-type") ?? "application/json" });
+        res.end(await tarRes.text());
         return;
       }
+      const tar = {
+        status: tarRes.status,
+        body: await readResponseBuffer(tarRes, MAX_TARBALL_BYTES, "package tarball"),
+        contentType: tarRes.headers.get("content-type") ?? "application/octet-stream",
+      };
 
       // Key the verdict to the bytes we are about to serve, not to name@version:
       // a mutated/republished tarball has a different digest and is re-analyzed.
@@ -407,7 +462,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
         res.end(JSON.stringify({ error: `targate blocked ${key}: ${record.decision}`, reason: record.summary }));
         return;
       }
-      res.writeHead(tar.status, { "content-type": String(tar.headers["content-type"] ?? "application/octet-stream") });
+      res.writeHead(tar.status, { "content-type": tar.contentType });
       res.end(tar.body);
       } finally {
         releaseGate();
@@ -427,7 +482,7 @@ export function createProxyServer(options: ProxyOptions): ProxyHandle {
     // canonical URL and a portable lockfile; see N1 and §5.8).
     const rewriteTarball = target.isPrivate || !isNpmClient(req.headers["user-agent"]);
     const body = rewriteTarball
-      ? Buffer.from(pack.body.toString("utf8").split(target.origin).join(proxyOrigin), "utf8")
+      ? Buffer.from(rewritePackumentTarballs(pack.body.toString("utf8"), proxyOrigin), "utf8")
       : pack.body;
     res.writeHead(pack.status, { "content-type": String(pack.headers["content-type"] ?? "application/json") });
     res.end(body);

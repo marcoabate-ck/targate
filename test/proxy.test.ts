@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import { insecureRegistryHostAllowed } from "../src/network.js";
-import { isLoopbackRemote, isNpmClient, parseRegistryPath, safeUpstreamUrl, Semaphore } from "../src/proxy.js";
+import { isLoopbackRemote, isNpmClient, parseRegistryPath, rewritePackumentTarballs, safeUpstreamUrl, Semaphore } from "../src/proxy.js";
 import { ProxyVerdictCache, sha512Sri, type VerdictRecord } from "../src/proxy-cache.js";
 import { readProxyUplinks, scopeOf, uplinkFor } from "../src/proxy-uplinks.js";
 import { PendingApprovals } from "../src/proxy-approvals.js";
@@ -151,6 +151,23 @@ describe("insecureRegistryHostAllowed", () => {
     expect(insecureRegistryHostAllowed("127.0.0.1")).toBe(true);
     expect(insecureRegistryHostAllowed("verdaccio.local")).toBe(true);
     expect(insecureRegistryHostAllowed("evil.example")).toBe(false);
+  });
+});
+
+describe("rewritePackumentTarballs", () => {
+  const proxy = "https://127.0.0.1:4873";
+  it("rewrites dist.tarball to a canonical proxy path carrying the original URL (any upstream format)", () => {
+    // GitHub Packages uses a non-/-/ download path — the crux of the real bug.
+    const orig = "https://npm.pkg.github.com/download/@wts-paradigm/ui/0.8.0/e8a9";
+    const doc = { name: "@wts-paradigm/ui", versions: { "0.8.0": { version: "0.8.0", dist: { tarball: orig } } } };
+    const out = JSON.parse(rewritePackumentTarballs(JSON.stringify(doc), proxy)) as typeof doc;
+    const rewritten = out.versions["0.8.0"].dist.tarball;
+    expect(rewritten.startsWith(`${proxy}/@wts-paradigm/ui/-/ui-0.8.0.tgz?__u=`)).toBe(true);
+    const u = new URL(rewritten).searchParams.get("__u")!;
+    expect(Buffer.from(u, "base64url").toString("utf8")).toBe(orig);
+  });
+  it("returns non-JSON unchanged", () => {
+    expect(rewritePackumentTarballs("not json", proxy)).toBe("not json");
   });
 });
 
