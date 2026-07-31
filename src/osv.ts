@@ -1,7 +1,64 @@
 import { mapLimit } from "./concurrency.js";
-import type { MaliciousRecord } from "./types.js";
+import type { AdvisorySeverity, MaliciousRecord } from "./types.js";
 import { fetchWithTimeout, readResponseJson } from "./network.js";
 import { networkBudget, type ResourceLimits } from "./resource-limits.js";
+
+/** Ordering of advisory severities, low → critical; `unknown` sits below `low`. */
+export const ADVISORY_SEVERITY_RANK: Record<AdvisorySeverity, number> = {
+  unknown: 0,
+  low: 1,
+  moderate: 2,
+  high: 3,
+  critical: 4,
+};
+
+/** GHSA `database_specific.severity` labels (and the common CVSS synonym) → our scale. */
+const GHSA_SEVERITY_LABEL: Record<string, AdvisorySeverity> = {
+  low: "low",
+  moderate: "moderate",
+  medium: "moderate",
+  high: "high",
+  critical: "critical",
+};
+
+function bucketCvssScore(score: number): AdvisorySeverity {
+  if (score >= 9) return "critical";
+  if (score >= 7) return "high";
+  if (score >= 4) return "moderate";
+  if (score > 0) return "low";
+  return "unknown";
+}
+
+/**
+ * Severity of an OSV vulnerability: prefer the explicit GHSA label
+ * (`database_specific.severity`), else a directly-numeric CVSS score, else
+ * `unknown` (a full CVSS *vector* is not parsed — it falls to unknown, still
+ * surfaced and scored, just not gradable for a policy threshold).
+ */
+export function severityFromOsvVuln(vuln: {
+  database_specific?: { severity?: string };
+  severity?: Array<{ type?: string; score?: string }>;
+}): AdvisorySeverity {
+  const label = vuln.database_specific?.severity?.toLowerCase().trim();
+  if (label && GHSA_SEVERITY_LABEL[label]) return GHSA_SEVERITY_LABEL[label];
+  for (const s of vuln.severity ?? []) {
+    const raw = s?.score?.trim();
+    if (!raw) continue;
+    const num = Number(raw);
+    if (Number.isFinite(num) && num >= 0 && num <= 10) return bucketCvssScore(num);
+  }
+  return "unknown";
+}
+
+/** The highest severity across a set of advisories, or null if there are none. */
+export function worstAdvisorySeverity(records: MaliciousRecord[]): AdvisorySeverity | null {
+  let worst: AdvisorySeverity | null = null;
+  for (const r of records) {
+    const s = r.severity ?? "unknown";
+    if (worst === null || ADVISORY_SEVERITY_RANK[s] > ADVISORY_SEVERITY_RANK[worst]) worst = s;
+  }
+  return worst;
+}
 
 const OSV_API = "https://api.osv.dev/v1/query";
 const OSV_BATCH_API = "https://api.osv.dev/v1/querybatch";
@@ -99,15 +156,23 @@ export async function queryOsv(name: string, version: string, limits?: ResourceL
     throw new Error(`OSV API responded with ${res.status}`);
   }
   const data = await readResponseJson<{
-    vulns?: Array<{ id: string; summary?: string; details?: string }>;
+    vulns?: Array<{
+      id: string;
+      summary?: string;
+      details?: string;
+      database_specific?: { severity?: string };
+      severity?: Array<{ type?: string; score?: string }>;
+    }>;
   }>(res, budget.maxResponseBytes, "OSV response");
 
   const maliciousRecords: MaliciousRecord[] = [];
   const advisories: MaliciousRecord[] = [];
   for (const vuln of data.vulns ?? []) {
-    const record = { id: vuln.id, summary: vuln.summary };
-    if (isMaliciousRecord(vuln)) maliciousRecords.push(record);
-    else advisories.push(record);
+    if (isMaliciousRecord(vuln)) {
+      maliciousRecords.push({ id: vuln.id, summary: vuln.summary });
+    } else {
+      advisories.push({ id: vuln.id, summary: vuln.summary, severity: severityFromOsvVuln(vuln) });
+    }
   }
 
   return {
@@ -170,15 +235,19 @@ export async function queryOsvBatch(
   for (const ids of idsByKey.values()) {
     for (const id of ids) if (!id.startsWith("MAL-")) needDetail.add(id);
   }
-  const detail = new Map<string, { malicious: boolean; summary?: string } | "error">();
+  const detail = new Map<string, { malicious: boolean; summary?: string; severity: AdvisorySeverity } | "error">();
   await mapLimit([...needDetail], OSV_DETAIL_CONCURRENCY, async (id) => {
     try {
       const res = await fetchWithTimeout(`${OSV_VULN_API}/${encodeURIComponent(id)}`, {}, budget);
       if (!res.ok) throw new Error(`OSV vuln API responded with ${res.status}`);
-      const vuln = await readResponseJson<{ id: string; summary?: string; details?: string }>(
-        res, budget.maxResponseBytes, "OSV vulnerability response",
-      );
-      detail.set(id, { malicious: isMaliciousRecord(vuln), summary: vuln.summary });
+      const vuln = await readResponseJson<{
+        id: string;
+        summary?: string;
+        details?: string;
+        database_specific?: { severity?: string };
+        severity?: Array<{ type?: string; score?: string }>;
+      }>(res, budget.maxResponseBytes, "OSV vulnerability response");
+      detail.set(id, { malicious: isMaliciousRecord(vuln), summary: vuln.summary, severity: severityFromOsvVuln(vuln) });
     } catch {
       detail.set(id, "error");
     }
@@ -202,7 +271,11 @@ export async function queryOsvBatch(
         unavailable = true;
         continue;
       }
-      (d.malicious ? maliciousRecords : advisories).push({ id, summary: d.summary });
+      if (d.malicious) {
+        maliciousRecords.push({ id, summary: d.summary });
+      } else {
+        advisories.push({ id, summary: d.summary, severity: d.severity });
+      }
     }
     out.set(key, {
       knownMalicious: maliciousRecords.length > 0,

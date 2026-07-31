@@ -1,4 +1,5 @@
 import { isInstallTimeScript } from "./analyze/scripts.js";
+import { worstAdvisorySeverity } from "./osv.js";
 import {
   DECISION_SEVERITY,
   type Decision,
@@ -253,8 +254,10 @@ export function evaluateRules(signals: Signals): RiskAssessment {
     reasons.push("No repository metadata on npm.");
   }
   if (signals.advisories.length > 0) {
+    const worst = worstAdvisorySeverity(signals.advisories);
+    const label = worst && worst !== "unknown" ? ` (highest: ${worst.toUpperCase()})` : "";
     reasons.push(
-      `Known vulnerability advisories: ${signals.advisories.map((a) => a.id).join(", ")}.`,
+      `Known vulnerability advisories${label}: ${signals.advisories.map((a) => a.id).join(", ")}.`,
     );
   }
   if (signals.dependencyCount > 20) {

@@ -50,6 +50,14 @@ describe("isHardBlock", () => {
     expect(evaluateRules(signals).decision).toBe("allow_with_warnings");
   });
 
+  it("names the worst advisory severity in the reason (baseline stays allow_with_warnings)", () => {
+    const a = evaluateRules(
+      makeSignals({ advisories: [{ id: "GHSA-1", severity: "moderate" }, { id: "GHSA-2", severity: "high" }] }),
+    );
+    expect(a.decision).toBe("allow_with_warnings");
+    expect(a.reasons.some((r) => r.includes("highest: HIGH") && r.includes("GHSA-2"))).toBe(true);
+  });
+
   it("env+network heuristic (esbuild-style) is NOT hard — it is soft/overridable", () => {
     const signals = makeSignals({
       hasLifecycleScripts: true,

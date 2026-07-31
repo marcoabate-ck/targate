@@ -67,6 +67,21 @@ describe("parsePolicy", () => {
     ).toThrow(PolicyError);
   });
 
+  it("rejects an invalid advisory-severity threshold", () => {
+    expect(() =>
+      parsePolicy("dependencyPolicy:\n  requireApprovalForAdvisorySeverity: severe\n"),
+    ).toThrow(PolicyError);
+    // `unknown` is a valid AdvisorySeverity value but not a valid THRESHOLD.
+    expect(() =>
+      parsePolicy("dependencyPolicy:\n  blockForAdvisorySeverity: unknown\n"),
+    ).toThrow(PolicyError);
+    // a valid level parses
+    expect(
+      parsePolicy("dependencyPolicy:\n  requireApprovalForAdvisorySeverity: high\n")
+        .dependencyPolicy.requireApprovalForAdvisorySeverity,
+    ).toBe("high");
+  });
+
   it("parses the aiCache section", () => {
     const parsed = parsePolicy(
       [
@@ -180,6 +195,40 @@ describe("applyPolicy", () => {
     );
     expect(result.decision).toBe("require_approval");
     expect(result.reasons.at(-1)).toContain("[policy]");
+  });
+
+  it("escalates to require_approval when an advisory meets the approval threshold", () => {
+    const result = applyPolicy(
+      makeAssessment({ decision: "allow_with_warnings", risk: "medium" }),
+      makeSignals({ advisories: [{ id: "GHSA-x", severity: "high" }] }),
+      policy({ requireApprovalForAdvisorySeverity: "high" }),
+    );
+    expect(result.decision).toBe("require_approval");
+    expect(result.reasons.at(-1)).toContain("high");
+  });
+
+  it("blocks when an advisory meets the block threshold (block beats approval)", () => {
+    const result = applyPolicy(
+      makeAssessment({ decision: "allow_with_warnings", risk: "medium" }),
+      makeSignals({ advisories: [{ id: "GHSA-x", severity: "critical" }] }),
+      policy({ requireApprovalForAdvisorySeverity: "high", blockForAdvisorySeverity: "critical" }),
+    );
+    expect(result.decision).toBe("block");
+  });
+
+  it("does NOT escalate below the threshold, nor for unknown severity", () => {
+    const below = applyPolicy(
+      makeAssessment({ decision: "allow_with_warnings", risk: "medium" }),
+      makeSignals({ advisories: [{ id: "GHSA-l", severity: "low" }] }),
+      policy({ requireApprovalForAdvisorySeverity: "high" }),
+    );
+    expect(below.decision).toBe("allow_with_warnings");
+    const unknown = applyPolicy(
+      makeAssessment({ decision: "allow_with_warnings", risk: "medium" }),
+      makeSignals({ advisories: [{ id: "GHSA-u" }] }),
+      policy({ requireApprovalForAdvisorySeverity: "low" }),
+    );
+    expect(unknown.decision).toBe("allow_with_warnings");
   });
 
   it("escalates install-time lifecycle scripts when configured", () => {

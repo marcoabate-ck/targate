@@ -1,5 +1,40 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isMaliciousRecord, queryOsvBatch } from "../src/osv.js";
+import { isMaliciousRecord, queryOsvBatch, severityFromOsvVuln, worstAdvisorySeverity } from "../src/osv.js";
+
+describe("severityFromOsvVuln", () => {
+  it("maps the GHSA database_specific.severity label (case-insensitive)", () => {
+    expect(severityFromOsvVuln({ database_specific: { severity: "CRITICAL" } })).toBe("critical");
+    expect(severityFromOsvVuln({ database_specific: { severity: "moderate" } })).toBe("moderate");
+    expect(severityFromOsvVuln({ database_specific: { severity: "MEDIUM" } })).toBe("moderate");
+  });
+
+  it("buckets a directly-numeric CVSS score at the boundaries", () => {
+    expect(severityFromOsvVuln({ severity: [{ type: "CVSS_V3", score: "9.0" }] })).toBe("critical");
+    expect(severityFromOsvVuln({ severity: [{ type: "CVSS_V3", score: "7.0" }] })).toBe("high");
+    expect(severityFromOsvVuln({ severity: [{ type: "CVSS_V3", score: "4.0" }] })).toBe("moderate");
+    expect(severityFromOsvVuln({ severity: [{ type: "CVSS_V3", score: "0.1" }] })).toBe("low");
+  });
+
+  it("prefers the label over a CVSS score", () => {
+    expect(
+      severityFromOsvVuln({ database_specific: { severity: "high" }, severity: [{ score: "2.0" }] }),
+    ).toBe("high");
+  });
+
+  it("returns unknown for a CVSS vector string or no severity data", () => {
+    expect(severityFromOsvVuln({ severity: [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L" }] })).toBe("unknown");
+    expect(severityFromOsvVuln({})).toBe("unknown");
+  });
+});
+
+describe("worstAdvisorySeverity", () => {
+  it("returns the highest severity, treating missing as unknown", () => {
+    expect(worstAdvisorySeverity([{ id: "a", severity: "low" }, { id: "b", severity: "high" }])).toBe("high");
+    expect(worstAdvisorySeverity([{ id: "a" }, { id: "b", severity: "low" }])).toBe("low");
+    expect(worstAdvisorySeverity([{ id: "a" }])).toBe("unknown");
+    expect(worstAdvisorySeverity([])).toBeNull();
+  });
+});
 
 describe("isMaliciousRecord", () => {
   it("flags OpenSSF MAL- records", () => {

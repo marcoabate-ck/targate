@@ -9,12 +9,17 @@ import { DEFAULT_REGISTRY } from "./npmrc.js";
 import type { ResourceLimits } from "./resource-limits.js";
 import { hasInstallTimeLifecycleScript } from "./analyze/scripts.js";
 import { isHardBlock } from "./rules.js";
+import { ADVISORY_SEVERITY_RANK, worstAdvisorySeverity } from "./osv.js";
 import {
   DECISION_SEVERITY,
+  type AdvisorySeverity,
   type CodeAuditScope,
   type RiskAssessment,
   type Signals,
 } from "./types.js";
+
+/** Severity levels valid as a policy threshold — `unknown` is not gradable. */
+const ADVISORY_THRESHOLD_LEVELS: readonly AdvisorySeverity[] = ["low", "moderate", "high", "critical"];
 
 export const POLICY_BASENAME = "targate.policy";
 
@@ -106,6 +111,16 @@ export interface DependencyPolicy {
    * audit on ad-hoc; this field lets a team enable/scope it centrally.
    */
   codeAudit?: CodeAuditScope;
+  /**
+   * Gate a package that carries a known-vulnerability advisory (OSV) by
+   * severity. A package whose worst advisory is at or above the level requires
+   * approval / is blocked. `unknown`-severity advisories never trigger a
+   * threshold (no gradable level), but are still scored and surfaced. Off by
+   * default — advisories otherwise stay `allow_with_warnings` (see the
+   * vulnerability-scoring design). If both are set and both match, block wins.
+   */
+  requireApprovalForAdvisorySeverity?: AdvisorySeverity;
+  blockForAdvisorySeverity?: AdvisorySeverity;
 }
 
 export interface PolicyFile {
@@ -194,6 +209,13 @@ export function validatePolicyObject(
     if (v !== "off" && v !== "flagged" && v !== "direct" && v !== "all") {
       throw new PolicyError(
         `"dependencyPolicy.codeAudit" must be one of "off", "flagged", "direct", or "all"`,
+      );
+    }
+  }
+  for (const key of ["requireApprovalForAdvisorySeverity", "blockForAdvisorySeverity"] as const) {
+    if (key in policy && !ADVISORY_THRESHOLD_LEVELS.includes(policy[key] as AdvisorySeverity)) {
+      throw new PolicyError(
+        `"dependencyPolicy.${key}" must be one of "low", "moderate", "high", or "critical"`,
       );
     }
   }
@@ -547,6 +569,25 @@ export function applyPolicy(
     );
   }
 
+  const worstAdvisory = worstAdvisorySeverity(signals.advisories);
+  if (worstAdvisory && worstAdvisory !== "unknown") {
+    const meets = (threshold?: AdvisorySeverity): boolean =>
+      threshold !== undefined && ADVISORY_SEVERITY_RANK[worstAdvisory] >= ADVISORY_SEVERITY_RANK[threshold];
+    if (meets(p.blockForAdvisorySeverity)) {
+      result = escalate(
+        result,
+        "block",
+        `Known ${worstAdvisory} vulnerability advisory at or above the team block threshold (${p.blockForAdvisorySeverity}).`,
+      );
+    } else if (meets(p.requireApprovalForAdvisorySeverity)) {
+      result = escalate(
+        result,
+        "require_approval",
+        `Known ${worstAdvisory} vulnerability advisory at or above the team approval threshold (${p.requireApprovalForAdvisorySeverity}).`,
+      );
+    }
+  }
+
   return result;
 }
 
@@ -646,6 +687,7 @@ export const POLICY_PRESETS: Record<string, PolicyPresetDefinition> = {
         allowKnownPackages: [],
         blockPackages: [],
         codeAudit: "flagged",
+        requireApprovalForAdvisorySeverity: "high",
       },
       aiCache: { enabled: true, scope: "project", ttlHours: 24, exclude: [] },
     },

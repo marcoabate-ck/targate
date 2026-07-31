@@ -147,9 +147,19 @@ export interface NameSimilarity {
   distance: number;
 }
 
+/**
+ * Severity of a known-vulnerability advisory, ordered low → critical. `unknown`
+ * means OSV reported the advisory but no gradable severity (no GHSA label, no
+ * parseable CVSS) — it is still surfaced and scored, but cannot satisfy a
+ * numeric policy threshold.
+ */
+export type AdvisorySeverity = "low" | "moderate" | "high" | "critical" | "unknown";
+
 export interface MaliciousRecord {
   id: string;
   summary?: string;
+  /** Set for vulnerability advisories; left unset for malicious-package records. */
+  severity?: AdvisorySeverity;
 }
 
 export interface NativeSurface {

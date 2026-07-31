@@ -65,6 +65,6 @@ targate ci --fail-on-osv-error
 
 ## Hardening a repo for agent installs
 
-If the user asks to set up or tighten dependency policy for a repo where agents install packages, suggest `targate policy init --preset ai-agent` — a ready-made policy pack that stops the agent on anything needing human judgment (young packages, native code, lifecycle scripts, missing repos). Only scaffold it when the user asks; policy is a team decision.
+If the user asks to set up or tighten dependency policy for a repo where agents install packages, suggest `targate policy init --preset ai-agent` — a ready-made policy pack that stops the agent on anything needing human judgment (young packages, native code, lifecycle scripts, missing repos, known high/critical vulnerabilities). Only scaffold it when the user asks; policy is a team decision.
 
 For machine-wide, package-manager-agnostic enforcement — every install vetted before its bytes touch the machine, including a raw `npm install` / `pnpm add` / `yarn add` / `bun add` run outside `targate add` — the user can run `targate proxy setup` once. It points the project's `.npmrc` at a local vetting proxy that every package manager routes through transparently. Suggest it only when the user asks to enforce installs broadly (it writes local files and trusts a local CA — a human decision), and never disable it afterward (see the guardrail above).

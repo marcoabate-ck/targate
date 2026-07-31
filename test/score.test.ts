@@ -61,13 +61,35 @@ describe("computeSecurityScore — deductions", () => {
   const categoryScore = (signals: Signals, name: string) =>
     computeSecurityScore(signals).categories.find((c) => c.name === name)!;
 
-  it("deducts per advisory and notes them", () => {
+  it("deducts per advisory (unknown severity = the historical flat weight) and notes them", () => {
     const c = categoryScore(
       makeSignals({ advisories: [{ id: "GHSA-1" }, { id: "GHSA-2" }] }),
       "vulnerabilities",
     );
-    expect(c.score).toBe(c.max - 16);
-    expect(c.notes).toEqual(["advisory: GHSA-1", "advisory: GHSA-2"]);
+    expect(c.score).toBe(c.max - 16); // 8 + 8 (unknown)
+    expect(c.notes).toEqual(["advisory GHSA-1 (unknown)", "advisory GHSA-2 (unknown)"]);
+  });
+
+  it("weights advisory deductions by severity", () => {
+    const critical = categoryScore(
+      makeSignals({ advisories: [{ id: "GHSA-c", severity: "critical" }] }),
+      "vulnerabilities",
+    );
+    expect(critical.score).toBe(critical.max - 20);
+
+    const low = categoryScore(
+      makeSignals({ advisories: [{ id: "GHSA-l", severity: "low" }] }),
+      "vulnerabilities",
+    );
+    expect(low.score).toBe(low.max - 3);
+  });
+
+  it("floors the vulnerabilities category at 0 when severe advisories exceed the max", () => {
+    const c = categoryScore(
+      makeSignals({ advisories: [{ id: "a", severity: "critical" }, { id: "b", severity: "high" }] }),
+      "vulnerabilities",
+    );
+    expect(c.score).toBe(0); // 20 + 12 > 25 → floored, never negative
   });
 
   it("notes an unavailable OSV lookup instead of silently passing", () => {

@@ -15,6 +15,18 @@ bumped by hand.
 
 ### Added
 
+- **Known-vulnerability severity in the trust process** — OSV advisories now
+  carry a severity (`low`/`moderate`/`high`/`critical`/`unknown`, from the GHSA
+  label or a CVSS score). The security score deducts **proportionally** to
+  severity instead of a flat amount, and the verdict reason names the worst
+  severity. Two opt-in policy knobs gate on it —
+  `dependencyPolicy.requireApprovalForAdvisorySeverity` and
+  `blockForAdvisorySeverity` (block wins if both match) — and the `ai-agent`
+  preset now stops the agent on a **high**+ known vulnerability. Baseline
+  behavior is unchanged (advisories still `allow_with_warnings` unless a policy
+  gates them). `--json` gains an optional `severity` on each advisory
+  (backward-compatible).
+
 - **Registry proxy** — `targate proxy` (`setup` / `teardown` / `start` / `stop` /
   `status` / `ensure` / `cert` / `approvals` / `approve` / `deny`): a transparent,
   package-manager-agnostic enforcement point. Point your registry at a local
