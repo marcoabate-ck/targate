@@ -376,9 +376,17 @@ describe("CA trust commands", () => {
     expect(typeof cmd.sudo).toBe("boolean");
   });
 
-  it("builds an uninstall command that targets the CA by common name", () => {
+  it("builds an uninstall command that targets the CA for removal", () => {
     const cmd = caUninstallCommand("/tmp/ca.pem");
-    expect(cmd.manual).toContain(CA_COMMON_NAME);
+    if (process.platform === "linux") {
+      // Debian/Ubuntu removes the installed cert file, then refreshes the store —
+      // there is no "delete by common name", so the filename is what identifies it.
+      expect(cmd.manual).toContain("targate-local-ca.crt");
+      expect(cmd.manual).toContain("update-ca-certificates");
+    } else {
+      // macOS (security) and Windows (certutil) delete the cert by its common name.
+      expect(cmd.manual).toContain(CA_COMMON_NAME);
+    }
   });
 });
 
