@@ -15,6 +15,20 @@ bumped by hand.
 
 ### Added
 
+- **Registry proxy** — `targate proxy` (`setup` / `teardown` / `start` / `stop` /
+  `status` / `ensure` / `cert` / `approvals` / `approve` / `deny`): a transparent,
+  package-manager-agnostic enforcement point. Point your registry at a local
+  HTTPS proxy and every install is vetted with the full deterministic pipeline
+  before a tarball's bytes reach the machine — a raw `npm install`, a script, or
+  a CI job that never calls `targate add` is still gated, with no wrapper and no
+  lifecycle-script dependency. npm, pnpm, yarn, and bun all route through it. It
+  analyzes the exact bytes it will serve (integrity-keyed verdict cache: analyzed
+  once, ever), auto-migrates private/scoped registries from `.npmrc` and relays
+  the credential upstream, holds `require_approval` packages for an out-of-band
+  `targate proxy approve|deny` over a loopback-only token-gated control API, and
+  automates local-CA trust (`cert install`). Bind is loopback-only by default. See
+  [docs/proxy.md](docs/proxy.md). Requires `openssl` for certificate generation.
+
 - **AI source-code audit** — opt-in `--audit-code` (on `add` / `approve` /
   `install`), a dedicated `targate audit <pkg>`, and a policy `codeAudit` scope
   (`off` / `flagged` / `direct` / `all`). The AI reads a bounded, risky subset of

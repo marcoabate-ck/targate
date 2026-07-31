@@ -23,10 +23,12 @@ off).
 > registries are auto-migrated from your `.npmrc` on `targate proxy setup`, with
 > the credential relayed upstream (see [private scopes](#private-scopes)). It runs
 > as a **local, single-user** daemon — a network-shared proxy is out of scope (a
-> non-loopback bind is refused unless you opt in). The full design and trade-offs
-> are in [docs/design/proxy.md](design/proxy.md).
+> non-loopback bind is refused unless you opt in).
 
 ## Quick start
+
+> **Requires `openssl`** on `PATH` — `setup` uses it to generate the local CA and
+> leaf certificate.
 
 ```bash
 targate proxy setup          # generate a local CA, start the proxy, configure .npmrc
@@ -160,9 +162,6 @@ migrate cleanly. `teardown` removes the uplinks file along with the rest.
   lockfile produced behind the proxy. `targate proxy setup` warns when it detects
   one of these clients, and `targate doctor` flags it while the proxy routes the
   project.
-
-See [docs/design/proxy.md](design/proxy.md) for the reasoning behind each of
-these and the plan to close them.
 
 ## Verifying the proxy
 
