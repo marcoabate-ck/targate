@@ -4,24 +4,25 @@
 targate proxy setup
 ```
 
-The proxy is a transparent enforcement point: instead of remembering to run
-`targate add`, you point your package manager's registry at a local proxy, and
-every install is vetted before a tarball's bytes ever reach your machine. It
-closes the gap left by CLI-only gating — a raw `npm install`, a script, or a CI
-job that never calls `targate` is still checked — without a shell wrapper and
-without depending on lifecycle scripts (so `--ignore-scripts` cannot switch it
-off).
+The proxy is an enforcement point that needs no per-install command: you route
+your package manager through a local proxy, and every install is vetted before a
+tarball's bytes ever reach your machine. It closes the gap left by CLI-only
+gating — a raw `npm install`, a script, or a CI job that never calls `targate` is
+still checked — without a shell wrapper and without depending on lifecycle
+scripts (so `--ignore-scripts` cannot switch it off).
 
-> **Works with npm, pnpm, yarn, and bun** (all verified to route through the
-> proxy and be blocked on a bad package). Only npm rewrites a tarball's host to
-> the configured registry itself, so the proxy leaves npm's `dist.tarball`
-> canonical (keeping the lockfile portable) and rewrites it to the proxy for the
-> other managers — transparently, by detecting the client. Each manager's own
-> content cache still sits in front of the proxy (see [Limitations](#limitations)).
+> **Supported: npm, pnpm, and yarn-berry (Yarn 2+).** With these three the
+> lockfile is **byte-for-byte identical** whether or not the proxy is in play
+> (npm records the canonical upstream URL, pnpm the integrity, yarn-berry the
+> checksum — none records the proxy). **yarn-classic (v1) and bun are refused**
+> by `setup`: they bake the absolute fetched URL into the lockfile, which would
+> modify it — unacceptable. Use npm/pnpm/yarn-berry for proxy-gated installs.
 
-> **Scope.** Vets **public** packages out of the box; **private/scoped**
-> registries are auto-migrated from your `.npmrc` on `targate proxy setup`, with
-> the credential relayed upstream (see [private scopes](#private-scopes)). It runs
+> **No project files are touched.** Routing is via **environment variables**, not
+> your committed `.npmrc` — `setup` writes a machine-local, sourceable
+> `~/.targate/proxy.env`. Public packages are gated out of the box. Private/scoped
+> registries are captured from your `.npmrc` (credential relayed upstream) and
+> gated via `targate proxy exec` (see [private scopes](#private-scopes)). It runs
 > as a **local, single-user** daemon — a network-shared proxy is out of scope (a
 > non-loopback bind is refused unless you opt in).
 
@@ -31,36 +32,46 @@ off).
 > leaf certificate.
 
 ```bash
-targate proxy setup          # generate a local CA, start the proxy, configure .npmrc
-export NODE_EXTRA_CA_CERTS="$(targate proxy cert path)"   # trust the CA for this shell
-npm install                  # every package is now vetted before it lands
-targate proxy teardown       # stop the proxy and undo the .npmrc + CA changes
+targate proxy setup                 # generate a local CA, start the proxy, write ~/.targate/proxy.env
+source ~/.targate/proxy.env         # route this shell's installs through the proxy (+ trust the CA)
+npm install                         # every public package is now vetted before it lands
+targate proxy teardown              # stop the proxy and remove the env file, CA, and uplinks
 ```
 
-`setup` writes a small managed block into the project `.npmrc`:
+`setup` **never edits your project `.npmrc`** (it is a committed file). Instead it
+writes a machine-local `~/.targate/proxy.env` you source:
 
-```ini
-# >>> targate proxy (managed — `targate proxy teardown` removes this)
-registry=https://127.0.0.1:4873
-replace-registry-host=npmjs
-# <<< targate proxy
+```sh
+export npm_config_registry="https://127.0.0.1:4873"      # npm + pnpm
+export NPM_CONFIG_REGISTRY="https://127.0.0.1:4873"      # npm
+export YARN_NPM_REGISTRY_SERVER="https://127.0.0.1:4873" # yarn-berry
+export NODE_EXTRA_CA_CERTS="/…/.targate/proxy-tls/ca.pem"
 ```
 
-This `.npmrc` points at a machine-local proxy — **add it to `.gitignore`; do not
-commit it.** `teardown` removes the block again.
+Add that `source` line to your shell profile to make it persistent. Nothing is
+written to the repo, and the lockfile is unchanged.
+
+For a **private scope** pinned in a committed `.npmrc` (npm/pnpm), a sourced env
+cannot re-route it (shell cannot export a `@scope:registry` variable) — run those
+installs through the proxy with:
+
+```bash
+targate proxy exec -- npm install    # sets the per-scope override for this one command
+```
 
 ## How it works
 
-- **The tarball fetch is routed per client.** For **npm**, the packument passes
-  through unmodified: npm's `replace-registry-host=npmjs` (the default on npm ≥ 9)
-  routes the tarball through the proxy while the lockfile keeps canonical
-  `registry.npmjs.org` URLs, so a lockfile authored behind the proxy stays
-  portable for teammates and CI that do not run it (do **not** set
-  `replace-registry-host=never` — that bypasses the proxy). **pnpm, yarn, and
-  bun** don't rewrite the host themselves, so the proxy rewrites `dist.tarball`
-  to a **clean** proxy URL (no query string) for those clients (detected by
-  user-agent) — their tarball still comes back for vetting, and the real upstream
-  URL is resolved from the packument server-side (not baked into the URL).
+- **Routing is via the environment, per client.** Package managers are pointed at
+  the proxy through env vars (`npm_config_registry` for npm/pnpm,
+  `YARN_NPM_REGISTRY_SERVER` for yarn-berry) — never the project `.npmrc`. For
+  **npm**, the packument passes through unmodified: `replace-registry-host=npmjs`
+  (the default on npm ≥ 9) routes the tarball through the proxy while the lockfile
+  keeps canonical `registry.npmjs.org` URLs (do **not** set
+  `replace-registry-host=never` — that bypasses the proxy). **pnpm and yarn-berry**
+  don't rewrite the host themselves, so the proxy rewrites `dist.tarball` to a
+  **clean** proxy URL (no query string) — the tarball still comes back for
+  vetting, the real upstream URL is resolved server-side, and the lockfile they
+  write is byte-identical to a no-proxy run.
 - **Every tarball is vetted before it is served.** The proxy fetches the exact
   bytes it is about to serve, runs the same deterministic analysis as
   `targate add` (lifecycle scripts, tarball contents, native surface, OSV /
@@ -79,8 +90,9 @@ commit it.** `teardown` removes the block again.
 
 | Command | Purpose |
 |---|---|
-| `targate proxy setup` | Generate a local CA + certificate, start the HTTPS daemon, and configure the project `.npmrc`. |
-| `targate proxy teardown` | Stop the daemon, strip the `.npmrc` block, and remove the local TLS material. |
+| `targate proxy setup` | Generate a local CA + certificate, start the HTTPS daemon, and write the sourceable `~/.targate/proxy.env` (no project files touched). Refuses yarn-classic/bun. |
+| `targate proxy teardown` | Stop the daemon and remove the env file, TLS material, and uplinks. |
+| `targate proxy exec -- <cmd>` | Run `<cmd>` with the full proxy environment, including per-scope overrides a sourced file cannot express — the way to gate a private scope on npm/pnpm. Requires `--`. |
 | `targate proxy start` \| `stop` \| `status` | Manage the daemon directly. `--foreground` runs it in the current process (CI / debugging). |
 | `targate proxy ensure` | Start the daemon only if it is not already running. |
 | `targate proxy cert path` \| `export` | Print the CA path, or a ready-to-source `export NODE_EXTRA_CA_CERTS=…` line. |
@@ -113,28 +125,38 @@ locally generated CA. Trust it:
 
 ## Private scopes
 
-`targate proxy setup` reads your existing `.npmrc`, and for every private
-per-scope registry (`@acme:registry=https://npm.acme.example`) it:
+`targate proxy setup` reads your existing `.npmrc` and, for every private
+per-scope registry (`@acme:registry=https://npm.acme.example`), writes an
+**uplink** to `~/.targate/proxy-uplinks.json` capturing the scope's real upstream
+**and its credential** (the same token already in your `.npmrc`), `0600`. It does
+**not** touch your `.npmrc`.
 
-- writes an **uplink** to `~/.targate/proxy-uplinks.json` capturing the scope's
-  real upstream **and its credential** (the same token already in your `.npmrc`),
-  written `0600`;
-- rewrites that scope in the managed `.npmrc` block to point at the proxy, so
-  `@acme/*` now flows through it.
+Routing a private scope through the proxy needs an override that outranks the
+scope pinned in your committed `.npmrc`. On **yarn-berry** the sourced env handles
+it. On **npm/pnpm** it cannot — the override variable `npm_config_@scope:registry`
+is not a valid shell identifier, so it cannot live in a sourced file. Run those
+installs through:
+
+```bash
+targate proxy exec -- npm install       # or: pnpm install / pnpm add @acme/thing
+```
+
+`exec` spawns your command with the per-scope override applied (a child-process
+env may hold that key even though `export` cannot), so `@acme/*` flows through the
+proxy for that command only — no project or lockfile changes.
 
 At request time the proxy routes `@acme/*` to its real upstream and authenticates
 with the captured credential (it never stores anything the client did not already
-have; if no credential was captured it relays the client's header pass-through).
-It rewrites the private packument's `dist.tarball` so the tarball comes back
-through the proxy for vetting, and runs the same analysis as for public packages
-— including the same-version-mutation ledger and content scanning, the byte-level
-defenses that matter for a compromised internal package (external databases
-cannot know private names). A scoped package with **no** uplink resolves as public
-and gets the full public analysis, so a dependency-confusion attempt surfaces
+have; if no credential was captured it relays the client's header pass-through),
+rewrites the private packument's `dist.tarball` so the tarball comes back for
+vetting, and runs the same analysis as for public packages — the
+same-version-mutation ledger and content scanning that matter for a compromised
+internal package (external databases cannot know private names). A scoped package
+with **no** uplink resolves as public, so a dependency-confusion attempt surfaces
 rather than sliding through.
 
 Registries whose scopes share one token (one Artifactory serving several scopes)
-migrate cleanly. `teardown` removes the uplinks file along with the rest.
+are captured cleanly. `teardown` removes the uplinks file along with the rest.
 
 ## Limitations
 
@@ -152,16 +174,16 @@ migrate cleanly. `teardown` removes the uplinks file along with the rest.
   cached, so a later install of the same bytes does not prompt again.
 - **Per-package verdicts.** The proxy sees one tarball at a time and has no
   whole-tree view; use `targate install --deep` for a tree-aware, holistic gate.
-- **yarn-classic and bun lockfiles authored behind the proxy are not portable.**
-  npm, pnpm, and yarn-berry omit or canonicalize the tarball URL, so a lockfile
-  generated behind the proxy still works for teammates/CI without it. **yarn v1
-  and bun bake the absolute fetched URL** (`http://127.0.0.1:<port>/…`) into their
-  lockfiles, so that lockfile only resolves while the proxy is up on that port.
-  Installs work for all four; only lockfile *authoring* is affected — author and
-  commit lockfiles with npm/pnpm/yarn-berry, or don't commit a yarn-v1/bun
-  lockfile produced behind the proxy. `targate proxy setup` warns when it detects
-  one of these clients, and `targate doctor` flags it while the proxy routes the
-  project.
+- **yarn-classic (v1) and bun are not supported.** They bake the absolute fetched
+  URL into their lockfiles, so routing them through the proxy would modify the
+  lockfile — so `targate proxy setup` **refuses** them rather than poison it. Use
+  npm, pnpm, or yarn-berry, whose lockfiles are byte-identical with or without the
+  proxy.
+- **Private scopes on npm/pnpm need `targate proxy exec`.** A sourced env cannot
+  re-route a scope pinned in a committed `.npmrc` (the `@scope:registry` env var
+  is not a valid shell identifier), so public installs are transparent but private
+  ones go through `exec`. yarn-berry needs no exec (its per-scope env var is
+  identifier-safe).
 
 ## Verifying the proxy
 

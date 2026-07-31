@@ -269,6 +269,37 @@ describe("proxy bind guard", () => {
   });
 });
 
+describe("proxy setup — unsupported clients", () => {
+  let dir: string;
+  let cwd: string;
+  beforeEach(() => {
+    cwd = process.cwd();
+    dir = mkdtempSync(path.join(tmpdir(), "targate-setup-"));
+    process.chdir(dir);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.chdir(cwd);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("refuses bun before touching anything (would poison bun.lock)", async () => {
+    writeFileSync(path.join(dir, "bun.lock"), "");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = await proxyCommand(["setup"], { port: "4990" } as never);
+    expect(code).toBe(1);
+    expect(err.mock.calls.flat().join(" ")).toMatch(/does not support bun/);
+  });
+
+  it("refuses yarn-classic (bare yarn.lock)", async () => {
+    writeFileSync(path.join(dir, "yarn.lock"), "");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = await proxyCommand(["setup"], { port: "4990" } as never);
+    expect(code).toBe(1);
+    expect(err.mock.calls.flat().join(" ")).toMatch(/does not support yarn-classic/);
+  });
+});
+
 describe("singleFlight", () => {
   it("runs fn once for concurrent callers on the same key and shares the result", async () => {
     const map = new Map<string, Promise<number>>();

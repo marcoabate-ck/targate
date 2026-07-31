@@ -348,13 +348,16 @@ const commands: CommandDefinition[] = [
   },
   {
     name: "proxy",
-    usage: "targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny>",
+    usage: "targate proxy <start|stop|status|ensure|setup|teardown|exec|cert|approvals|approve|deny>",
     summary: "Run a registry proxy that vets every package before install.",
     options: [O.port, O.upstream, O.host, O.foreground, O.tls, O.dryRun],
-    examples: ["targate proxy setup", "targate proxy status", "targate proxy approve lodash@4.17.21"],
+    examples: ["targate proxy setup", "targate proxy exec -- npm install", "targate proxy approve lodash@4.17.21"],
     handler: async ({ values: v, positionals }) => {
-      if (positionals.length < 1 || positionals.length > 2) {
-        console.error(red("Usage: targate proxy <start|stop|status|ensure|setup|teardown|cert|approvals|approve|deny> [--port <n>] [--upstream <url>] [--host <addr>] [--tls]"));
+      // Most subcommands take at most `<subcommand> [action]`; `exec` is variadic
+      // (`exec -- <command> [args…]`), so it is exempt from the 2-positional cap.
+      const variadic = positionals[0] === "exec";
+      if (positionals.length < 1 || (!variadic && positionals.length > 2)) {
+        console.error(red("Usage: targate proxy <start|stop|status|ensure|setup|teardown|exec|cert|approvals|approve|deny> [--port <n>] [--upstream <url>] [--host <addr>] [--tls]"));
         return 1;
       }
       return proxyCommand(positionals, {
