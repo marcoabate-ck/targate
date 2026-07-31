@@ -50,12 +50,20 @@ describe("isHardBlock", () => {
     expect(evaluateRules(signals).decision).toBe("allow_with_warnings");
   });
 
-  it("names the worst advisory severity in the reason (baseline stays allow_with_warnings)", () => {
+  it("names the worst advisory severity in the reason (high stays allow_with_warnings)", () => {
     const a = evaluateRules(
       makeSignals({ advisories: [{ id: "GHSA-1", severity: "moderate" }, { id: "GHSA-2", severity: "high" }] }),
     );
     expect(a.decision).toBe("allow_with_warnings");
     expect(a.reasons.some((r) => r.includes("highest: HIGH") && r.includes("GHSA-2"))).toBe(true);
+  });
+
+  it("stops a known CRITICAL vulnerability for human review by default (require_approval, not block)", () => {
+    const a = evaluateRules(makeSignals({ advisories: [{ id: "GHSA-x", severity: "critical" }] }));
+    expect(a.decision).toBe("require_approval");
+    expect(a.summary).toContain("CRITICAL");
+    // it is NOT a hard block — a CVE is often unavoidable; block stays a policy choice.
+    expect(isHardBlock(makeSignals({ advisories: [{ id: "GHSA-x", severity: "critical" }] }))).toBe(false);
   });
 
   it("env+network heuristic (esbuild-style) is NOT hard — it is soft/overridable", () => {

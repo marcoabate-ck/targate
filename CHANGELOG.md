@@ -19,13 +19,16 @@ bumped by hand.
   carry a severity (`low`/`moderate`/`high`/`critical`/`unknown`, from the GHSA
   label or a CVSS score). The security score deducts **proportionally** to
   severity instead of a flat amount, and the verdict reason names the worst
-  severity. Two opt-in policy knobs gate on it —
-  `dependencyPolicy.requireApprovalForAdvisorySeverity` and
-  `blockForAdvisorySeverity` (block wins if both match) — and the `ai-agent`
-  preset now stops the agent on a **high**+ known vulnerability. Baseline
-  behavior is unchanged (advisories still `allow_with_warnings` unless a policy
-  gates them). `--json` gains an optional `severity` on each advisory
-  (backward-compatible). The report also names the worst advisory severity
+  severity. By default a known **critical** vulnerability now stops for human
+  review (`require_approval`) instead of auto-installing with a warning — it is
+  not a hard block, since a CVE is often unavoidable, so block stays a policy
+  choice. Lower severities still `allow_with_warnings` by default. Two opt-in
+  policy knobs gate the rest — `dependencyPolicy.requireApprovalForAdvisorySeverity`
+  and `blockForAdvisorySeverity` (block wins if both match) — and the `ai-agent`
+  preset stops the agent on a **high**+ known vulnerability. When a team gates
+  advisories, an advisory OSV could not grade (`unknown` severity) fails safe to
+  `require_approval` rather than slipping through. `--json` gains an optional
+  `severity` on each advisory (backward-compatible). The report also names the worst advisory severity
   inline, and the "static findings" list now shows a count-reconciled preview
   (`… and N more`) that points to `targate explain --last`, which lists every
   flagged file and why; a capped count renders as `N+`.

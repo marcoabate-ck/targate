@@ -279,6 +279,22 @@ export function evaluateRules(signals: Signals): RiskAssessment {
   }
 
   if (reasons.length > 0) {
+    // Default posture: a KNOWN CRITICAL vulnerability is not silently
+    // auto-installed. It stops for a human (require_approval) — not a hard block
+    // (a CVE is often unavoidable or irrelevant, so block stays a policy choice).
+    // Team policy can still raise this to block, or gate lower severities.
+    const criticalVuln = worstAdvisorySeverity(signals.advisories) === "critical";
+    if (criticalVuln) {
+      return {
+        risk: "high",
+        decision: "require_approval",
+        summary: `${signals.package} has a known CRITICAL vulnerability advisory — review before installing.`,
+        reasons,
+        recommendedAction:
+          "A human should confirm the critical advisory is acceptable (or pin a fixed version) before installing.",
+        source: "rules",
+      };
+    }
     return {
       risk: "medium",
       decision: "allow_with_warnings",

@@ -569,21 +569,34 @@ export function applyPolicy(
     );
   }
 
-  const worstAdvisory = worstAdvisorySeverity(signals.advisories);
-  if (worstAdvisory && worstAdvisory !== "unknown") {
+  const advisoryThresholdSet =
+    p.blockForAdvisorySeverity !== undefined || p.requireApprovalForAdvisorySeverity !== undefined;
+  if (advisoryThresholdSet && signals.advisories.length > 0) {
+    const worst = worstAdvisorySeverity(signals.advisories);
+    const known = worst && worst !== "unknown" ? worst : null;
     const meets = (threshold?: AdvisorySeverity): boolean =>
-      threshold !== undefined && ADVISORY_SEVERITY_RANK[worstAdvisory] >= ADVISORY_SEVERITY_RANK[threshold];
+      threshold !== undefined && known !== null && ADVISORY_SEVERITY_RANK[known] >= ADVISORY_SEVERITY_RANK[threshold];
+    // An advisory OSV could not grade (no GHSA label, no numeric CVSS) must not
+    // silently pass a team that has opted into gating vulnerabilities — fail safe
+    // to require_approval so a human looks, rather than fail open.
+    const hasUngraded = signals.advisories.some((a) => (a.severity ?? "unknown") === "unknown");
     if (meets(p.blockForAdvisorySeverity)) {
       result = escalate(
         result,
         "block",
-        `Known ${worstAdvisory} vulnerability advisory at or above the team block threshold (${p.blockForAdvisorySeverity}).`,
+        `Known ${known} vulnerability advisory at or above the team block threshold (${p.blockForAdvisorySeverity}).`,
       );
     } else if (meets(p.requireApprovalForAdvisorySeverity)) {
       result = escalate(
         result,
         "require_approval",
-        `Known ${worstAdvisory} vulnerability advisory at or above the team approval threshold (${p.requireApprovalForAdvisorySeverity}).`,
+        `Known ${known} vulnerability advisory at or above the team approval threshold (${p.requireApprovalForAdvisorySeverity}).`,
+      );
+    } else if (hasUngraded) {
+      result = escalate(
+        result,
+        "require_approval",
+        "Vulnerability advisory with ungraded severity — the team gates advisories, so it needs review.",
       );
     }
   }

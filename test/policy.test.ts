@@ -216,19 +216,31 @@ describe("applyPolicy", () => {
     expect(result.decision).toBe("block");
   });
 
-  it("does NOT escalate below the threshold, nor for unknown severity", () => {
+  it("does NOT escalate a known severity below the threshold", () => {
     const below = applyPolicy(
       makeAssessment({ decision: "allow_with_warnings", risk: "medium" }),
       makeSignals({ advisories: [{ id: "GHSA-l", severity: "low" }] }),
       policy({ requireApprovalForAdvisorySeverity: "high" }),
     );
     expect(below.decision).toBe("allow_with_warnings");
-    const unknown = applyPolicy(
+  });
+
+  it("fails safe: an ungraded (unknown) advisory needs approval when a threshold is set", () => {
+    const gated = applyPolicy(
       makeAssessment({ decision: "allow_with_warnings", risk: "medium" }),
       makeSignals({ advisories: [{ id: "GHSA-u" }] }),
-      policy({ requireApprovalForAdvisorySeverity: "low" }),
+      policy({ requireApprovalForAdvisorySeverity: "critical" }),
     );
-    expect(unknown.decision).toBe("allow_with_warnings");
+    expect(gated.decision).toBe("require_approval");
+    expect(gated.reasons.at(-1)).toContain("ungraded");
+
+    // …but with NO advisory threshold set, an ungraded advisory does not escalate.
+    const ungated = applyPolicy(
+      makeAssessment({ decision: "allow_with_warnings", risk: "medium" }),
+      makeSignals({ advisories: [{ id: "GHSA-u" }] }),
+      policy({}),
+    );
+    expect(ungated.decision).toBe("allow_with_warnings");
   });
 
   it("escalates install-time lifecycle scripts when configured", () => {
