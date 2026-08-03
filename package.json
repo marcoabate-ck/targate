@@ -45,16 +45,16 @@
     "prepublishOnly": "pnpm run typecheck && pnpm test && pnpm run build && pnpm run pack:check"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.110.0",
-    "openai": "^6.45.0",
+    "@anthropic-ai/sdk": "^0.115.0",
+    "openai": "^7.2.0",
     "tar": "^7.5.22",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@types/node": "^20.19.0",
+    "@types/node": "^26.1.2",
     "@vitest/coverage-v8": "4.1.10",
-    "tsx": "^4.23.0",
-    "typescript": "^6.0.3",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
   "keywords": [
