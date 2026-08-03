@@ -1,4 +1,14 @@
 version: 2
+
+# Version-update PRs are disabled on purpose: `open-pull-requests-limit: 0`
+# stops Dependabot from opening any routine bump PR, while keeping this config
+# (grouping, schedule, commit prefixes) documented so it can be re-enabled by
+# raising the limit. Visibility into what could be updated comes from two
+# non-PR channels instead:
+#   - Dependabot ALERTS (repo Settings → Code security) surface *vulnerable*
+#     dependencies in the Security tab, with no PR. Keep "Dependabot security
+#     updates" OFF so those alerts stay suggestions, not PRs.
+#   - `pnpm outdated` (run on demand) lists non-security version drift.
 updates:
   # GitHub Actions. All workflow `uses:` are pinned to a commit SHA (with the
   # version in a trailing comment); Dependabot bumps the SHA + comment together.
@@ -7,6 +17,7 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0
     groups:
       github-actions:
         patterns: ["*"]
@@ -19,6 +30,7 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0
     groups:
       npm:
         patterns: ["*"]
@@ -30,6 +42,7 @@ updates:
     directory: "/website"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0
     groups:
       npm:
         patterns: ["*"]
