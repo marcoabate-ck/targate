@@ -45,17 +45,17 @@
     "prepublishOnly": "pnpm run typecheck && pnpm test && pnpm run build && pnpm run pack:check"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.110.0",
-    "openai": "^6.45.0",
+    "@anthropic-ai/sdk": "^0.120.0",
+    "openai": "^7.5.0",
     "tar": "^7.5.22",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@types/node": "^20.19.0",
-    "@vitest/coverage-v8": "4.1.10",
-    "tsx": "^4.23.0",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "4.1.11",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   },
   "keywords": [
     "security",
